@@ -1,0 +1,22 @@
+{
+  "name": "femboyz-cloud-node",
+  "version": "2.0.0",
+  "description": "rewrite of https://github.com/misikovich/femboyz-cloud-server in Typescript",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:watch": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "meadowlarps, misikovich",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "tsx": "^4.22.0",
+    "typescript": "^6.0.3"
+  }
+}
