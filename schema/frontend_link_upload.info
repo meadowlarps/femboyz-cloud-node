@@ -1,0 +1,8 @@
+// this is what we receive from frontend
+
+// upload for link
+// target endpoint /api/v2/ulink
+{
+    "type": "link",                        // must be this string
+    "link": "aHR0cHM6Ly9nb21uby5jb20="     // "https://gomno.com" encoded in BASE64
+}

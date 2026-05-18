@@ -1,0 +1,21 @@
+// this is what we receive from frontend
+
+// upload for files
+// BASE64 encoded
+// is inside X-Meta header to finish upload in a single request
+// while carrying datastream in body
+// target endpoint /api/v2/udstream
+{
+    "type": "files",                            // must be this string
+    "is_public": false,                         // public means not published on home page for all people, but each upload can be accessed with a link
+    "meta": { "title": "", "desc": "" },
+    "files": [
+    {
+        "filename": "file.zip",                 // must be a valid filename
+        "hash": "lsdaghkjghwligmajkrballslkd"   
+    }, 
+    {
+        "filename": "gomno.zip",
+        "hash": "lsdaghkjghwligmajkrballslkd"
+    }]
+}

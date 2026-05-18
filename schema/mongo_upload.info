@@ -1,3 +1,5 @@
+// this is what we store in database
+
 {
     "_id": ObjectID,
     "id_pub": "17382ABCDE",
