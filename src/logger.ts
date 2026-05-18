@@ -1,5 +1,10 @@
 import pino from "pino"
 
+export const errorFileLogger = pino(
+    { level: "error" },
+    pino.destination("./logs/errors.log")
+)
+
 const logger = pino({
     transport: {
         target: "pino-pretty",

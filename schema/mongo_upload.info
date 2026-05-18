@@ -1,0 +1,61 @@
+{
+    "_id": ObjectID,
+    "id_pub": "17382ABCDE",
+    "issuer": { "ip": "1.2.3.4", "user_agent": "...", "uuid": "..." },
+    "type": "files(file) | link | playlist | album",
+    "is_public": true,
+    "status": "ready",
+    "created_at": ISODate,
+    "ref": { "views": 0, "up": 0, "down": 0 },
+    "meta_text": { 
+        "title": "cool upload" | none, 
+        "desc": "this is a cool upload" | none 
+    },
+
+    // type-specific payload embedded below
+    // all type and mime definitions are computed in backend for safety
+    // distinction between files and other media types done automatically
+    // based on mime type, user preference is not a consideration
+    
+    // single file, treat as a special case of files with one element in the array
+    "files": [{
+        "filename": "file.png",
+        "size": 123456,                         // bytes
+        "mime": "image/png",
+        "hash": "sha256:abcdef1234567890...",   // lookup key for storage at the same time
+        "ref_dl": 0                             // download count for this file
+    }],
+
+    // multiple files diverse enough to not be treated as a single file upload, 
+    // but not enough to be a playlist or album.
+    // both single file and multiple files are treated as "files" type, 
+    // and the distinction is made based on the length of the files array
+    "files": [{
+        "filename": "file1.png",
+        "size": 123456,
+        "mime": "image/png",
+        "hash": "sha256:abcdef1234567890...",
+        "ref_dl": 0
+    }, {
+        "filename": "file2.mp4",
+        "size": 987654321,
+        "mime": "video/mp4",
+        "hash": "sha256:1234567890abcdef...",
+        "ref_dl": 0
+    }],
+
+    // link, separate from files since it doesn't have the same metadata 
+    // and is treated differently in the frontend
+    // ref "views" are treated as number of times the link has been clicked
+    // ref "up"/"down" are ignored or absent for links since they can't be voted on
+    "link": {
+        "redir": "https://example.com/some-content",
+    },
+
+    // playlist, treated as a collection of files with "audio/*" mime types and "playlist" type
+    // "ref_dl" for each file is treated as the number of times that audio file has been played
+    // or downloaded
+
+    // album, treated as a collection of files with "image/*" and/or "video/*" mime types and "album" type
+    // images and videos are displayed in same grid in frontend
+  }
