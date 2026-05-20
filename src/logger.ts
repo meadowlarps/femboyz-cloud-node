@@ -6,11 +6,12 @@ export const errorFileLogger = pino(
 )
 
 const logger = pino({
+    level: process.env.LOGLEVEL || "info",
     transport: {
         target: "pino-pretty",
         options: {
             colorize: true,
-            translateTime: "mm-dd HH:MM:ss.l",
+            translateTime: process.env.LOGLEVEL === "debug" ? "HH:MM-ss.l" : "mm-dd HH:MM-ss",
             ignore: "pid,hostname,module",
             messageFormat: "[{module}] {msg}"
         }

@@ -1,27 +1,20 @@
-import { MongoClient } from "mongodb"
+import { Db, MongoClient } from "mongodb"
 import { envs } from "./config.js"
 import { scope, errorFileLogger } from "./logger.js"
 import { shutdownUnexpectedly } from "./utils.js"
 
 const scopelog = scope("mongodb")
+let DB: Db
 
 async function run() {
-    scopelog.info("Starting up...")
     const uri = `${envs.MDB_URI}:${envs.MDB_PORT}`
-
     scopelog.info(`Connecting to ${uri}...`)
-    const client = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 5000
-    })
-
-    try {
-        const database = client.db(envs.MDB_NAME)
-        await database.command({ ping: 1 })
-        scopelog.info("Connected")
-    } finally {
-        scopelog.info("Closing...")
-        await client.close()
-    }
+    
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 })
+    await client.connect()
+    DB = client.db(envs.MDB_NAME)
+    
+    scopelog.info("Connected")
 }
 
 function dbErrorHandler(err: unknown) {
@@ -33,4 +26,23 @@ function dbErrorHandler(err: unknown) {
 
 export async function runDB() {
     return run().catch(dbErrorHandler)
+}
+
+export function closeDB() {
+    if (DB) {
+        DB.client.close().catch(dbErrorHandler)
+        scopelog.info("Database connection closed")
+    } else {
+        scopelog.warn("Database connection was not established, nothing to close")
+    }
+}
+
+export function getDB() {
+    if (!DB) {
+        const message = "Database not initialized"
+        scopelog.error(message)
+        errorFileLogger.error(message)
+        shutdownUnexpectedly()
+    }
+    return DB
 }

@@ -10,10 +10,11 @@ scopelog.info(`Loading config for ${env_type} environment`)
 dotenv.config({ path: `.env.${env_type}` })
 
 export const envs = {
-    CURR_ENV: process.env.CURR_ENV,
-    MDB_URI: process.env.MDB_URI,
-    MDB_PORT: process.env.MDB_PORT,
-    MDB_NAME: process.env.MDB_NAME
+    CURR_ENV:   process.env.CURR_ENV,
+    MDB_URI:    process.env.MDB_URI,
+    MDB_PORT:   Number(process.env.MDB_PORT),
+    MDB_NAME:   process.env.MDB_NAME,
+    PORT:       Number(process.env.WEBSRV_PORT)
 }
 
 for (const [key, value] of Object.entries(envs)) {

@@ -1,21 +1,28 @@
 // this is what we receive from frontend
 
 // upload for files
-// BASE64 encoded
 // is inside X-Meta header to finish upload in a single request
 // while carrying datastream in body
 // target endpoint /api/v2/udstream
-{
-    "type": "files",                            // must be this string
-    "is_public": false,                         // public means not published on home page for all people, but each upload can be accessed with a link
-    "meta": { "title": "", "desc": "" },
-    "files": [
-    {
-        "filename": "file.zip",                 // must be a valid filename
-        "hash": "lsdaghkjghwligmajkrballslkd"   
-    }, 
-    {
-        "filename": "gomno.zip",
-        "hash": "lsdaghkjghwligmajkrballslkd"
-    }]
+
+Content-Type: application/octet-stream
+
+X-Meta: "{
+    "type":         "files",                            // must be this string
+    "is_public":    false,                              // public means not published on home page for all people, but each upload can be accessed with a link
+    "meta":         { "title": "...", "desc": "..." },
+    "files": [ 
+        { "filename": "...zip", "sha256": "...", "bytes": 987654321 }, 
+        { "filename": "...wav", "sha256": "...", "bytes": 8923751 }]
+}"
+body: {
+    // continuous datastream of all files together
+    // gets separated later using "bytes" field
+    // verified using hashsum
+
+    // filebytes1+filebytes2+filebytes3
 }
+
+// short version
+X-Meta: { type: "files", "is_public": false, "meta": { "title": "...", "desc": "..." }, "files": [{ "filename": "...", "sha256": "...", "bytes": 8923751 }] }
+body: { // datastream }
