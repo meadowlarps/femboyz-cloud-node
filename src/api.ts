@@ -14,6 +14,7 @@ import { receiveUpload } from "./uploads.js"
 import type { IncomingMessage } from "http"
 import type { ContentTypeParserDoneFunction } from "fastify/types/content-type-parser.js"
 import { filesize } from "filesize"
+import { getStorageUsage } from "./storage.js"
 
 declare module "fastify" {
     interface FastifyRequest {
@@ -76,22 +77,22 @@ const udstreamVal: RouteShorthandOptions = {
         }
     },
     preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
-        const raw = request.headers["x-meta"] as string
+        // changed x-meta header from stringfied JSON to base64 encoded JSON 
+        // to avoid issues with special characters in headers and to allow larger metadata
+        const raw = Buffer.from(request.headers["x-meta"] as string, "base64").toString("utf-8")
 
         let parsed: unknown
         try {
             parsed = JSON.parse(raw)
         } catch {
             throw Object.assign(
-                new Error(`Invalid x-meta header, expected JSON: ${raw}`), 
-                {statusCode: 400})
+                new Error(`Invalid x-meta header, JSON parse failed: ${raw}`), {statusCode: 400})
         }
 
         const result = XMetaFilesSchema.safeParse(parsed)
         if (!result.success) {
             throw Object.assign(
-                new Error(`Invalid x-meta header, validation failed: ${JSON.stringify(result.error.issues)}`),
-                {statusCode: 400})
+                new Error(`Invalid x-meta header, validation failed: ${JSON.stringify(result.error.issues)}`), {statusCode: 400})
         }
         request.xmeta = result.data
     }
@@ -102,7 +103,7 @@ async function onRequestHook(request: FastifyRequest, reply: FastifyReply) {
 
 function errorHandler(err: FastifyError, request: FastifyRequest, reply: FastifyReply) {
     const status = err.statusCode ?? 500
-    scopelog.warn(`${status} — ${err.message}`)
+    status < 500 ? scopelog.warn(`${status} — ${err.message}`) : scopelog.error(`${status} — ${err.message}`)
     errorFileLogger.error({ err }, `${err.message} - "${status}" on "${request.method}" "${request.url}" from "${request.ip}"`)
 
     const clientSideStatusMessage =
@@ -171,6 +172,8 @@ async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
     const expectedBytes = meta.files.reduce((sum, f) => sum + f.bytes, 0)
     if (body.length !== expectedBytes)
         throw Object.assign(new Error(`Stream length mismatch: got ${body.length}, expected ${expectedBytes}`), { statusCode: 400 })
+    if (await getStorageUsage() + body.length > envs.STORAGE_LIMIT_BYTES)
+        throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
 
     const fileBuffers: Buffer[] = []
     let offset = 0

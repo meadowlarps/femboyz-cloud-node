@@ -1,5 +1,7 @@
 // this is what we receive from frontend
 
+// !!! UPDATE: X-Meta header sent in BASE64 to avoid encoding related issues in headers
+
 // upload for files
 // is inside X-Meta header to finish upload in a single request
 // while carrying datastream in body
@@ -26,3 +28,12 @@ body: {
 // short version
 X-Meta: { type: "files", "is_public": false, "meta": { "title": "...", "desc": "..." }, "files": [{ "filename": "...", "sha256": "...", "bytes": 8923751 }] }
 body: { // datastream }
+
+
+// how to send:     btoa(JSON.stringify(xmeta_raw))
+// how to receive:
+//                  JSON.parse(
+//                      Buffer.from(
+//                          request.headers["x-meta"] as string, 
+//                          "base64"
+//                      ).toString("utf-8"))
