@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+import type { Readable } from "node:stream"
 import Fastify, {
     type FastifyError,
     type FastifyInstance,
@@ -7,9 +9,17 @@ import Fastify, {
 import { errorFileLogger, scope } from "./logger.js"
 import { shutdownUnexpectedly } from "./utils.js"
 import { envs } from "./config.js"
-import { XMetaFilesSchema } from "./schema.js"
+import { XMetaFilesSchema, type XMetaFiles } from "./schema.js"
+import { receiveUpload } from "./uploads.js"
 import type { IncomingMessage } from "http"
 import type { ContentTypeParserDoneFunction } from "fastify/types/content-type-parser.js"
+import { filesize } from "filesize"
+
+declare module "fastify" {
+    interface FastifyRequest {
+        xmeta?: XMetaFiles
+    }
+}
 
 const scopelog = scope("api")
 const server: FastifyInstance = Fastify({ logger: false })
@@ -57,9 +67,10 @@ const udstreamVal: RouteShorthandOptions = {
     schema: {
         headers: {
             type: "object",
-            required: ["x-meta", "content-type"],
+            required: ["x-meta", "content-type", "content-length"],
             properties: {
                 "content-type": { type: "string", const: "application/octet-stream" },
+                "content-length": { type: "integer", minimum: envs.MIN_FILE_SIZE || 0 },
                 "x-meta": { type: "string" }
             }
         }
@@ -79,9 +90,10 @@ const udstreamVal: RouteShorthandOptions = {
         const result = XMetaFilesSchema.safeParse(parsed)
         if (!result.success) {
             throw Object.assign(
-                new Error(`Invalid x-meta header, validation failed: ${JSON.stringify(result.error.issues)}`), 
+                new Error(`Invalid x-meta header, validation failed: ${JSON.stringify(result.error.issues)}`),
                 {statusCode: 400})
         }
+        request.xmeta = result.data
     }
 }
 async function onRequestHook(request: FastifyRequest, reply: FastifyReply) {
@@ -93,18 +105,20 @@ function errorHandler(err: FastifyError, request: FastifyRequest, reply: Fastify
     scopelog.warn(`${status} — ${err.message}`)
     errorFileLogger.error({ err }, `${err.message} - "${status}" on "${request.method}" "${request.url}" from "${request.ip}"`)
 
-    const clientSideStatusMessage = 
+    const clientSideStatusMessage =
         status === 400 || status > 404 && status < 500 ? "Bad request"
         : status === 401 ? "Unauthorized"
         : status === 403 ? "Forbidden"
         : status === 404 ? "Not found"
+        : status === 507 ? "Storage limit exceeded"
         : "Internal server error"
 
-    const clientSideStatusCode = 
+    const clientSideStatusCode =
         status === 400 || status > 404 && status < 500 ? 400
         : status === 401 ? 401
         : status === 403 ? 403
         : status === 404 ? 404
+        : status === 507 ? 507
         : 500
 
     reply.status(clientSideStatusCode).send({ error: clientSideStatusMessage })
@@ -137,6 +151,39 @@ async function ulinkHandler(request: FastifyRequest, reply: FastifyReply) {
     reply.send({ message: "Ulink successful" })
 }
 
+async function readStream(stream: Readable): Promise<Buffer> {
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer))
+        let totalLength = 0
+        for (const buffer of chunks) {
+            totalLength += buffer.length
+        }
+    }
+    return Buffer.concat(chunks)
+}
+
 async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
-    reply.send({ message: "Udstream successful" })
+    const meta = request.xmeta!
+
+    const body = await readStream(request.body as Readable)
+
+    const expectedBytes = meta.files.reduce((sum, f) => sum + f.bytes, 0)
+    if (body.length !== expectedBytes)
+        throw Object.assign(new Error(`Stream length mismatch: got ${body.length}, expected ${expectedBytes}`), { statusCode: 400 })
+
+    const fileBuffers: Buffer[] = []
+    let offset = 0
+    for (const fileMeta of meta.files) {
+        const currentChunk = body.subarray(offset, offset + fileMeta.bytes)
+        const computedHash = createHash("sha256").update(currentChunk).digest("hex")
+        if (computedHash !== fileMeta.sha256)
+            throw Object.assign(new Error(`Hash mismatch for ${fileMeta.filename}: \nHASH COMPUTE: ${computedHash}\nHASH META:    ${fileMeta.sha256}`), { statusCode: 400 })
+        fileBuffers.push(currentChunk)
+        offset += fileMeta.bytes
+    }
+
+    await receiveUpload(meta, fileBuffers)
+    scopelog.info(`Received upload: Title: '${meta.meta.title}' (${meta.files.length} files, total ${filesize(body.length)}) - from ${request.ip}`)
+    reply.status(200).send({ message: "Upload successful" })
 }

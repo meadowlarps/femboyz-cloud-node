@@ -14,7 +14,15 @@ export const envs = {
     MDB_URI:    process.env.MDB_URI,
     MDB_PORT:   Number(process.env.MDB_PORT),
     MDB_NAME:   process.env.MDB_NAME,
-    PORT:       Number(process.env.WEBSRV_PORT)
+    PORT:       Number(process.env.WEBSRV_PORT),
+    MAX_FILE_SIZE:                      Number(process.env.MAX_FILE_SIZE),
+    MIN_FILE_SIZE:                      Number(process.env.MIN_FILE_SIZE),
+    MAX_FILE_COUNT_PER_UPLOAD:          Number(process.env.MAX_FILE_COUNT_PER_UPLOAD),
+    MAX_TITLE_LENGTH_PER_UPLOAD:        Number(process.env.MAX_TITLE_LENGTH_PER_UPLOAD),
+    MAX_DESC_LENGTH_PER_UPLOAD:         Number(process.env.MAX_DESC_LENGTH_PER_UPLOAD),
+    STORAGE_DIR:                        process.env.STORAGE_DIR,
+    STORAGE_LIMIT_BYTES:                Number(process.env.STORAGE_LIMIT_BYTES),
+    STORAGE_USAGE_WARNING_PERCENTAGE:   Number(process.env.STORAGE_USAGE_WARNING_PERCENTAGE)
 }
 
 for (const [key, value] of Object.entries(envs)) {
