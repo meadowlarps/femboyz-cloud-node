@@ -29,15 +29,21 @@ export async function initStorage() {
 }
 
 export async function writeFile(filename: string, data: Buffer): Promise<void> {
+    const filepath = path.join(storageDir, filename)
+    const alreadyExists = await fs.stat(filepath).catch(() => null)
+    if (alreadyExists) {
+        scopelog.debug(`Duplicate: (${filesize(data.length)}) ${filename}`)
+        return
+    }
     if (storageUsage + data.length > storageLimit) {
         const message = `Storage limit exceeded. Cannot write file '${filename}' of size ${filesize(data.length)}. Current usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`
         scopelog.error(message)
         errorFileLogger.error(message)
         throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
     }
-    const filepath = path.join(storageDir, filename)
     await fs.writeFile(filepath, data)
     storageUsage += data.length
+    scopelog.debug(`Wrote file: Size: ${filesize(data.length)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
     checkStorageUsageWarning()
 }
 
@@ -48,12 +54,18 @@ export async function readFile(filename: string): Promise<Buffer> {
 
 export async function deleteFile(filename: string): Promise<void> {
     const filepath = path.join(storageDir, filename)
-    storageUsage -= (await fs.stat(filepath)).size
+    const fsize = (await fs.stat(filepath)).size
     await fs.unlink(filepath)
+    storageUsage -= fsize
+    scopelog.debug(`Deleted file: Size: ${filesize(fsize)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
 }
 
-export async function getStorageUsage(): Promise<number> {
+export function getStorageUsage(): number {
     return storageUsage
+}
+
+export function isThereEnoughStorageFor(bytes: number): boolean {
+    return storageUsage + bytes <= storageLimit
 }
 
 async function calculateStorageUsage(): Promise<number> {

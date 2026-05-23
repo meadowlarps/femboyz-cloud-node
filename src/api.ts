@@ -14,7 +14,7 @@ import { receiveUpload } from "./uploads.js"
 import type { IncomingMessage } from "http"
 import type { ContentTypeParserDoneFunction } from "fastify/types/content-type-parser.js"
 import { filesize } from "filesize"
-import { getStorageUsage } from "./storage.js"
+import { getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 
 declare module "fastify" {
     interface FastifyRequest {
@@ -38,6 +38,7 @@ export async function startServer() {
     server.get("/ping", pongHandler)                                // Serve: Pong
     server.get("/", rootHandler)                                    // Serve: Home page route
     server.get("/:id", getUploadHandler)                            // Serve: Route to handle fetching an upload by its ID
+    server.get("/api/v2/maxfsize", askMaxFileUploadSizeHandler)     // Serve: Route to check how large file the server can accept
     server.post("/api/v2/ulink", ulinkVal, ulinkHandler)            // Receive: Route to handle receiving a new upload link
     server.post("/api/v2/udstream", udstreamVal, udstreamHandler)   // Receive: Route to handle receiving a new upload file stream
 
@@ -79,6 +80,9 @@ const udstreamVal: RouteShorthandOptions = {
     preHandler: async (request: FastifyRequest, reply: FastifyReply) => {
         // changed x-meta header from stringfied JSON to base64 encoded JSON 
         // to avoid issues with special characters in headers and to allow larger metadata
+        if (!isThereEnoughStorageFor(parseInt(request.headers["content-length"] as string)))
+            throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
+
         const raw = Buffer.from(request.headers["x-meta"] as string, "base64").toString("utf-8")
 
         let parsed: unknown
@@ -172,8 +176,6 @@ async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
     const expectedBytes = meta.files.reduce((sum, f) => sum + f.bytes, 0)
     if (body.length !== expectedBytes)
         throw Object.assign(new Error(`Stream length mismatch: got ${body.length}, expected ${expectedBytes}`), { statusCode: 400 })
-    if (await getStorageUsage() + body.length > envs.STORAGE_LIMIT_BYTES)
-        throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
 
     const fileBuffers: Buffer[] = []
     let offset = 0
@@ -186,7 +188,17 @@ async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
         offset += fileMeta.bytes
     }
 
-    await receiveUpload(meta, fileBuffers)
+    await receiveUpload(request, meta, fileBuffers)
     scopelog.info(`Received upload: Title: '${meta.meta.title}' (${meta.files.length} files, total ${filesize(body.length)}) - from ${request.ip}`)
     reply.status(200).send({ message: "Upload successful" })
+}
+
+// api endpoint to check if server is able to receive a file
+
+async function askMaxFileUploadSizeHandler(request: FastifyRequest, reply: FastifyReply) {
+    const maxAcceptableSize = Math.min(
+        envs.MAX_FILE_SIZE * envs.MAX_FILE_COUNT_PER_UPLOAD, 
+        envs.STORAGE_LIMIT_BYTES - getStorageUsage()
+    )
+    reply.status(200).send({ maxsize: maxAcceptableSize, maxsizeperfile: envs.MAX_FILE_SIZE })
 }

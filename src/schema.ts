@@ -16,7 +16,7 @@ export const XMetaFilesSchema = z.object({
         desc: z.string().max(maxDesc)
     }),
     files: z.array(z.object({
-        filename: z.string().max(255),
+        filename: z.string().max(255).nonempty(),
         sha256: z.string().length(64),
         bytes: z.number().int().nonnegative().min(minFileSize).max(maxFileSize)
     })).min(1).max(maxFiles)
@@ -27,11 +27,14 @@ export type XMetaFiles = z.infer<typeof XMetaFilesSchema>
 // schema/mongo_upload.info
 const storageDBUploadInstanceSchemaCommon = z.object({
     id_pub: z.string().min(8).max(10),
-    public: z.boolean(),
-    status: z.enum(["processing", "ready", "error", "removed"]),
-    meta: z.object({ title: z.string(), desc: z.string() }),
-    stat: z.object({ views: z.number().int().nonnegative(), up: z.number().int().nonnegative(), down: z.number().int().nonnegative() }),
-    issuer: z.object({ ip: z.ipv4(), ua: z.string(), uuid: z.uuid() }),
+    public: z.boolean().default(false),
+    status: z.enum(["processing", "ready", "error", "removed"]).default("processing"),
+    meta: z.object({ title: z.string().default(""), desc: z.string().default("") }),
+    stat: z.object({ 
+        views: z.number().int().nonnegative(), 
+        up: z.number().int().nonnegative(), 
+        down: z.number().int().nonnegative() }),
+    issuer: z.object({ ip: z.string(), ua: z.string(), uuid: z.string() }),
     when: z.iso.datetime()
 })
 
@@ -48,6 +51,8 @@ export const StorageDBUploadInstanceSchema = z.union([
     }),
     storageDBUploadInstanceSchemaCommon.extend({
         type: z.literal("link"),
-        link: z.object({ redir: z.url() })
+        link: z.object({ redir: z.url().nonoptional() })
     })
 ])
+
+export type StorageDBUploadInstance = z.infer<typeof StorageDBUploadInstanceSchema>

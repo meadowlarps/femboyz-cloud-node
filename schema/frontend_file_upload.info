@@ -5,7 +5,9 @@
 // upload for files
 // is inside X-Meta header to finish upload in a single request
 // while carrying datastream in body
-// target endpoint /api/v2/udstream
+
+// endpoint:
+// POST /api/v2/udstream
 
 Content-Type: application/octet-stream
 

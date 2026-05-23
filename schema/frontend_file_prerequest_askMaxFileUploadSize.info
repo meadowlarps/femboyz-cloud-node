@@ -1,0 +1,9 @@
+// this is what we send to server to add website interactions 
+// based on if we can receive any upload
+
+// endpoint:
+// GET /api/v2/maxfsize
+
+// receive:
+// { maxsize: 123456, maxsizeperupload: 1234 }
+
