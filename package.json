@@ -4,11 +4,11 @@
   "description": "rewrite of https://github.com/misikovich/femboyz-cloud-server in Typescript",
   "main": "index.js",
   "scripts": {
-    "dev": "NODE_ENV=dev LOGLEVEL=debug tsx src/index.ts",
+    "dev": "docker compose up -d && NODE_ENV=dev LOGLEVEL=debug tsx src/index.ts; docker compose down",
     "dev:watch": "NODE_ENV=dev LOGLEVEL=debug tsx watch src/index.ts",
     "build": "tsc",
     "start": "NODE_ENV=prod node dist/index.js",
-    "test": "vitest"
+    "test": "NODE_ENV=dev LOGLEVEL=debug vitest --reporter=verbose"
   },
   "keywords": [],
   "author": "meadowlarps, misikovich",

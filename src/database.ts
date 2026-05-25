@@ -12,9 +12,16 @@ async function run() {
     
     const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 })
     await client.connect()
-    DB = client.db(envs.MDB_NAME)
-    
-    scopelog.info("Connected")
+    DB = initDB(client, envs.MDB_NAME)
+    getDB().collection(envs.MDB_COLLECTION_UPLOADS).createIndex({ id_pub: 1 }, { unique: true }).catch(err => {
+        const message = err instanceof Error ? err.message : String(err)
+        scopelog.error(message)
+        errorFileLogger.error({ err }, `Failed to create index on collection ${envs.MDB_COLLECTION_UPLOADS}`)
+        shutdownUnexpectedly()
+    }).finally(() => {
+        scopelog.info(`Ensured index "id_pub" on collection ${envs.MDB_COLLECTION_UPLOADS}`)
+        scopelog.info("Connected")
+    })
 }
 
 function dbErrorHandler(err: unknown) {
@@ -28,6 +35,17 @@ export async function runDB() {
     return run().catch(dbErrorHandler)
 }
 
+function initDB(client: MongoClient, dbName: string): Db {
+    const db = client.db(dbName)
+    if (!db) {
+        const message = `Failed to initialize database: ${dbName}`
+        scopelog.error(message)
+        errorFileLogger.error(message)
+        shutdownUnexpectedly()
+    }
+    return db
+}
+
 export function closeDB() {
     if (DB) {
         DB.client.close().catch(dbErrorHandler)
@@ -38,11 +56,5 @@ export function closeDB() {
 }
 
 export function getDB() {
-    if (!DB) {
-        const message = "Database not initialized"
-        scopelog.error(message)
-        errorFileLogger.error(message)
-        shutdownUnexpectedly()
-    }
     return DB
 }

@@ -6,5 +6,5 @@
 // POST /api/v2/ulink
 {
     "type": "link",                        // must be this string
-    "link": "aHR0cHM6Ly9nb21uby5jb20="     // "https://gomno.com" encoded in BASE64
+    "link": "https://gomno.com"            // "https://gomno.com"
 }

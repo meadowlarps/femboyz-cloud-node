@@ -1,0 +1,36 @@
+// this is what we SEND to frontend
+
+// Endpoint:
+// Upload ->    /:id
+// Per file ->  /:id/:subID
+
+// :id - main entrypoint, DB check on type: 
+    - link -> 302 redirect
+    - files/album/playlist -> check on what client wants to receive:
+        - text/html ->  send rendered template page with predefined paths
+                            client receives file by specifying :subID
+                            e.g. 1234ABCD/0 ... 1234ABCD/5 <- sent as a separate request, each file, to display properly in browser
+        - text/plain -> what discord/telegrams tryna reach to get a preview of the link -> depends on type:
+            - all 3 types include title
+            - files: number of files (6 files via femboyz.cloud)
+            - album: 
+                - images: preview of the first image + (6 images via femboyz.cloud)
+                - videos: (6 videos via femboyz.cloud)
+            - playlist: (playlist via femboyz.cloud (6 audios))
+        - application/json -> returns metadata of the upload
+
+// Example 1 (link redirect):
+Request:    https://femboyz.cloud/1234ABCD
+Response:   302 -> https://youtube.com
+
+// Example 2 (files) Accept: text/html
+Request:        https://femboyz.cloud/1234ABCD -H "Accept: text/html"
+Response:       <html rendered page>
+Request (page): https://femboyz.cloud/1234ABCD/0
+Response:       body: file -H "Content-Type: application/zip" -H "filename: zipfile.zip"
+
+
+// /:id/:subID -> gets file directly:
+    - mime
+    - filename
+    - body

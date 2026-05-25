@@ -1,6 +1,6 @@
 import { filesize } from "filesize"
 import { envs } from "./config.js"
-import { scope, errorFileLogger } from "./logger.js"
+import { scope } from "./logger.js"
 import { shutdownUnexpectedly } from "./utils.js"
 import fs from "fs/promises"
 import path from "path"
@@ -9,6 +9,8 @@ const scopelog = scope("storage")
 const storageDir = envs.STORAGE_DIR || "./storage"
 const storageLimit = envs.STORAGE_LIMIT_BYTES || 10 * 1024 * 1024 * 1024 // default to 10GB
 const storageWarningBytes = (storageLimit * (envs.STORAGE_USAGE_WARNING_PERCENTAGE || 80)) / 100
+
+let filesInStorage256: Set<string> = new Set()
 let storageUsage = 0
 
 
@@ -17,32 +19,37 @@ export async function initStorage() {
         await fs.mkdir(storageDir, { recursive: true })
         storageUsage = await calculateStorageUsage()
 
-        scopelog.info(`Storage directory initialized at ${storageDir}`)
-        scopelog.info(`Current storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}`)
+        scopelog.info(`Directory initialized at ${storageDir}`)
+        scopelog.info(`Current usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}`)
+        scopelog.info(`Files currently in storage: ${filesInStorage256.size} file(s)`)
+        scopelog.info(`Average size per file: ${filesInStorage256.size > 0 ? filesize(storageUsage / filesInStorage256.size) : "N/A"}`)
         checkStorageUsageWarning()
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         scopelog.error(`Failed to initialize storage directory: ${message}`)
-        errorFileLogger.error({ err }, "Failed to initialize storage directory")
         shutdownUnexpectedly()
     }
 }
 
 export async function writeFile(filename: string, data: Buffer): Promise<void> {
     const filepath = path.join(storageDir, filename)
-    const alreadyExists = await fs.stat(filepath).catch(() => null)
-    if (alreadyExists) {
+    if (filesInStorage256.has(filename)) {
         scopelog.debug(`Duplicate: (${filesize(data.length)}) ${filename}`)
         return
     }
     if (storageUsage + data.length > storageLimit) {
-        const message = `Storage limit exceeded. Cannot write file '${filename}' of size ${filesize(data.length)}. Current usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`
-        scopelog.error(message)
-        errorFileLogger.error(message)
-        throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
+        const message = `Storage limit exceeded. Cannot write file '${filename}' of size ${filesize(data.length)}`
+        throw Object.assign(new Error(message), { statusCode: 507 })
     }
-    await fs.writeFile(filepath, data)
+    filesInStorage256.add(filename)     // add to set before writing to prevent race conditions
     storageUsage += data.length
+    try {
+        await fs.writeFile(filepath, data)
+    } catch (err) {
+        filesInStorage256.delete(filename)
+        storageUsage -= data.length
+        throw err
+    }
     scopelog.debug(`Wrote file: Size: ${filesize(data.length)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
     checkStorageUsageWarning()
 }
@@ -54,8 +61,13 @@ export async function readFile(filename: string): Promise<Buffer> {
 
 export async function deleteFile(filename: string): Promise<void> {
     const filepath = path.join(storageDir, filename)
+    if (!filesInStorage256.has(filename)) {
+        scopelog.error(`Attempted to delete non-existent file: ${filename}`)
+        return
+    }
     const fsize = (await fs.stat(filepath)).size
     await fs.unlink(filepath)
+    filesInStorage256.delete(filename)
     storageUsage -= fsize
     scopelog.debug(`Deleted file: Size: ${filesize(fsize)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
 }
@@ -70,9 +82,8 @@ export function isThereEnoughStorageFor(bytes: number): boolean {
 
 async function calculateStorageUsage(): Promise<number> {
     const files = await fs.readdir(storageDir)
-    const stats = await Promise.all(
-        files.map(f => fs.stat(path.join(storageDir, f)))
-    )
+    filesInStorage256 = new Set(files)
+    const stats = await Promise.all(files.map(f => fs.stat(path.join(storageDir, f))))
     return stats.reduce((sum, s) => sum + s.size, 0)
 }
 
