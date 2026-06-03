@@ -5,5 +5,9 @@
 // GET /api/v2/maxfsize
 
 // receive:
-// { maxsize: 123456, maxsizeperupload: 1234 }
+// { 
+    maxsize: 123456,        // total upload max size
+    maxsizeperfile: 1234,   // single file max size
+    maxcount: 6             // max files count per upload
+    }
 

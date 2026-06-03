@@ -26,7 +26,8 @@ export const envs = {
     STORAGE_USAGE_WARNING_PERCENTAGE:   Number(process.env.STORAGE_USAGE_WARNING_PERCENTAGE),
     EMPTY_STORAGE_DIR_ON_STARTUP:       process.env.EMPTY_STORAGE_DIR_ON_STARTUP === "true",
     BASE_URL:                           process.env.BASE_URL,
-    SITE_NAME:                          process.env.SITE_NAME || "set site name in .env"
+    SITE_NAME:                          process.env.SITE_NAME || "set site name in .env",
+    CORS_ORIGIN:                        process.env.CORS_ORIGIN
 }
 
 for (const [key, value] of Object.entries(envs)) {

@@ -21,6 +21,7 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
     "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
     "filesize": "^11.0.17",

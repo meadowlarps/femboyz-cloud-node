@@ -17,6 +17,7 @@ import Fastify, {
     type RouteShorthandOptions,
     type FastifyRequest,
     type FastifyReply }     from "fastify"
+import cors from "@fastify/cors"
                 
 declare module "fastify" {
     interface FastifyRequest {
@@ -31,6 +32,10 @@ const PORT = envs.PORT
 
 export async function startServer() {
     scopelog.info("Starting server...")
+
+    await server.register(cors, {
+        origin: envs.CORS_ORIGIN === "*" ? true : (envs.CORS_ORIGIN ?? false)
+    })
 
     server.setErrorHandler(errorHandler)
     server.setNotFoundHandler(notFoundHandler)
@@ -144,9 +149,11 @@ async function ulinkHandler(request: FastifyRequest, reply: FastifyReply) {
 
 async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
     const xmeta = request.xmeta!
-    const { fileBuffers, totalBytes } = await parseUploadStream(request.body as AsyncIterable<unknown>, xmeta)
-    const upl: { id: string, type: string } = await receiveUploadReturnID(request, xmeta, fileBuffers)
-    scopelog.info(`Received upload: '${xmeta.meta.title}' (${xmeta.files.length} files, total ${filesize(totalBytes)}) from ${request.ip}`)
+    const { files_buffers, total_bytes } = await parseUploadStream(request.body as AsyncIterable<unknown>, xmeta)
+    const upl: { id: string, type: string } = await receiveUploadReturnID(request, xmeta, files_buffers)
+    scopelog.info(
+        `Received upload: '${xmeta.meta.title}' (${xmeta.files.length} files ` 
+        + `total ${filesize(total_bytes)}) from ${request.ip}`)
     reply.status(200).send(upl)
 }
 
@@ -155,7 +162,11 @@ async function askMaxFileUploadSizeHandler(request: FastifyRequest, reply: Fasti
         envs.MAX_FILE_SIZE * envs.MAX_FILE_COUNT_PER_UPLOAD, 
         envs.STORAGE_LIMIT_BYTES - getStorageUsage()
     )
-    reply.status(200).send({ maxsize: maxAcceptableSize, maxsizeperfile: envs.MAX_FILE_SIZE })
+    reply.status(200).send({ 
+        maxsize: maxAcceptableSize, 
+        maxsizeperfile: envs.MAX_FILE_SIZE,
+        maxcount: envs.MAX_FILE_COUNT_PER_UPLOAD
+    })
 }
 
 // ---- UPLOAD PAGE ----
