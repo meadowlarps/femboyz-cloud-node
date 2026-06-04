@@ -36,9 +36,9 @@ function stream(...bufs: Buffer[]): Readable {
 test("single file: one chunk", async () => {
     const data = Buffer.from("hello world")
     const xmeta = makeXMeta([{ filename: "a.txt", data }])
-    const { fileBuffers, totalBytes } = await parseUploadStream(stream(data), xmeta)
-    expect(fileBuffers[0]).toEqual(data)
-    expect(totalBytes).toBe(data.length)
+    const { files_buffers, total_bytes } = await parseUploadStream(stream(data), xmeta)
+    expect(files_buffers[0]).toEqual(data)
+    expect(total_bytes).toBe(data.length)
 })
 
 test("two files: each delivered as one chunk", async () => {
@@ -46,10 +46,10 @@ test("two files: each delivered as one chunk", async () => {
     const b = Buffer.from("file-two-data-longer")
     const xmeta = makeXMeta([{ filename: "a.bin", data: a }, { filename: "b.bin", data: b }])
     const body = Buffer.concat([a, b])
-    const { fileBuffers, totalBytes } = await parseUploadStream(stream(body), xmeta)
-    expect(fileBuffers[0]).toEqual(a)
-    expect(fileBuffers[1]).toEqual(b)
-    expect(totalBytes).toBe(a.length + b.length)
+    const { files_buffers, total_bytes } = await parseUploadStream(stream(body), xmeta)
+    expect(files_buffers[0]).toEqual(a)
+    expect(files_buffers[1]).toEqual(b)
+    expect(total_bytes).toBe(a.length + b.length)
 })
 
 test("two files: chunk boundary falls inside first file", async () => {
@@ -58,9 +58,9 @@ test("two files: chunk boundary falls inside first file", async () => {
     const xmeta = makeXMeta([{ filename: "a.bin", data: a }, { filename: "b.bin", data: b }])
     const body = Buffer.concat([a, b])
     // chunks of 64 bytes — boundary at 64 splits file a (100 bytes) mid-way
-    const { fileBuffers } = await parseUploadStream(chunked(body, 64), xmeta)
-    expect(fileBuffers[0]).toEqual(a)
-    expect(fileBuffers[1]).toEqual(b)
+    const { files_buffers } = await parseUploadStream(chunked(body, 64), xmeta)
+    expect(files_buffers[0]).toEqual(a)
+    expect(files_buffers[1]).toEqual(b)
 })
 
 test("three files: 1-byte network chunks (maximum boundary stress)", async () => {
@@ -73,17 +73,17 @@ test("three files: 1-byte network chunks (maximum boundary stress)", async () =>
         { filename: "c.txt", data: c }
     ])
     const body = Buffer.concat([a, b, c])
-    const { fileBuffers } = await parseUploadStream(chunked(body, 1), xmeta)
-    expect(fileBuffers[0]).toEqual(a)
-    expect(fileBuffers[1]).toEqual(b)
-    expect(fileBuffers[2]).toEqual(c)
+    const { files_buffers } = await parseUploadStream(chunked(body, 1), xmeta)
+    expect(files_buffers[0]).toEqual(a)
+    expect(files_buffers[1]).toEqual(b)
+    expect(files_buffers[2]).toEqual(c)
 })
 
 test("large random file: integrity preserved across chunked delivery", async () => {
     const data = randomBytes(512 * 1024)
     const xmeta = makeXMeta([{ filename: "big.bin", data }])
-    const { fileBuffers } = await parseUploadStream(chunked(data, 4096), xmeta)
-    expect(sha256(fileBuffers[0]!)).toBe(sha256(data))
+    const { files_buffers } = await parseUploadStream(chunked(data, 4096), xmeta)
+    expect(sha256(files_buffers[0]!)).toBe(sha256(data))
 })
 
 // ---- hash manipulation ----

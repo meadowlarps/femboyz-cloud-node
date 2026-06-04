@@ -5,6 +5,7 @@ import { WASMagic } from "wasmagic"
 import { errorFileLogger, scope } from "./logger.js"
 import { getDB } from "./database.js"
 import { envs } from "./config.js"
+import { randomInt } from "node:crypto";
 
 const scopelog = scope("uploads")
 const magic = await WASMagic.create()
@@ -167,18 +168,16 @@ async function genSafeID(): Promise<string> {
 }
 
 export function idGen(): string {
-    // target format: 1234ABCD
+    const num_chars = "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    const digits = "0123456789"
-    const l = 4
-    const r = 4
+    const format = "NNNXCCCC"
     let result = ""
-    for (let i = 0; i < l; i++) {
-        result += digits.charAt(Math.floor(Math.random() * digits.length))
-    }
-    for (let i = 0; i < r; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
+
+    for (let i = 0; i < format.length; i++)
+        if      (format[i] === "N") result += randomInt(10)
+        else if (format[i] === "C") result += chars[randomInt(chars.length)]
+        else                        result += num_chars[randomInt(num_chars.length)]
+
     return result
 }
 

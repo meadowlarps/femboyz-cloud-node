@@ -9,6 +9,8 @@
     
 </script>
 
+// TODO: Implement loading user uploads from storage, fetching from api, 
+// and displaying them in a grid. This is just a placeholder for now.
 <div class="miniupload-container">
     <span>{id}</span>
 </div>

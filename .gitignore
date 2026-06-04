@@ -1,0 +1,17 @@
+#SYSTEM
+node_modules/
+.vscode/
+.DS_Store
+
+#CODE RUBBISH
+dist/
+.env.dev
+.env.prod
+logs/*
+!logs/
+storage/*
+!storage/
+
+#AGENTIC
+2026-*
+.claude/
