@@ -6,11 +6,11 @@ type UploadData = {
     type: string,
     public: boolean,
     meta: { title: string, desc: string },
-    files: FileData[],
+    files: _FileData[],
     when: string
 }
 
-type FileData = {
+type _FileData = {
     index: number,
     filename: string,
     size: number,

@@ -31,10 +31,10 @@ type XMetaFiles = {
         title: string
         desc: string
     }
-    files: XMetaFile[]
+    files: _XMetaFile[]
 }
 
-type XMetaFile = {
+type _XMetaFile = {
     filename: string
     sha256: string
     bytes: number
@@ -83,7 +83,7 @@ export async function sendUpload(
     )
 }
 
-async function createFileEntry(file: File): Promise<XMetaFile> {
+async function createFileEntry(file: File): Promise<_XMetaFile> {
     return {
         filename: file.name,
         sha256: await hashFileSha256(file),
