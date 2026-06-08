@@ -4,6 +4,12 @@
     --color-fb-white-semi: #fff0f3bf;
 }
 
+input,
+textarea,
+select {
+    outline: none;
+}
+
 .fb-button {
     padding: 0.75rem 1rem;
     color: #fff;

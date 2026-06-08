@@ -9,5 +9,7 @@
     maxsize: 123456,        // total upload max size
     maxsizeperfile: 1234,   // single file max size
     maxcount: 6             // max files count per upload
+    max_title_length: envs.MAX_TITLE_LENGTH_PER_UPLOAD,
+    max_desc_length: envs.MAX_DESC_LENGTH_PER_UPLOAD
     }
 

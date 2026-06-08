@@ -104,8 +104,8 @@
 
 	.page-content {
 		width: min(100% - 2rem, 72rem);
-		margin: 0 auto;
-		padding: 2rem 1.5rem;
+		margin: 0;
+		padding: 3.5rem 1.5rem 2rem;
 	}
 
 	@media (max-width: 42rem) {

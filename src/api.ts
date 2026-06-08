@@ -99,7 +99,20 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
             .send(buffer)
     }
 
-    if (upload.type === "link") return reply.redirect(upload.link.redir)
+    if (upload.type === "link") {
+        if ((request.headers.accept ?? "").includes("application/json")) {
+            return reply.send({
+                id: upload.id_pub,
+                type: upload.type,
+                public: upload.public,
+                meta: upload.meta,
+                files: [],
+                link: upload.link.redir,
+                when: upload.when
+            })
+        }
+        return reply.redirect(upload.link.redir)
+    }
 
     const baseUrl = envs.BASE_URL ?? `${request.protocol}://${request.hostname}`
     const siteName = envs.SITE_NAME
@@ -165,7 +178,9 @@ async function askMaxFileUploadSizeHandler(request: FastifyRequest, reply: Fasti
     reply.status(200).send({ 
         maxsize: maxAcceptableSize, 
         maxsizeperfile: envs.MAX_FILE_SIZE,
-        maxcount: envs.MAX_FILE_COUNT_PER_UPLOAD
+        maxcount: envs.MAX_FILE_COUNT_PER_UPLOAD,
+        max_title_length: envs.MAX_TITLE_LENGTH_PER_UPLOAD,
+        max_desc_length: envs.MAX_DESC_LENGTH_PER_UPLOAD
     })
 }
 

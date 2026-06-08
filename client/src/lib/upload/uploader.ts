@@ -2,6 +2,8 @@ export type UploadLimits = {
     maxsize?: number
     maxsizeperfile: number
     maxcount: number
+    max_title_length: number
+    max_desc_length: number
 }
 
 export type UploadResult = {
@@ -145,6 +147,20 @@ function uploadWithProgress(
         xhr.onabort = () => reject(new Error('Upload aborted'))
         xhr.send(body)
     })
+}
+
+export async function sendLinkUpload(apiEndpoint: string, link: string): Promise<UploadResult> {
+    const response = await fetch(`${apiEndpoint.replace(/\/$/, '')}/api/v2/ulink`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'link', link })
+    })
+
+    if (!response.ok) {
+        throw new Error(`Upload failed with ${response.status}`)
+    }
+
+    return await response.json() as UploadResult
 }
 
 function createUploadProgress(files: File[], loaded: number, total: number): UploadProgress {

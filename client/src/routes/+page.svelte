@@ -5,17 +5,21 @@
         type UploadLimits,
         type UploadProgress,
         formatFileSize,
-        sendUpload
+        sendUpload,
+        sendLinkUpload
     } from '$lib/upload/uploader'
-    import MiniUpload from './MiniUpload.svelte';
+    import MiniUpload from './MiniUpload.svelte'
+    import { getHistory, addToHistory } from '$lib/upload/history'
 
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
 
     let { data }: { data: PageData } = $props()
 
+    let mode = $state<'files' | 'link'>('files')
     let title = $state('')
     let description = $state('')
     let files = $state<File[]>([])
+    let linkUrl = $state('')
     let uploadLimits = $derived(data.uploadLimits as UploadLimits | null)
     let limitsError = $derived(data.limitsError)
     let fileErrors = $state<string[]>([])
@@ -28,6 +32,14 @@
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
     let hideProgressTimer: ReturnType<typeof setTimeout> | undefined
+    let uploadHistory = $state<string[]>([])
+    let visibleCount = $state(16)
+    let visibleUploads = $derived(uploadHistory.slice(0, visibleCount))
+    let hasMore = $derived(uploadHistory.length > visibleCount)
+
+    $effect(() => {
+        uploadHistory = getHistory()
+    })
 
     function clearProgressTimers() {
         clearTimeout(hideProgressTimer)
@@ -111,6 +123,31 @@
                 uploadProgress = progress
             })
             uploadResultId = result.id
+            addToHistory(result.id)
+            uploadHistory = getHistory()
+        } catch (error) {
+            uploadError = error instanceof Error ? error.message : 'Upload failed'
+        } finally {
+            isUploading = false
+        }
+    }
+
+    function switchMode(next: 'files' | 'link') {
+        mode = next
+        uploadError = ''
+        uploadResultId = ''
+    }
+
+    async function uploadLink() {
+        uploadError = ''
+        uploadResultId = ''
+
+        try {
+            isUploading = true
+            const result = await sendLinkUpload(apiEndpoint, linkUrl)
+            uploadResultId = result.id
+            addToHistory(result.id)
+            uploadHistory = getHistory()
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
         } finally {
@@ -130,98 +167,143 @@
     }    
 </script>
 
+<div class="page-layout">
+<div class="upload-sidebar">
 <div class="upload-field">
+    <div class="mode-switcher">
+        <button class="mode-tab" class:active={mode === 'files'} type="button" onclick={() => switchMode('files')}>Files</button>
+        <button class="mode-tab" class:active={mode === 'link'} type="button" onclick={() => switchMode('link')}>Link</button>
+    </div>
+
     <div class="field-header">
         <div>
             <h1>New upload</h1>
-            <p>Add details and choose one or more files.</p>
-            {#if uploadLimits}
-                <p class="limit-note">
-                    Up to {uploadLimits.maxcount} files, {formatFileSize(uploadLimits.maxsizeperfile - 1024 * 1024)} each.
-                </p>
+            {#if mode === 'files'}
+                <p>Add details and choose one or more files.</p>
+                {#if uploadLimits}
+                    <p class="limit-note">
+                        Up to {uploadLimits.maxcount} files, {formatFileSize(uploadLimits.maxsizeperfile - 1024 * 1024)} each.
+                    </p>
+                {/if}
+            {:else}
+                <p>Shorten a link.</p>
             {/if}
         </div>
     </div>
 
-    <label class="form-field">
-        <input bind:value={title} type="text" name="title" placeholder="Upload title" />
-    </label>
-
-    <label class="form-field">
-        {#if title.length > 0}
-            <textarea transition:slide bind:value={description} name="description" rows="3" placeholder="Description"></textarea>
-        {:else}
-            {description = ""}
-        {/if}
-    </label>
-
-    <ul class="file-list" aria-label="Selected files">
-        {#each files as file, index (file.name + file.size + index)}
-            <li transition:slide>
-                {#if fileProgress(index) && !hiddenProgressIndexes.has(index)}
-                    <div transition:fade class="upload-progressbar" aria-hidden="true">
-                        <div
-                            class="upload-progressbar-value"
-                            class:done={progressPercent(index) === 100}
-                            style={`width: ${progressPercent(index)}%`}
-                        ></div>
-                    </div>
+    {#if mode === 'files'}
+        <div transition:slide>
+            <label class="form-field">
+                <input
+                    bind:value={title}
+                    type="text"
+                    name="title"
+                    placeholder="Upload title"
+                    maxlength={uploadLimits?.max_title_length}
+                />
+                {#if uploadLimits && title.length > 0}
+                    <span class="char-counter" class:near-limit={title.length >= uploadLimits.max_title_length * 0.85}>
+                        {title.length}/{uploadLimits.max_title_length}
+                    </span>
                 {/if}
+            </label>
+        </div>
 
-                <div class="index">
-                    <span>{index + 1}</span>
-                </div>
+        <div transition:slide>
+            <label class="form-field">
+                {#if title.length > 0}
+                    <textarea
+                        transition:slide
+                        bind:value={description}
+                        name="description"
+                        rows="3"
+                        placeholder="Description"
+                        maxlength={uploadLimits?.max_desc_length}
+                    ></textarea>
+                    {#if uploadLimits && description.length > 0}
+                        <span class="char-counter" class:near-limit={description.length >= uploadLimits.max_desc_length * 0.85}>
+                            {description.length}/{uploadLimits.max_desc_length}
+                        </span>
+                    {/if}
+                {:else}
+                    {description = ""}
+                {/if}
+            </label>
+        </div>
 
-                <div class="file-label">
-                    <strong>{file.name}</strong>
-                    <span>{formatFileSize(file.size)}</span>
-                </div>
+        <ul transition:slide class="file-list" aria-label="Selected files">
+            {#each files as file, index (file.name + file.size + index)}
+                <li transition:slide>
+                    {#if fileProgress(index) && !hiddenProgressIndexes.has(index)}
+                        <div transition:fade class="upload-progressbar" aria-hidden="true">
+                            <div
+                                class="upload-progressbar-value"
+                                class:done={progressPercent(index) === 100}
+                                style={`width: ${progressPercent(index)}%`}
+                            ></div>
+                        </div>
+                    {/if}
 
-                <button 
-                    class="file-action-button remove-button fb-button"
-                    type="button" 
-                    onclick={() => removeFile(index)} disabled={isUploading}
-                >
-                    Remove
-                </button>
-            </li>
-        {/each}
-
-        {#if !isFileLimitReached}
-            <li>    
-                <label
-                    id="drop-area"
-                    for="file_input"
-                    class:highlight={isDragging}
-                    ondragover={handleDragOver}
-                    ondragleave={handleDragLeave}
-                    ondrop={handleDrop}
-                >
-                    <div class="drop-text">
-                        Drag & drop files here or click to upload
+                    <div class="index">
+                        <span>{index + 1}</span>
                     </div>
-                    <input
-                        class="file-input"
-                        type="file"
-                        id="file_input"
-                        multiple
-                        hidden
-                        onchange={addFiles}
-                    />
-                </label>
-            </li>
-        {/if}
-    </ul>
-    {#if limitsError}
-        <p transition:slide|global class="error-message">Something is wrong: {limitsError}</p>
-    {/if}
 
-    {#if fileErrors.length > 0}
-        <ul transition:slide|global class="error-list" aria-label="File selection errors">
-            {#each fileErrors as error}
-                <li>{error}</li>
+                    <div class="file-label">
+                        <strong>{file.name}</strong>
+                        <span>{formatFileSize(file.size)}</span>
+                    </div>
+
+                    <button
+                        class="file-action-button remove-button fb-button"
+                        type="button"
+                        onclick={() => removeFile(index)} disabled={isUploading}
+                    >
+                        Remove
+                    </button>
+                </li>
             {/each}
+
+            {#if !isFileLimitReached}
+                <li>
+                    <label
+                        id="drop-area"
+                        for="file_input"
+                        class:highlight={isDragging}
+                        ondragover={handleDragOver}
+                        ondragleave={handleDragLeave}
+                        ondrop={handleDrop}
+                    >
+                        <div class="drop-text">
+                            Drag & drop files here or click to upload
+                        </div>
+                        <input
+                            class="file-input"
+                            type="file"
+                            id="file_input"
+                            multiple
+                            hidden
+                            onchange={addFiles}
+                        />
+                    </label>
+                </li>
+            {/if}
         </ul>
+
+        {#if limitsError}
+            <p transition:slide|global class="error-message">Something is wrong: {limitsError}</p>
+        {/if}
+
+        {#if fileErrors.length > 0}
+            <ul transition:slide|global class="error-list" aria-label="File selection errors">
+                {#each fileErrors as error}
+                    <li>{error}</li>
+                {/each}
+            </ul>
+        {/if}
+    {:else}
+        <label transition:slide class="form-field">
+            <input bind:value={linkUrl} type="url" name="link" placeholder="https://example.com" />
+        </label>
     {/if}
 
     {#if uploadError}
@@ -231,38 +313,110 @@
     {#if uploadResultId}
         <p transition:slide|global class="success-message">Uploaded: {uploadResultId}</p>
     {/if}
-    
 
     <div class="finalize">
-        <label class="public-checkbox">
-            <input type="checkbox" bind:checked={isPublic} disabled={isUploading} />
-            <span class="checkbox-box" aria-hidden="true"></span>
-            <span class="checkbox-label">Make public</span>
-        </label>
-        <button class="upload-button fb-button" type="button" onclick={uploadFiles} disabled={files.length === 0 || isUploading}>
+        {#if mode === 'files'}
+            <label class="public-checkbox">
+                <input type="checkbox" bind:checked={isPublic} disabled={isUploading} />
+                <span class="checkbox-box" aria-hidden="true"></span>
+                <span class="checkbox-label">Make public</span>
+            </label>
+        {:else}
+            <span></span>
+        {/if}
+        <button
+            class="upload-button fb-button"
+            type="button"
+            onclick={mode === 'files' ? uploadFiles : uploadLink}
+            disabled={mode === 'files' ? (files.length === 0 || isUploading) : (linkUrl.trim() === '' || isUploading)}
+        >
             {isUploading ? 'Uploading...' : 'Upload!'}
         </button>
     </div>
 </div>
+</div>
 
-<div class="uploads-grid">
-    <MiniUpload id="7202TLAV" />
-    <MiniUpload id="3925GWEN" />
-    <MiniUpload id="8521QKZG" />
-    <MiniUpload id="4016GJYR" />
-
+<div class="uploads-grid-wrap">
+    <div class="uploads-grid">
+        {#each visibleUploads as id (id)}
+            <MiniUpload {id} />
+        {/each}
+    </div>
+    {#if hasMore}
+        <button class="load-more-btn" type="button" onclick={() => visibleCount += 8} aria-label="Load more uploads">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--!Font Awesome Free v7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.--><path d="M201.4 406.6c12.5 12.5 32.8 12.5 45.3 0l192-192c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L224 338.7 54.6 169.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l192 192z"/></svg>
+        </button>
+    {/if}
+</div>
 </div>
 
 
 <style>
+    .page-layout {
+        display: flex;
+        align-items: flex-start;
+        gap: 3.5rem;
+    }
+
+    .upload-sidebar {
+        position: sticky;
+        top: 9.5rem;
+        align-self: flex-start;
+        flex-shrink: 0;
+    }
+
     .upload-field {
         display: grid;
         gap: 1rem;
-        width: min(100%, 25rem);
+        width: 25rem;
         min-height: 15rem;
         border: 2px solid var(--color-accent);
-        padding: 1.25rem;
+        padding: 0;
         background: #221f20;
+        overflow: hidden;
+    }
+
+    .mode-switcher {
+        display: flex;
+        border-bottom: 1px solid #3b3538;
+    }
+
+    .mode-tab {
+        flex: 1;
+        padding: 0.55rem 1rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        color: #8a8385;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.88rem;
+        letter-spacing: 0.02em;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .mode-tab:hover {
+        color: #c9c3c5;
+        background: #2a2728;
+    }
+
+    .mode-tab.active {
+        color: #f4f4f4;
+        border-bottom-color: var(--color-accent);
+    }
+
+    .upload-field > :not(.mode-switcher) {
+        padding-left: 1.25rem;
+        padding-right: 1.25rem;
+    }
+
+    .upload-field > .field-header {
+        padding-top: 1.25rem;
+    }
+
+    .upload-field > .finalize {
+        padding-bottom: 1.25rem;
     }
 
     #drop-area {
@@ -320,6 +474,19 @@
     .form-field textarea {
         min-height: fit-content;
         resize: vertical;
+    }
+
+    .char-counter {
+        display: block;
+        text-align: right;
+        font-size: 0.78rem;
+        font-weight: 400;
+        color: #6a6468;
+        margin-top: -0.2rem;
+    }
+
+    .char-counter.near-limit {
+        color: #f0b7ca;
     }
 
     .file-input {
@@ -514,6 +681,62 @@
 
     .public-checkbox:hover .checkbox-label {
         color: var(--color-fb-white);
+    }
+
+    .uploads-grid-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        flex: 1;
+        align-items: stretch;
+    }
+
+    .uploads-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+        gap: 1rem;
+        align-content: start;
+    }
+
+    .load-more-btn {
+        align-self: center;
+        width: 100%;
+        height: 2.5rem;
+        background: none;
+        border: 1px solid #3b3538;
+        color: #8a8385;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s, transform 0.2s, box-shadow 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: #1b1a1ae6 0 0 5rem 8rem;
+        padding: 0;
+        z-index: 15;
+    }
+
+    .load-more-btn svg {
+        width: 1rem;
+        height: 1rem;
+        fill: currentColor;
+        display: block;
+    }
+
+    .load-more-btn:hover {
+        border-color: var(--color-accent);
+        color: #f4f4f4;
+        transform: translateY(2px);
+        box-shadow: #1b1a1a82 0 0 5rem 8rem;
+    }
+
+    @media (max-width: 48rem) {
+        .page-layout {
+            flex-direction: column;
+        }
+
+        .upload-sidebar {
+            position: static;
+        }
     }
 
     @media (max-width: 36rem) {
