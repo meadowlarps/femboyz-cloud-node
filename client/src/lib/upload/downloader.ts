@@ -3,6 +3,7 @@ export type UploadData = {
     type: 'files' | 'album' | 'playlist' | 'link'
     public: boolean
     meta: { title: string; desc: string }
+    views: number
     files: FileData[]
     link?: string
     when: string
@@ -14,6 +15,7 @@ export type FileData = {
     size: number
     mime: string
     url: string
+    stat_dl: number
 }
 
 export async function fetchUpload(

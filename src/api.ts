@@ -124,12 +124,14 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
             type: upload.type,
             public: upload.public,
             meta: upload.meta,
+            views: upload.stat.views,
             files: upload.files.map((f, i) => ({
                 index: i,
                 filename: f.filename,
                 size: f.size,
                 mime: f.mime,
-                url: `${baseUrl}/${id}/${i}`
+                url: `${baseUrl}/${id}/${i}`,
+                stat_dl: f.stat_dl
             })),
             when: upload.when
         })

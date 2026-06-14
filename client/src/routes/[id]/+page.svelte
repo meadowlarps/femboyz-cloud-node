@@ -1,0 +1,195 @@
+<script lang="ts">
+    import type { PageData } from './$types'
+    import FilesView from './FilesView.svelte'
+    import AlbumView from './AlbumView.svelte'
+    import PlaylistView from './PlaylistView.svelte'
+
+    let { data }: { data: PageData } = $props()
+
+    const upload = $derived(data.upload)
+    const title = $derived(upload.meta.title || upload.id)
+    const desc = $derived(upload.meta.desc)
+    const ogImageUrl = $derived(
+        upload.type === 'album' && upload.files[0]?.mime.startsWith('image/')
+            ? upload.files[0].url
+            : undefined
+    )
+
+    function formatDate(iso: string) {
+        return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    }
+
+    const typeLabel: Record<string, string> = {
+        files: 'Files',
+        album: 'Album',
+        playlist: 'Playlist'
+    }
+</script>
+
+<svelte:head>
+    <title>{title}</title>
+    <meta property="og:title" content={title} />
+    {#if desc}
+        <meta name="description" content={desc} />
+        <meta property="og:description" content={desc} />
+    {/if}
+    {#if ogImageUrl}
+        <meta property="og:image" content={ogImageUrl} />
+    {/if}
+    <meta property="og:type" content="website" />
+</svelte:head>
+
+{#if upload.type === 'album'}
+    <div class="album-page">
+        <AlbumView files={upload.files} />
+        <div class="album-info">
+            <div class="upload-title-row">
+                <h1 class="upload-title">{title}</h1>
+            </div>
+            {#if desc}
+                <p class="upload-desc">{desc}</p>
+            {/if}
+            <div class="upload-meta-row">
+                <span class="meta-item">{formatDate(upload.when)}</span>
+                {#if upload.views > 0}
+                    <span class="meta-item">{upload.views} {upload.views === 1 ? 'view' : 'views'}</span>
+                {/if}
+                <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+            </div>
+        </div>
+    </div>
+{:else}
+    <div class="panel-wrap">
+    <div class="upload-panel">
+        <header class="upload-header">
+            <div class="upload-title-row">
+                <h1 class="upload-title">{title}</h1>
+                <span class="upload-type-badge">{typeLabel[upload.type] ?? upload.type}</span>
+            </div>
+
+            {#if desc}
+                <p class="upload-desc">{desc}</p>
+            {/if}
+
+            <div class="upload-meta-row">
+                <span class="meta-item">{formatDate(upload.when)}</span>
+                {#if upload.views > 0}
+                    <span class="meta-item">{upload.views} {upload.views === 1 ? 'view' : 'views'}</span>
+                {/if}
+                <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+            </div>
+        </header>
+
+        <div class="upload-body">
+            {#if upload.type === 'files'}
+                <FilesView files={upload.files} />
+            {:else if upload.type === 'playlist'}
+                <PlaylistView files={upload.files} />
+            {/if}
+        </div>
+    </div>
+    </div>
+{/if}
+
+<style>
+    /* Album — YouTube style */
+    .album-page {
+        display: grid;
+        gap: 1rem;
+        max-width: min(100%, 60rem);
+        margin: 0 auto;
+    }
+
+    .album-info {
+        display: grid;
+        gap: 0.5rem;
+        padding: 1rem 1.25rem;
+        border: 1px solid #2e2b2c;
+    }
+
+    /* Panel — files / playlist */
+    .panel-wrap {
+        display: flex;
+        justify-content: center;
+    }
+
+    .upload-panel {
+        display: inline-grid;
+        min-width: min(38rem, 100%);
+        max-width: min(100%, 48rem);
+        background: #221f20;
+        border: 2px solid var(--color-accent);
+        overflow: hidden;
+    }
+
+    .upload-header {
+        display: grid;
+        gap: 0.65rem;
+        padding: 1.5rem 1.5rem 1.25rem;
+        border-bottom: 1px solid #3b3538;
+    }
+
+    .upload-body {
+        display: grid;
+        padding: 1.25rem 1.5rem 1.5rem;
+    }
+
+    /* Shared */
+    .upload-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .upload-title {
+        margin: 0;
+        font-size: 1.75rem;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+    }
+
+    .upload-type-badge {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--color-accent);
+        border: 1px solid var(--color-accent);
+        padding: 0.2rem 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .upload-desc {
+        margin: 0;
+        color: #c9c3c5;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .upload-meta-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .meta-item {
+        font-size: 0.85rem;
+        color: #6a6468;
+    }
+
+    .meta-item + .meta-item::before {
+        content: '·';
+        margin-right: 1rem;
+    }
+
+    @media (max-width: 36rem) {
+        .upload-header,
+        .upload-body {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+    }
+</style>

@@ -2,8 +2,10 @@
 	import '$lib/styles/global.css'
 	import favicon from '$lib/assets/favicon.webp'
 	import logo from '$lib/assets/logo.webp'
+	import { page } from '$app/stores'
 
-	let { children } = $props();
+	let { children } = $props()
+	const miniLogo = $derived($page.route.id === '/[id]')
 </script>
 
 <svelte:head>
@@ -12,7 +14,7 @@
 
 <div class="app-shell">
 	<header class="site-header">
-		<a class="brand" href="/" aria-label="Go to home">
+		<a class="brand" class:mini={miniLogo} href="/" aria-label="Go to home">
 			<img class="logo-img" src={logo} alt="femboyz.cloud">
 		</a>
 
@@ -103,7 +105,6 @@
 	}
 
 	.page-content {
-		width: min(100% - 2rem, 72rem);
 		margin: 0;
 		padding: 3.5rem 1.5rem 2rem;
 	}
