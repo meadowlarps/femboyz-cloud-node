@@ -1,402 +1,185 @@
 <script lang="ts">
-    import emblaCarouselSvelte from 'embla-carousel-svelte'
-    import type { EmblaCarouselType, EmblaOptionsType } from 'embla-carousel'
-    import { onMount, type Snippet } from 'svelte'
     import type { FileData } from '$lib/upload/downloader'
     import { formatFileSize } from '$lib/upload/uploader'
 
-    let { files, children }: { files: FileData[]; children: Snippet } = $props()
+    let { files }: { files: FileData[] } = $props()
 
-    let carouselApi = $state<EmblaCarouselType>()
-    let carouselRoot = $state<HTMLElement>()
-    let selectedIndex = $state(0)
-    let reduceMotion = $state(false)
-    const hasMultiple = $derived(files.length > 1)
-    const carouselOptions = $derived<EmblaOptionsType>({
-        loop: hasMultiple,
-        watchDrag: hasMultiple
-    })
+    let carouselIndex = $state(0)
+    const carouselFile = $derived(files[carouselIndex])
 
-    onMount(() => {
-        const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-        const updateMotionPreference = () => reduceMotion = mediaQuery.matches
+    function carouselPrev() { carouselIndex = (carouselIndex - 1 + files.length) % files.length }
+    function carouselNext() { carouselIndex = (carouselIndex + 1) % files.length }
 
-        updateMotionPreference()
-        mediaQuery.addEventListener('change', updateMotionPreference)
-        return () => mediaQuery.removeEventListener('change', updateMotionPreference)
-    })
-
-    function pauseInactiveVideos(activeIndex: number) {
-        carouselRoot?.querySelectorAll('video').forEach((video) => {
-            if (Number(video.dataset.fileIndex) !== activeIndex) video.pause()
-        })
-    }
-
-    function syncSelection(api: EmblaCarouselType) {
-        selectedIndex = api.selectedScrollSnap()
-        pauseInactiveVideos(selectedIndex)
-    }
-
-    function onCarouselInit(event: CustomEvent<EmblaCarouselType>) {
-        carouselApi = event.detail
-        syncSelection(carouselApi)
-        carouselApi.on('select', syncSelection)
-    }
-
-    function showPrevious() {
-        carouselApi?.scrollPrev(reduceMotion)
-    }
-
-    function showNext() {
-        carouselApi?.scrollNext(reduceMotion)
-    }
-
-    function showFile(index: number) {
-        carouselApi?.scrollTo(index, reduceMotion)
-    }
-
-    function onStageKeydown(event: KeyboardEvent) {
-        if (event.target !== event.currentTarget) return
-
-        if (event.key === 'ArrowLeft') {
-            event.preventDefault()
-            showPrevious()
-        } else if (event.key === 'ArrowRight') {
-            event.preventDefault()
-            showNext()
+    function onKeydown(e: KeyboardEvent) {
+        if (files.length >= 3) {
+            if (e.key === 'ArrowRight') carouselNext()
+            if (e.key === 'ArrowLeft') carouselPrev()
         }
     }
 </script>
 
-<section
-    class="album-view"
-    class:single={!hasMultiple}
-    bind:this={carouselRoot}
-    aria-label="Media gallery"
-    aria-roledescription="carousel"
->
-    <!-- The media region is focusable so left/right navigation remains scoped to the stage. -->
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-        class="media-stage"
-        role="region"
-        aria-label="Media stage"
-        tabindex="0"
-        onkeydown={onStageKeydown}
-    >
-        <div
-            class="embla-viewport"
-            use:emblaCarouselSvelte={{ options: carouselOptions, plugins: [] }}
-            onemblaInit={onCarouselInit}
-        >
-            <div class="embla-container">
-                {#each files as file, index (file.index)}
-                    <div
-                        class="embla-slide"
-                        role="group"
-                        aria-roledescription="slide"
-                        aria-label={`${index + 1} of ${files.length}`}
-                        aria-hidden={index !== selectedIndex}
-                    >
-                        {#if file.mime.startsWith('image/')}
-                            <img
-                                src={file.url}
-                                alt={file.filename}
-                                loading={index === 0 ? 'eager' : 'lazy'}
-                            />
-                        {:else if file.mime.startsWith('video/')}
-                            <!-- User uploads do not include caption resources in the upload schema. -->
-                            <!-- svelte-ignore a11y_media_has_caption -->
-                            <video
-                                src={file.url}
-                                controls={index === selectedIndex}
-                                playsinline
-                                preload="metadata"
-                                data-file-index={index}
-                                tabindex={index === selectedIndex ? 0 : -1}
-                                aria-label={file.filename}
-                            >
-                                Your browser cannot play this video.
-                                <a href={file.url} tabindex={index === selectedIndex ? 0 : -1}>Open {file.filename}</a>
-                            </video>
-                        {:else}
-                            <a class="unsupported-file" href={file.url}>Open {file.filename}</a>
-                        {/if}
-                    </div>
-                {/each}
+<svelte:window onkeydown={onKeydown} />
+
+{#if files.length === 1}
+    {@const file = files[0]!}
+    <div class="single-media">
+        {#if file.mime.startsWith('image/')}
+            <img src={file.url} alt={file.filename} />
+        {:else if file.mime.startsWith('video/')}
+            <video src={file.url} controls>
+                <track kind="captions" label="Captions" srclang="en" src="" default />
+            </video>
+        {/if}
+    </div>
+
+{:else if files.length === 2}
+    <div class="duo-grid">
+        {#each files as file (file.index)}
+            <div class="media-item">
+                {#if file.mime.startsWith('image/')}
+                    <img src={file.url} alt={file.filename} loading="lazy" />
+                {:else if file.mime.startsWith('video/')}
+                    <video src={file.url} controls>
+                        <track kind="captions" label="Captions" srclang="en" src="" default />
+                    </video>
+                {/if}
             </div>
+        {/each}
+    </div>
+
+{:else}
+    <div class="carousel">
+        <div class="carousel-stage">
+            <button class="carousel-arrow left" type="button" onclick={carouselPrev} aria-label="Previous">&#8592;</button>
+
+            <div class="carousel-media">
+                {#if carouselFile?.mime.startsWith('image/')}
+                    <img src={carouselFile.url} alt={carouselFile.filename} />
+                {:else if carouselFile?.mime.startsWith('video/')}
+                    <video src={carouselFile.url} controls>
+                        <track kind="captions" label="Captions" srclang="en" src="" default />
+                    </video>
+                {/if}
+            </div>
+
+            <button class="carousel-arrow right" type="button" onclick={carouselNext} aria-label="Next">&#8594;</button>
         </div>
 
-        {#if hasMultiple}
-            <button class="carousel-arrow previous" type="button" onclick={showPrevious} aria-label="Previous media">
-                &#8592;
-            </button>
-            <button class="carousel-arrow next" type="button" onclick={showNext} aria-label="Next media">
-                &#8594;
-            </button>
-        {/if}
-
-        <p class="sr-only" aria-live="polite">
-            Showing {selectedIndex + 1} of {files.length}: {files[selectedIndex]?.filename}
-        </p>
+        <div class="carousel-footer">
+            <span class="carousel-counter">{carouselIndex + 1} / {files.length}</span>
+            {#if carouselFile}
+                <span class="carousel-meta">{formatFileSize(carouselFile.size)}{#if carouselFile.stat_dl > 0} &middot; {carouselFile.stat_dl} downloads{/if}</span>
+            {/if}
+        </div>
     </div>
-
-    {#if hasMultiple}
-        <nav class="file-navigator" aria-label="Album files">
-            <ol>
-                {#each files as file, index (file.index)}
-                    <li>
-                        <button
-                            class="file-button"
-                            class:active={index === selectedIndex}
-                            type="button"
-                            aria-current={index === selectedIndex ? 'true' : undefined}
-                            onclick={() => showFile(index)}
-                        >
-                            <span class="filename">{file.filename}</span>
-                            {#if index === selectedIndex}
-                                <span class="file-meta">
-                                    {index + 1} / {files.length} &middot; {formatFileSize(file.size)}
-                                    {#if file.stat_dl > 0}
-                                        &middot; {file.stat_dl} {file.stat_dl === 1 ? 'download' : 'downloads'}
-                                    {/if}
-                                </span>
-                            {/if}
-                        </button>
-                    </li>
-                {/each}
-            </ol>
-        </nav>
-    {/if}
-
-    <div class="album-details">
-        {@render children()}
-    </div>
-</section>
+{/if}
 
 <style>
-    .album-view {
+    /* Single */
+    .single-media {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
-        grid-template-areas:
-            "stage files"
-            "details .";
-        align-items: start;
-        gap: 1rem;
-        width: min(100%, 72rem);
-        margin: 0 auto;
     }
 
-    .album-view.single {
-        grid-template-columns: minmax(0, 60rem);
-        grid-template-areas:
-            "stage"
-            "details";
-        justify-content: center;
-    }
-
-    .media-stage {
-        position: relative;
-        grid-area: stage;
-        min-width: 0;
-        height: clamp(20rem, 68svh, 44rem);
-        overflow: hidden;
-        background: #111;
-        border: 1px solid #2e2b2c;
-    }
-
-    .media-stage:focus-visible {
-        outline: 2px solid var(--color-accent);
-        outline-offset: 3px;
-    }
-
-    .embla-viewport,
-    .embla-container,
-    .embla-slide {
-        height: 100%;
-    }
-
-    .embla-viewport {
-        overflow: hidden;
-    }
-
-    .embla-container {
-        display: flex;
-        touch-action: pan-y pinch-zoom;
-    }
-
-    .embla-slide {
-        position: relative;
-        flex: 0 0 100%;
-        display: grid;
-        place-items: center;
-        min-width: 0;
-    }
-
-    .embla-slide img,
-    .embla-slide video {
-        position: absolute;
-        inset: 0;
+    .single-media img,
+    .single-media video {
+        max-width: 100%;
+        max-height: calc(100vh - 22rem);
+        width: auto;
+        height: auto;
         display: block;
+        justify-self: center;
+    }
+
+    /* Duo */
+    .duo-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+    }
+
+    .media-item {
+        overflow: hidden;
+        background: #221f20;
+    }
+
+    .media-item img,
+    .media-item video {
         width: 100%;
-        height: 100%;
-        object-fit: contain;
+        height: auto;
+        display: block;
     }
 
-    .embla-slide video {
-        background: #000;
+    /* Carousel */
+    .carousel {
+        display: grid;
+        gap: 0.75rem;
     }
 
-    .unsupported-file {
-        color: var(--color-fb-white);
+    .carousel-stage {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
 
     .carousel-arrow {
-        position: absolute;
-        z-index: 2;
-        top: 50%;
-        width: 2.75rem;
-        height: 3.5rem;
-        padding: 0;
-        transform: translateY(-50%);
-        color: #fff;
-        background: rgb(27 26 26 / 78%);
-        border: 1px solid rgb(255 255 255 / 25%);
-        font: inherit;
-        font-size: 1.25rem;
-        cursor: pointer;
-        transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-    }
-
-    .carousel-arrow.previous {
-        left: 0.75rem;
-    }
-
-    .carousel-arrow.next {
-        right: 0.75rem;
-    }
-
-    .carousel-arrow:hover,
-    .carousel-arrow:focus-visible {
-        color: #060606;
-        background: var(--color-fb-white);
-        border-color: var(--color-fb-white);
-        outline: none;
-    }
-
-    .file-navigator {
-        grid-area: files;
-        align-self: stretch;
-        min-width: 0;
-        min-height: 0;
-        max-height: clamp(20rem, 68svh, 44rem);
-        overflow-y: auto;
-        background: #221f20;
-        border: 1px solid #2e2b2c;
-    }
-
-    .file-navigator ol {
-        display: grid;
-        gap: 0.35rem;
-        margin: 0;
-        padding: 0.5rem;
-        list-style: none;
-    }
-
-    .file-button {
-        display: grid;
-        gap: 0.35rem;
-        width: 100%;
-        padding: 0.75rem;
-        color: #c9c3c5;
-        background: transparent;
-        border: 1px solid transparent;
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
-        transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-    }
-
-    .file-button:hover,
-    .file-button:focus-visible {
-        color: #fff;
+        flex-shrink: 0;
         background: #2e2b2c;
-        border-color: #3b3538;
-        outline: none;
+        border: 1px solid #3b3538;
+        color: #f4f4f4;
+        cursor: pointer;
+        font: inherit;
+        font-size: 1.1rem;
+        padding: 0.5rem 0.75rem;
+        transition: background 0.15s ease;
+        align-self: center;
     }
 
-    .file-button.active {
-        color: #fff;
-        background: rgb(195 15 69 / 18%);
-        border-color: var(--color-accent);
+    .carousel-arrow:hover {
+        background: #3b3538;
     }
 
-    .filename {
-        font-weight: 700;
-        overflow-wrap: anywhere;
-    }
-
-    .file-meta {
-        color: #8a8385;
-        font-size: 0.78rem;
-        line-height: 1.35;
-    }
-
-    .album-details {
-        grid-area: details;
+    .carousel-media {
+        flex: 1;
+        display: flex;
+        justify-content: center;
         min-width: 0;
     }
 
-    .sr-only {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
+    .carousel-media img,
+    .carousel-media video {
+        max-width: 100%;
+        max-height: calc(100vh - 22rem);
+        width: auto;
+        height: auto;
+        display: block;
     }
 
-    @media (max-width: 48rem) {
-        .album-view {
-            grid-template-columns: minmax(0, 1fr);
-            grid-template-areas:
-                "stage"
-                "files"
-                "details";
-        }
-
-        .album-view.single {
-            grid-template-areas:
-                "stage"
-                "details";
-        }
-
-        .media-stage {
-            height: clamp(16rem, 85vw, 32rem);
-        }
-
-        .file-navigator {
-            max-height: none;
-            overflow-y: visible;
-        }
+    .carousel-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
     }
+
+    .carousel-counter {
+        font-size: 0.85rem;
+        color: #6a6468;
+        min-width: 3rem;
+    }
+
+    .carousel-meta {
+        font-size: 0.85rem;
+        color: #8a8385;
+    }
+
 
     @media (max-width: 36rem) {
+        .carousel-stage {
+            gap: 0.25rem;
+        }
+
         .carousel-arrow {
-            width: 2.35rem;
-            height: 3rem;
-        }
-
-        .carousel-arrow.previous {
-            left: 0.4rem;
-        }
-
-        .carousel-arrow.next {
-            right: 0.4rem;
+            padding: 0.4rem 0.5rem;
         }
     }
 </style>

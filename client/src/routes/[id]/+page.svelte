@@ -10,8 +10,8 @@
     const title = $derived(upload.meta.title || upload.id)
     const desc = $derived(upload.meta.desc)
     const ogImageUrl = $derived(
-        upload.type === 'album'
-            ? upload.files.find((file) => file.mime.startsWith('image/'))?.url
+        upload.type === 'album' && upload.files[0]?.mime.startsWith('image/')
+            ? upload.files[0].url
             : undefined
     )
 
@@ -40,7 +40,8 @@
 </svelte:head>
 
 {#if upload.type === 'album'}
-    <AlbumView files={upload.files}>
+    <div class="album-page">
+        <AlbumView files={upload.files} />
         <div class="album-info">
             <div class="upload-title-row">
                 <h1 class="upload-title">{title}</h1>
@@ -56,7 +57,7 @@
                 <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
             </div>
         </div>
-    </AlbumView>
+    </div>
 {:else}
     <div class="panel-wrap">
     <div class="upload-panel">
@@ -91,6 +92,15 @@
 {/if}
 
 <style>
+    /* Album — YouTube style */
+    .album-page {
+        display: grid;
+        gap: 1rem;
+        max-width: min(100%, 60rem);
+        width: fit-content;
+        margin: 0 auto;
+    }
+
     .album-info {
         display: grid;
         gap: 0.5rem;
