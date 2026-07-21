@@ -144,6 +144,7 @@
 
     {#if hasMultiple}
         <nav class="file-navigator" aria-label="Album files">
+        <h2 style="padding-left: 0.75em; margin-bottom: 0;">Your media:</h2>
             <ol>
                 {#each files as file, index (file.index)}
                     <li>
@@ -257,7 +258,7 @@
         z-index: 2;
         top: 50%;
         width: 2.75rem;
-        height: 3.5rem;
+        height: 2.75rem;
         padding: 0;
         transform: translateY(-50%);
         color: #fff;
@@ -333,7 +334,7 @@
     }
 
     .filename {
-        font-weight: 700;
+        font-weight: 400;
         overflow-wrap: anywhere;
     }
 
