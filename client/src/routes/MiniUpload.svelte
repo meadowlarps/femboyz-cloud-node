@@ -25,6 +25,12 @@
         data?.files.find((f) => f.mime.startsWith('image/'))?.url ?? null
     )
 
+    let videoThumbnail = $derived(
+        data?.files.find((f) => f.mime.startsWith('video/'))?.url ?? null
+    )
+
+    let videoEl = $state<HTMLVideoElement | null>(null)
+
     let label = $derived(data?.meta.title || id)
 
     let subtitle = $derived(() => {
@@ -60,7 +66,14 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<button class="mini-card" onclick={open} aria-label={label} disabled={!data && !error}>
+<button
+    class="mini-card"
+    onclick={open}
+    aria-label={label}
+    disabled={!data && !error}
+    onmouseenter={() => videoEl?.play()}
+    onmouseleave={() => { videoEl?.pause(); if (videoEl) videoEl.currentTime = 0 }}
+>
     {#if error}
         <div class="state-box error" in:fade={{ duration: 300 }}>
             <span>{id}</span>
@@ -74,6 +87,21 @@
             {#if thumbnail}
                 <div class="thumb-wrap">
                     <img class="thumb" src={thumbnail} alt={label} loading="lazy" />
+                </div>
+            {:else if videoThumbnail}
+                <div class="thumb-wrap">
+                    <video
+                        class="thumb"
+                        src={videoThumbnail}
+                        bind:this={videoEl}
+                        muted
+                        playsinline
+                        preload="metadata"
+                        loop
+                    ><track kind="captions" /></video>
+                    <div class="play-overlay">
+                        <div class="play-overlay-icon">▶</div>
+                    </div>
                 </div>
             {:else}
                 <div class="thumb-wrap no-thumb">
@@ -127,6 +155,16 @@
             {#if thumbnail}
                 <div class="expanded-thumb-wrap">
                     <img class="expanded-thumb" src={thumbnail} alt={label} />
+                </div>
+            {:else if videoThumbnail}
+                <div class="expanded-thumb-wrap">
+                    <video
+                        class="expanded-thumb"
+                        src={videoThumbnail}
+                        controls
+                        preload="metadata"
+                        playsinline
+                    ><track kind="captions" /></video>
                 </div>
             {:else}
                 <div class="expanded-thumb-wrap no-thumb">
@@ -236,11 +274,40 @@
     }
 
     .thumb-wrap {
+        position: relative;
         width: 100%;
         aspect-ratio: 4 / 3;
         overflow: hidden;
         background: #171515;
         flex-shrink: 0;
+    }
+
+    .play-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+
+    .play-overlay-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(2px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 1rem;
+        padding-left: 2px;
+    }
+
+    .mini-card:hover .play-overlay,
+    .mini-card:focus-visible .play-overlay {
+        opacity: 0;
     }
 
     .thumb {

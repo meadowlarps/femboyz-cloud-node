@@ -11,6 +11,7 @@ import type { IncomingMessage }                         from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
 import      { envs }        from "./config.js"
+import      { inlineContentDisposition } from "./httpHeaders.js"
 import Fastify, {
     type FastifyError,
     type FastifyInstance,
@@ -94,7 +95,7 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
         const buffer = await readFile(file.hashkey256)
         return reply
             .header("Content-Type", file.mime)
-            .header("Content-Disposition", `inline; filename="${file.filename}"`)
+            .header("Content-Disposition", inlineContentDisposition(file.filename))
             .header("Content-Length", String(buffer.length))
             .send(buffer)
     }

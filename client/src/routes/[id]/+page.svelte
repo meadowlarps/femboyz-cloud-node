@@ -97,6 +97,7 @@
         display: grid;
         gap: 1rem;
         max-width: min(100%, 60rem);
+        width: fit-content;
         margin: 0 auto;
     }
 

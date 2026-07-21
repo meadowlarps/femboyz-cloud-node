@@ -60,7 +60,7 @@
 	}
 
 	.brand .logo-img {
-		transition: filter 0.35s ease-out, transform 0.25s ease, width 0.6s ease;
+		transition: filter 0.35s ease-out, transform 0.25s ease, width 0.5s ease;
 	}
 
 	.brand:hover .logo-img {
@@ -106,7 +106,7 @@
 
 	.page-content {
 		margin: 0;
-		padding: 3.5rem 1.5rem 2rem;
+		padding: 2rem 1.5rem 2rem;
 	}
 
 	@media (max-width: 42rem) {
