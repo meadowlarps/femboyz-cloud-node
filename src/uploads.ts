@@ -183,8 +183,7 @@ export function idGen(): string {
 
 export function typeClassify(mimes: string[]): "files" | "album" | "playlist" {
     const groups = new Set(mimes.map(m => m.split("/")[0]!))
-    if (groups.size !== 1) return "files"
-    if (groups.has("image") || groups.has("video")) return "album"
-    if (groups.has("audio")) return "playlist"
+    if (groups.size > 0 && [...groups].every(group => group === "image" || group === "video")) return "album"
+    if (groups.size === 1 && groups.has("audio")) return "playlist"
     return "files"
 }

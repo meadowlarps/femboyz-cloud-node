@@ -143,8 +143,10 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
         const count = upload.files.length
         let text: string
         if (upload.type === "album") {
-            const first = upload.files[0]!
-            const kind = first.mime.startsWith("image/") ? "image" : "video"
+            const mediaGroups = new Set(upload.files.map(file => file.mime.split("/")[0]))
+            const kind = mediaGroups.size === 1
+                ? (mediaGroups.has("image") ? "image" : "video")
+                : "media item"
             text = `${title}\n${count} ${kind}${count !== 1 ? "s" : ""} via ${siteName}`
         } else if (upload.type === "playlist") {
             text = `${title}\nPlaylist via ${baseUrl} (${count} audio${count !== 1 ? "s" : ""})`
@@ -195,14 +197,17 @@ function buildUploadPage(upload: FilesUpload, id: string, baseUrl: string, siteN
     const title = upload.meta.title || id
     const desc  = upload.meta.desc
     const count = upload.files.length
-    const first = upload.files[0]
+    const previewImageIndex = upload.type === "album"
+        ? upload.files.findIndex(file => file.mime.startsWith("image/"))
+        : -1
+    const previewImage = upload.files[previewImageIndex]
 
     let ogTags = `<meta property="og:title" content="${escapeHtml(title)}">\n  `
     ogTags    += `<meta property="og:url" content="${baseUrl}/${id}">\n  `
 
-    if (upload.type === "album" && first?.mime.startsWith("image/")) {
-        const imgUrl = `${baseUrl}/${id}/0`
-        if (first.mime === "image/gif") {
+    if (previewImage) {
+        const imgUrl = `${baseUrl}/${id}/${previewImageIndex}`
+        if (previewImage.mime === "image/gif") {
             ogTags += `<meta property="og:type" content="video.other">\n  `
             ogTags += `<meta property="og:image" content="${imgUrl}">\n  `
             ogTags += `<meta property="og:video" content="${imgUrl}">\n  `
@@ -210,7 +215,7 @@ function buildUploadPage(upload: FilesUpload, id: string, baseUrl: string, siteN
         } else {
             ogTags += `<meta property="og:type" content="website">\n  `
             ogTags += `<meta property="og:image" content="${imgUrl}">\n  `
-            ogTags += `<meta property="og:image:type" content="${escapeHtml(first.mime)}">\n  `
+            ogTags += `<meta property="og:image:type" content="${escapeHtml(previewImage.mime)}">\n  `
         }
     } else {
         ogTags += `<meta property="og:type" content="website">\n  `

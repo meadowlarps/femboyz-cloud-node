@@ -33,9 +33,14 @@ test("ID Gen Format", () => {
 
 
 test("Type Classifier Upload Classification", () => {
+    assert.equal(typeClassify(["image/png"]), "album")
     assert.equal(typeClassify(["image/png", "image/jpeg"]), "album")
     assert.equal(typeClassify(["video/mp4", "video/webm"]), "album")
+    assert.equal(typeClassify(["image/png", "video/mp4"]), "album")
+    assert.equal(typeClassify(["image/gif", "video/webm"]), "album")
     assert.equal(typeClassify(["audio/mpeg", "audio/wav"]), "playlist")
     assert.equal(typeClassify(["application/pdf", "text/plain"]), "files")
     assert.equal(typeClassify(["image/png", "audio/mpeg"]), "files")
+    assert.equal(typeClassify(["image/png", "video/mp4", "audio/mpeg"]), "files")
+    assert.equal(typeClassify([]), "files")
 })

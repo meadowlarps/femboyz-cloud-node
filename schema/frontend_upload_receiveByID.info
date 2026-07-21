@@ -16,6 +16,7 @@
             - album: 
                 - images: preview of the first image + (6 images via femboyz.cloud)
                 - videos: (6 videos via femboyz.cloud)
+                - mixed images/videos: preview of the first image + (6 media items via femboyz.cloud)
             - playlist: (playlist via femboyz.cloud (6 audios))
         - application/json -> returns metadata of the upload
 
