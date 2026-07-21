@@ -21,6 +21,8 @@
 		"vite": "^8.0.7"
 	},
 	"dependencies": {
-		"@svelte-i18n/core": "^2.0.1"
+		"@svelte-i18n/core": "^2.0.1",
+		"embla-carousel": "^8.6.0",
+		"embla-carousel-svelte": "^8.6.0"
 	}
 }
