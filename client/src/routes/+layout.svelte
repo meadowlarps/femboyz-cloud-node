@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.webp'
 	import logo from '$lib/assets/logo.webp'
 	import { page } from '$app/stores'
+	import AlertStack from '$lib/AlertStack.svelte'
 
 	let { children } = $props()
 	const miniLogo = $derived($page.route.id === '/[id]')
@@ -27,6 +28,8 @@
 		{@render children()}
 	</main>
 </div>
+
+<AlertStack />
 
 <style>
 	:global(body) {

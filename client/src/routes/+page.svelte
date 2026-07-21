@@ -10,6 +10,7 @@
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
     import { getHistory, addToHistory } from '$lib/upload/history'
+    import { spawnAlert } from '$lib/alerts'
 
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
 
@@ -125,8 +126,10 @@
             uploadResultId = result.id
             addToHistory(result.id)
             uploadHistory = getHistory()
+            spawnAlert('success', `Upload complete: ${result.id}`)
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
+            spawnAlert('error', `Upload failed: ${uploadError}`)
         } finally {
             isUploading = false
         }
@@ -148,8 +151,10 @@
             uploadResultId = result.id
             addToHistory(result.id)
             uploadHistory = getHistory()
+            spawnAlert('success', `Upload complete: ${result.id}`)
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
+            spawnAlert('error', `Upload failed: ${uploadError}`)
         } finally {
             isUploading = false
         }

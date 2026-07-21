@@ -3,12 +3,14 @@
     import FilesView from './FilesView.svelte'
     import AlbumView from './AlbumView.svelte'
     import PlaylistView from './PlaylistView.svelte'
+    import CopyLinkButton from '$lib/CopyLinkButton.svelte'
 
     let { data }: { data: PageData } = $props()
 
     const upload = $derived(data.upload)
     const title = $derived(upload.meta.title || upload.id)
     const desc = $derived(upload.meta.desc)
+    const uploadUrl = $derived(`/${upload.id}`)
     const ogImageUrl = $derived(
         upload.type === 'album'
             ? upload.files.find((file) => file.mime.startsWith('image/'))?.url
@@ -43,7 +45,10 @@
     <AlbumView files={upload.files}>
         <div class="album-info">
             <div class="upload-title-row">
-                <h1 class="upload-title">{title}</h1>
+                <div class="upload-title-group">
+                    <h1 class="upload-title"><a href={uploadUrl}>{title}</a></h1>
+                    <CopyLinkButton url={uploadUrl} label={`Copy link to ${title}`} />
+                </div>
             </div>
             {#if desc}
                 <p class="upload-desc">{desc}</p>
@@ -62,7 +67,10 @@
     <div class="upload-panel">
         <header class="upload-header">
             <div class="upload-title-row">
-                <h1 class="upload-title">{title}</h1>
+                <div class="upload-title-group">
+                    <h1 class="upload-title"><a href={uploadUrl}>{title}</a></h1>
+                    <CopyLinkButton url={uploadUrl} label={`Copy link to ${title}`} />
+                </div>
                 <span class="upload-type-badge">{typeLabel[upload.type] ?? upload.type}</span>
             </div>
 
@@ -139,6 +147,29 @@
         font-size: 1.75rem;
         line-height: 1.2;
         overflow-wrap: anywhere;
+    }
+
+    .upload-title-group {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 0.5rem;
+    }
+
+    .upload-title a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .upload-title a:hover {
+        color: var(--color-accent);
+        text-decoration: underline;
+        text-underline-offset: 0.15em;
+    }
+
+    .upload-title a:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 3px;
     }
 
     .upload-type-badge {

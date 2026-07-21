@@ -4,6 +4,7 @@
     import { onMount, type Snippet } from 'svelte'
     import type { FileData } from '$lib/upload/downloader'
     import { formatFileSize } from '$lib/upload/uploader'
+    import CopyLinkButton from '$lib/CopyLinkButton.svelte'
 
     let { files, children }: { files: FileData[]; children: Snippet } = $props()
 
@@ -144,10 +145,10 @@
 
     {#if hasMultiple}
         <nav class="file-navigator" aria-label="Album files">
-        <h2 style="padding-left: 0.75em; margin-bottom: 0;">Your media:</h2>
+            <h2 style="padding-left: 0.75em; margin-bottom: 0.2em;">Your media:</h2>
             <ol>
                 {#each files as file, index (file.index)}
-                    <li>
+                    <li class="file-row">
                         <button
                             class="file-button"
                             class:active={index === selectedIndex}
@@ -165,6 +166,12 @@
                                 </span>
                             {/if}
                         </button>
+                        <span class="file-copy">
+                            <CopyLinkButton
+                                url={file.url}
+                                label={`Copy direct link to ${file.filename}`}
+                            />
+                        </span>
                     </li>
                 {/each}
             </ol>
@@ -293,7 +300,6 @@
         min-height: 0;
         max-height: clamp(20rem, 68svh, 44rem);
         overflow-y: auto;
-        background: #221f20;
         border: 1px solid #2e2b2c;
     }
 
@@ -305,11 +311,23 @@
         list-style: none;
     }
 
+    .file-row {
+        position: relative;
+        min-width: 0;
+    }
+
+    .file-copy {
+        position: absolute;
+        z-index: 1;
+        top: 0.55rem;
+        right: 0.55rem;
+    }
+
     .file-button {
         display: grid;
         gap: 0.35rem;
         width: 100%;
-        padding: 0.75rem;
+        padding: 0.75rem 2.65rem 0.75rem 0.75rem;
         color: #c9c3c5;
         background: transparent;
         border: 1px solid transparent;
