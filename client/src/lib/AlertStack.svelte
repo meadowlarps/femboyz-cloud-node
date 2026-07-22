@@ -49,6 +49,7 @@
         padding: 0.65rem 0.75rem 0.65rem 1.2rem;
         color: #f4f4f4;
         background: var(--alert-background);
+        backdrop-filter: blur(12px);
         border: 1px solid var(--alert-color);
         box-shadow: 0 0.4rem 1.25rem rgb(0 0 0 / 35%);
         pointer-events: auto;

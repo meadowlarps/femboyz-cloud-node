@@ -9,7 +9,7 @@
         sendLinkUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
-    import { getHistory, addToHistory } from '$lib/upload/history'
+    import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
     import { spawnAlert } from '$lib/alerts'
 
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
@@ -112,6 +112,11 @@
         clearProgressTimers()
     }
 
+    function ignoreUpload(id: string) {
+        removeFromHistory(id)
+        uploadHistory = getHistory()
+    }
+
     async function uploadFiles() {
         uploadError = ''
         uploadResultId = ''
@@ -149,9 +154,14 @@
             isUploading = true
             const result = await sendLinkUpload(apiEndpoint, linkUrl)
             uploadResultId = result.id
-            addToHistory(result.id)
-            uploadHistory = getHistory()
-            spawnAlert('success', `Upload complete: ${result.id}`)
+            const shortUrl = new URL(`/${result.id}`, window.location.href).href
+
+            try {
+                await navigator.clipboard.writeText(shortUrl)
+                spawnAlert('success', 'Short link copied')
+            } catch {
+                spawnAlert('error', `Short link created but could not be copied: ${shortUrl}`)
+            }
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
             spawnAlert('error', `Upload failed: ${uploadError}`)
@@ -316,7 +326,9 @@
     {/if}
 
     {#if uploadResultId}
-        <p transition:slide|global class="success-message">Uploaded: {uploadResultId}</p>
+        <p transition:slide|global class="success-message">
+            {mode === 'link' ? 'Short link' : 'Uploaded'}: {uploadResultId}
+        </p>
     {/if}
 
     <div class="finalize">
@@ -344,7 +356,7 @@
 <div class="uploads-grid-wrap">
     <div class="uploads-grid">
         {#each visibleUploads as id (id)}
-            <MiniUpload {id} />
+            <MiniUpload {id} onIgnore={ignoreUpload} />
         {/each}
     </div>
     {#if hasMore}
@@ -698,7 +710,7 @@
 
     .uploads-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(min(13rem, 100%), 1fr));
         gap: 1rem;
         align-content: start;
     }

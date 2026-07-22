@@ -13,3 +13,7 @@ export function addToHistory(id: string): void {
     if (history.includes(id)) return
     localStorage.setItem(KEY, JSON.stringify([id, ...history]))
 }
+
+export function removeFromHistory(id: string): void {
+    localStorage.setItem(KEY, JSON.stringify(getHistory().filter((item) => item !== id)))
+}

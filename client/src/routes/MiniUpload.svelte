@@ -1,265 +1,316 @@
-<script module lang="ts">
-    const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
+<script lang="ts">
+    import emblaCarouselSvelte from 'embla-carousel-svelte'
+    import type { EmblaCarouselType, EmblaOptionsType } from 'embla-carousel'
+    import { onDestroy } from 'svelte'
+    import { prefersReducedMotion } from 'svelte/motion'
+    import { fade } from 'svelte/transition'
     import { fetchUpload, type UploadData } from '$lib/upload/downloader'
     import { formatFileSize } from '$lib/upload/uploader'
-    import { fade, scale } from 'svelte/transition'
-</script>
+    import CopyLinkButton from '$lib/CopyLinkButton.svelte'
 
-<script lang="ts">
-    let { id }: { id: string } = $props()
+    const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
+
+    type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'archive' | 'document' | 'binary'
+
+    let { id, onIgnore }: { id: string; onIgnore: (id: string) => void } = $props()
 
     let data = $state<UploadData | null>(null)
     let error = $state('')
-    let expanded = $state(false)
+    let ignored = $state(false)
+    let carouselApi = $state<EmblaCarouselType>()
+    let cardRoot = $state<HTMLElement>()
+    let selectedIndex = $state(0)
+    let cardHovered = $state(false)
+    let persistentSelection = $state(false)
+    let returnTimer: ReturnType<typeof setTimeout> | undefined
 
-    $effect(() => {
-        data = null
-        error = ''
-
-        fetchUpload(id, apiEndpoint)
-            .then((result) => { data = result })
-            .catch((err) => { error = err instanceof Error ? err.message : 'Failed' })
-    })
-
-    let thumbnail = $derived(
-        data?.files.find((f) => f.mime.startsWith('image/'))?.url ?? null
-    )
-
-    let videoThumbnail = $derived(
-        data?.files.find((f) => f.mime.startsWith('video/'))?.url ?? null
-    )
-
-    let videoEl = $state<HTMLVideoElement | null>(null)
-
-    let label = $derived(data?.meta.title || id)
-
-    let subtitle = $derived(() => {
-        if (!data) return ''
-        const count = data.files.length
-        if (data.type === 'link') {
-            try { return new URL(data.link ?? '').hostname } catch { return data.link ?? 'link' }
-        }
-        if (count === 1) return formatFileSize(data.files[0]!.size)
-        return `${count} files`
-    })
-
-    let dateLabel = $derived(
+    const files = $derived(data?.files ?? [])
+    const hasMultiple = $derived(files.length > 1)
+    const label = $derived(data?.meta.title || id)
+    const uploadUrl = $derived(`/${id}`)
+    const dateLabel = $derived(
         data ? new Date(data.when).toLocaleDateString(undefined, { dateStyle: 'medium' }) : ''
     )
+    const totalSize = $derived(files.reduce((sum, file) => sum + file.size, 0))
+    const carouselOptions = $derived<EmblaOptionsType>({
+        loop: false,
+        watchDrag: hasMultiple
+    })
 
-    let totalSize = $derived(
-        data?.files.reduce((sum, f) => sum + f.size, 0) ?? 0
-    )
+    $effect(() => {
+        const uploadId = id
+        let cancelled = false
 
-    function open() {
-        if (data) expanded = true
+        data = null
+        error = ''
+        ignored = false
+        selectedIndex = 0
+        persistentSelection = false
+        clearReturnTimer()
+
+        fetchUpload(uploadId, apiEndpoint)
+            .then((result) => {
+                if (cancelled) return
+                if (result.type === 'link') {
+                    ignored = true
+                    onIgnore(uploadId)
+                    return
+                }
+                data = result
+            })
+            .catch((err) => {
+                if (!cancelled) error = err instanceof Error ? err.message : 'Failed'
+            })
+
+        return () => { cancelled = true }
+    })
+
+    onDestroy(() => {
+        clearReturnTimer()
+        pauseVideos()
+    })
+
+    function clearReturnTimer() {
+        clearTimeout(returnTimer)
+        returnTimer = undefined
     }
 
-    function close() {
-        expanded = false
+    function pauseVideos() {
+        cardRoot?.querySelectorAll('video').forEach((video) => video.pause())
     }
 
-    function handleKeydown(e: KeyboardEvent) {
-        if (expanded && e.key === 'Escape') close()
+    function syncVideoPlayback() {
+        cardRoot?.querySelectorAll('video').forEach((video) => {
+            const isActive = Number(video.dataset.fileIndex) === selectedIndex
+            if (cardHovered && isActive) {
+                void video.play().catch(() => {})
+            } else {
+                video.pause()
+            }
+        })
+    }
+
+    function syncSelection(api: EmblaCarouselType) {
+        selectedIndex = api.selectedScrollSnap()
+        syncVideoPlayback()
+    }
+
+    function onCarouselInit(event: CustomEvent<EmblaCarouselType>) {
+        carouselApi = event.detail
+        syncSelection(carouselApi)
+        carouselApi.on('select', syncSelection)
+        carouselApi.on('pointerDown', () => {
+            persistentSelection = true
+            clearReturnTimer()
+        })
+    }
+
+    function showMedia(index: number, jump = prefersReducedMotion.current) {
+        carouselApi?.scrollTo(index, jump)
+    }
+
+    function previewMedia(index: number) {
+        persistentSelection = false
+        clearReturnTimer()
+        showMedia(index)
+    }
+
+    function keepMedia(index: number) {
+        persistentSelection = true
+        clearReturnTimer()
+        showMedia(index)
+    }
+
+    function scheduleFirstMedia() {
+        if (persistentSelection) return
+        clearReturnTimer()
+        returnTimer = setTimeout(() => showMedia(0, true), 4000)
+    }
+
+    function handleCardEnter() {
+        cardHovered = true
+        syncVideoPlayback()
+    }
+
+    function handleCardLeave() {
+        cardHovered = false
+        pauseVideos()
+    }
+
+    function mimeKind(mime: string): FileKind {
+        if (mime.startsWith('image/')) return 'image'
+        if (mime.startsWith('video/')) return 'video'
+        if (mime.startsWith('audio/')) return 'audio'
+        if (mime === 'application/pdf') return 'pdf'
+        if (/zip|compressed|archive|tar|rar|7z|gzip/.test(mime)) return 'archive'
+        if (mime.startsWith('text/') || /json|xml|document|word|sheet|presentation/.test(mime)) return 'document'
+        return 'binary'
+    }
+
+    function mimeLabel(mime: string) {
+        const labels: Record<FileKind, string> = {
+            image: 'IMG',
+            video: 'VID',
+            audio: 'AUD',
+            pdf: 'PDF',
+            archive: 'ZIP',
+            document: 'DOC',
+            binary: 'FILE'
+        }
+        return labels[mimeKind(mime)]
     }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-<button
-    class="mini-card"
-    onclick={open}
-    aria-label={label}
-    disabled={!data && !error}
-    onmouseenter={() => videoEl?.play()}
-    onmouseleave={() => { videoEl?.pause(); if (videoEl) videoEl.currentTime = 0 }}
->
-    {#if error}
-        <div class="state-box error" in:fade={{ duration: 300 }}>
-            <span>{id}</span>
-            <br />
-            <span>{error}</span>
-        </div>
-    {:else if !data}
-        <div class="state-box loading" aria-busy="true"></div>
-    {:else}
-        <div class="card-loaded" in:fade={{ duration: 300 }}>
-            {#if thumbnail}
-                <div class="thumb-wrap">
-                    <img class="thumb" src={thumbnail} alt={label} loading="lazy" />
-                </div>
-            {:else if videoThumbnail}
-                <div class="thumb-wrap">
-                    <video
-                        class="thumb"
-                        src={videoThumbnail}
-                        bind:this={videoEl}
-                        muted
-                        playsinline
-                        preload="metadata"
-                        loop
-                    ><track kind="captions" /></video>
-                    <div class="play-overlay">
-                        <div class="play-overlay-icon">▶</div>
-                    </div>
-                </div>
-            {:else}
-                <div class="thumb-wrap no-thumb">
-                    <span class="type-icon">{data.type === 'link' ? '↗' : data.type === 'playlist' ? '♫' : '📁'}</span>
-                </div>
-            {/if}
-
-            <div class="card-info">
-                <strong class="card-title">{label}</strong>
-                <div class="card-meta">
-                    <span class="card-subtitle">{subtitle()}</span>
-                    {#if data.type !== "link"}
-                        <span class="card-date">{dateLabel}</span>
-                    {/if}
-                </div>
-            </div>
-        </div>
-    {/if}
-</button>
-
-{#if expanded && data}
-    <div
-        class="backdrop"
-        role="presentation"
-        in:fade={{ duration: 150 }}
-        out:fade={{ duration: 150 }}
-        onclick={close}
+{#if !ignored}
+    <!-- Hover playback is a visual enhancement; all navigation remains keyboard-accessible. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <article
+        class="mini-card"
+        bind:this={cardRoot}
+        onmouseenter={handleCardEnter}
+        onmouseleave={handleCardLeave}
     >
-        <div
-            class="expanded-card"
-            in:scale={{ duration: 200, start: 0.92 }}
-            out:scale={{ duration: 150, start: 0.95 }}
-            onclick={(e) => e.stopPropagation()}
-            onkeydown={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-label={label}
-            aria-modal="true"
-            tabindex="-1"
-        >
-            <a
-                class="btn open-btn"
-                href="/{id}"
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open in new tab"
-                aria-label="Open in new tab"
-            >↗</a>
-
-            <button class="btn close-btn" onclick={close} aria-label="Close">✕</button>
-
-            {#if thumbnail}
-                <div class="expanded-thumb-wrap">
-                    <img class="expanded-thumb" src={thumbnail} alt={label} />
-                </div>
-            {:else if videoThumbnail}
-                <div class="expanded-thumb-wrap">
-                    <video
-                        class="expanded-thumb"
-                        src={videoThumbnail}
-                        controls
-                        preload="metadata"
-                        playsinline
-                    ><track kind="captions" /></video>
-                </div>
-            {:else}
-                <div class="expanded-thumb-wrap no-thumb">
-                    <span class="type-icon-large">{data.type === 'link' ? '↗' : data.type === 'playlist' ? '♫' : '📁'}</span>
-                </div>
-            {/if}
-
-            <div class="expanded-info">
-                <div class="expanded-header">
-                    <h2 class="expanded-title">{label}</h2>
-                    <span class="expanded-type-badge">{data.type}</span>
-                </div>
-
-                <div class="expanded-meta-row">
-                    <span class="expanded-date">{dateLabel}</span>
-                    {#if data.type !== 'link' && data.files.length > 1}
-                        <span class="expanded-total">{formatFileSize(totalSize)} total</span>
-                    {/if}
-                </div>
-
-                {#if data.type === 'link' && data.link}
-                    <a class="expanded-link-url" href={data.link} target="_blank" rel="noopener noreferrer">{data.link}</a>
-                {/if}
-
-                {#if data.type !== 'link' && data.files.length > 0}
-                    <ul class="expanded-file-list">
-                        {#each data.files as file}
-                            <li class="expanded-file-item">
-                                <span class="expanded-file-name">{file.filename}</span>
-                                <span class="expanded-file-size">{formatFileSize(file.size)}</span>
-                            </li>
-                        {/each}
-                    </ul>
-                {/if}
-
-                {#if data.meta.desc}
-                    <h5 style="margin-bottom: 0; margin-top: 0.8rem;">Description:</h5>
-                    <p class="expanded-desc">{data.meta.desc}</p>
-                {/if}
+        {#if error}
+            <div class="state-box error" in:fade={{ duration: 300 }}>
+                <strong>{id}</strong>
+                <span>{error}</span>
             </div>
-        </div>
-    </div>
+        {:else if !data}
+            <div class="state-box loading" aria-busy="true" aria-label={`Loading ${id}`}></div>
+        {:else}
+            <div class="card-loaded" in:fade={{ duration: 300 }}>
+                {#if data.type === 'album'}
+                    <div
+                        class="preview-stage"
+                        role="region"
+                        aria-label={`${label} preview`}
+                        aria-roledescription="carousel"
+                    >
+                        <span class="type-badge">Album</span>
+                        <div
+                            class="embla-viewport"
+                            use:emblaCarouselSvelte={{ options: carouselOptions, plugins: [] }}
+                            onemblaInit={onCarouselInit}
+                        >
+                            <div class="embla-container">
+                                {#each files as file, index (file.index)}
+                                    <div
+                                        class="embla-slide"
+                                        role="group"
+                                        aria-label={`${index + 1} of ${files.length}`}
+                                        aria-hidden={index !== selectedIndex}
+                                    >
+                                        <a
+                                            class="media-link"
+                                            href={uploadUrl}
+                                            aria-label={`Open ${label}`}
+                                            tabindex={index === selectedIndex ? 0 : -1}
+                                        >
+                                            {#if file.mime.startsWith('image/')}
+                                                <img src={file.url} alt="" loading="lazy" />
+                                            {:else}
+                                                <!-- Muted card previews have no spoken content or caption resource. -->
+                                                <!-- svelte-ignore a11y_media_has_caption -->
+                                                <video
+                                                    src={file.url}
+                                                    muted
+                                                    playsinline
+                                                    preload="metadata"
+                                                    loop
+                                                    data-file-index={index}
+                                                    aria-hidden="true"
+                                                ></video>
+                                            {/if}
+                                        </a>
+                                    </div>
+                                {/each}
+                            </div>
+                        </div>
+
+                        {#if hasMultiple}
+                            <div class="carousel-selectors" role="group" aria-label="Choose album media">
+                                {#each files as file, index (file.index)}
+                                    <button
+                                        class:active={index === selectedIndex}
+                                        type="button"
+                                        aria-label={`Show ${file.filename}, ${index + 1} of ${files.length}`}
+                                        aria-current={index === selectedIndex ? 'true' : undefined}
+                                        onmouseenter={() => previewMedia(index)}
+                                        onmouseleave={scheduleFirstMedia}
+                                        onfocus={() => previewMedia(index)}
+                                        onblur={scheduleFirstMedia}
+                                        onclick={() => keepMedia(index)}
+                                    ></button>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                {:else}
+                    <a class="file-stage" href={uploadUrl} aria-label={`Open ${label}`}>
+                        <span class="type-badge">{data.type}</span>
+                        <span class="file-icons" aria-hidden="true">
+                            {#each files as file (file.index)}
+                                <span class="file-icon" data-kind={mimeKind(file.mime)}>
+                                    {mimeLabel(file.mime)}
+                                </span>
+                            {/each}
+                        </span>
+                    </a>
+                {/if}
+
+                <footer class="card-info">
+                    <div class="title-row">
+                        <a class="card-title" href={uploadUrl} title={label}>{label}</a>
+                        <CopyLinkButton url={uploadUrl} label={`Copy link to ${label}`} />
+                    </div>
+                    <div class="card-meta">
+                        <span>{files.length} {files.length === 1 ? 'file' : 'files'} &middot; {formatFileSize(totalSize)}</span>
+                        <time datetime={data.when}>{dateLabel}</time>
+                    </div>
+                </footer>
+            </div>
+        {/if}
+    </article>
 {/if}
 
 <style>
     .mini-card {
-        display: flex;
-        flex-direction: column;
-        text-decoration: none;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
         color: inherit;
         background: #1e1b1c;
         border: 1px solid #3b3538;
-        overflow: hidden;
-        transition: border-color 0.15s ease-out, transform 0.2s ease-out;
-        cursor: pointer;
-        padding: 0;
-        font: inherit;
-        text-align: left;
-        width: 100%;
+        transition: border-color 150ms ease-out, transform 200ms ease-out;
     }
 
-    .mini-card:hover:not(:disabled),
-    .mini-card:focus-visible:not(:disabled) {
+    .mini-card:hover,
+    .mini-card:focus-within {
         border-color: var(--color-accent);
         transform: scale(1.01);
-        outline: none;
-    }
-
-    .mini-card:disabled {
-        cursor: default;
     }
 
     .card-loaded {
         display: flex;
         flex-direction: column;
-        flex: 1;
-        width: 100%;
+        height: 100%;
     }
 
     .state-box {
-        height: 10rem;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-size: 0.8rem;
+        aspect-ratio: 4 / 3;
+        padding: 0.75rem;
         color: #8a8385;
+        font-size: 0.8rem;
         text-align: center;
-        padding: 0.5rem;
     }
 
-    .state-box.error span {
+    .state-box.error {
+        gap: 0.35rem;
         color: #ffb3c7;
-        display: block;
-        margin-top: 0.25rem;
     }
 
     .state-box.loading {
@@ -268,278 +319,200 @@
         animation: shimmer 1.4s infinite;
     }
 
-    @keyframes shimmer {
-        0%   { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
-    }
-
-    .thumb-wrap {
+    .preview-stage,
+    .file-stage {
         position: relative;
+        display: block;
         width: 100%;
         aspect-ratio: 4 / 3;
         overflow: hidden;
         background: #171515;
-        flex-shrink: 0;
     }
 
-    .play-overlay {
+    .type-badge {
         position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        z-index: 3;
+        top: 0.65rem;
+        left: 0.65rem;
+        padding: 0.2rem 0.45rem;
+        color: #f4f4f4;
+        background: rgb(23 21 21 / 75%);
+        border: 1px solid rgb(255 255 255 / 25%);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        backdrop-filter: blur(0.25rem);
         pointer-events: none;
-        transition: opacity 0.2s ease;
     }
 
-    .play-overlay-icon {
-        width: 2.5rem;
-        height: 2.5rem;
-        background: rgba(0, 0, 0, 0.45);
-        backdrop-filter: blur(2px);
+    .embla-viewport,
+    .embla-container,
+    .embla-slide,
+    .media-link {
+        height: 100%;
+    }
+
+    .embla-viewport {
+        overflow: hidden;
+    }
+
+    .embla-container {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        font-size: 1rem;
-        padding-left: 2px;
+        touch-action: pan-y pinch-zoom;
     }
 
-    .mini-card:hover .play-overlay,
-    .mini-card:focus-visible .play-overlay {
-        opacity: 0;
+    .embla-slide {
+        flex: 0 0 100%;
+        min-width: 0;
     }
 
-    .thumb {
+    .media-link {
+        display: block;
+        width: 100%;
+    }
+
+    .media-link:focus-visible,
+    .file-stage:focus-visible,
+    .card-title:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: -3px;
+    }
+
+    .media-link img,
+    .media-link video {
+        display: block;
         width: 100%;
         height: 100%;
         object-fit: cover;
-        display: block;
     }
 
-    .no-thumb {
+    .carousel-selectors {
+        position: absolute;
+        z-index: 4;
+        left: 50%;
+        bottom: 0.65rem;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #1a1718;
+        gap: 0.4rem;
+        padding: 0.35rem 0.45rem;
+        transform: translateX(-50%);
+        background: rgba(23, 21, 21, 0.583);
+        border-radius: 5px;
+        backdrop-filter: blur(12px) invert(0.1);
     }
 
-    .type-icon {
-        font-size: 3rem;
-        opacity: 0.3;
+    .carousel-selectors button {
+        width: 0.65rem;
+        height: 0.65rem;
+        padding: 0;
+        background: #d1cbcd;
+        border: 0;
+        border-radius: 50%;
+        transition: background 150ms ease, transform 150ms ease;
     }
+
+    .carousel-selectors button:hover,
+    .carousel-selectors button:focus-visible {
+        background: #fff;
+    }
+
+    .carousel-selectors button.active {
+        background: var(--color-accent);
+    }
+
+    .file-stage {
+        display: grid;
+        place-items: center;
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .file-icons {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 3.3rem));
+        place-content: center;
+        gap: 0.5rem;
+        width: 100%;
+        padding: 3rem 0.75rem 1rem;
+        box-sizing: border-box;
+    }
+
+    .file-icon {
+        --icon-color: #918a8d;
+        display: grid;
+        place-items: center;
+        aspect-ratio: 1;
+        color: var(--icon-color);
+        border: 1px solid currentColor;
+        font-size: 0.55rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        box-shadow: inset 0 -0.25rem 0 rgb(255 255 255 / 4%);
+    }
+
+    .file-icon[data-kind='image'] { --icon-color: #66b8e8; }
+    .file-icon[data-kind='video'] { --icon-color: #c78be8; }
+    .file-icon[data-kind='audio'] { --icon-color: #e887b3; }
+    .file-icon[data-kind='pdf'] { --icon-color: #e86f77; }
+    .file-icon[data-kind='archive'] { --icon-color: #e6b85f; }
+    .file-icon[data-kind='document'] { --icon-color: #75cda5; }
 
     .card-info {
-        padding: 0.65rem 0.75rem;
         display: grid;
-        gap: 0.3rem;
+        gap: 0.35rem;
+        padding: 0.6rem 0.65rem;
+        min-width: 0;
+    }
+
+    .title-row,
+    .card-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-width: 0;
+        gap: 0.5rem;
     }
 
     .card-title {
-        font-size: 0.9rem;
+        min-width: 0;
         overflow: hidden;
-        white-space: nowrap;
+        color: #f4f4f4;
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-decoration: none;
         text-overflow: ellipsis;
-        display: block;
+        white-space: nowrap;
+    }
+
+    .card-title:hover {
+        color: var(--color-accent);
+        text-decoration: underline;
+        text-underline-offset: 0.15em;
     }
 
     .card-meta {
-        display: flex;
-        justify-content: space-between;
-        gap: 0.5rem;
-        font-size: 0.78rem;
+        gap: 0.25rem;
         color: #8a8385;
+        font-size: 0.68rem;
     }
 
-    .card-date {
-        flex-shrink: 0;
+    .card-meta time {
+        flex: 0 0 auto;
     }
 
-    /* ── Modal ── */
-
-    .backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.72);
-        backdrop-filter: blur(4px);
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1.5rem;
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
     }
 
-    .expanded-card {
-        position: relative;
-        background: #1e1b1c;
-        border: 1px solid #3b3538;
-        width: 100%;
-        max-width: 30rem;
-        max-height: 90vh;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-    }
+    @media (prefers-reduced-motion: reduce) {
+        .mini-card,
+        .carousel-selectors button {
+            transition: none;
+        }
 
-    .expanded-card .btn {
-        position: absolute;
-        top: 0.6rem;
-        width: 2rem;
-        height: 2rem;
-        box-sizing: border-box;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-decoration: none;
-        border: 1px solid #4b4246;
-        color: #c9c3c5;
-        cursor: pointer;
-        font-size: 1rem;
-        z-index: 10;
-        transition: background 0.15s, color 0.15s, border-color 0.15s;
-    }
-
-    .open-btn {
-        right: 2.8rem;
-        background: rgba(30, 27, 28, 0.85);
-    }
-
-    .open-btn:hover {
-        background: #3b3538;
-        color: #fff;
-        border-color: #6b6068;
-    }
-
-    .close-btn {
-        right: 0.6rem;
-        background: rgba(30, 27, 28, 0.85);
-    }
-
-    .close-btn:hover {
-        background: var(--color-accent);
-        border-color: var(--color-accent);
-        color: #fff;
-    }
-
-    .expanded-thumb-wrap {
-        width: 100%;
-        aspect-ratio: 16 / 9;
-        overflow: hidden;
-        background: #171515;
-        flex-shrink: 0;
-    }
-
-    .expanded-thumb-wrap.no-thumb {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #1a1718;
-    }
-
-    .expanded-thumb {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-    }
-
-    .type-icon-large {
-        font-size: 4.5rem;
-        opacity: 0.25;
-    }
-
-    .expanded-info {
-        padding: 1rem 1.1rem 1.25rem;
-        display: grid;
-        gap: 0.75rem;
-        min-width: 0;
-        overflow: hidden;
-    }
-
-    .expanded-header {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.6rem;
-    }
-
-    .expanded-title {
-        margin: 0;
-        font-size: 1.1rem;
-        line-height: 1.3;
-        flex: 1;
-        word-break: break-word;
-    }
-
-    .expanded-type-badge {
-        flex-shrink: 0;
-        font-size: 0.72rem;
-        color: #8a8385;
-        border: 1px solid #3b3538;
-        padding: 0.15rem 0.45rem;
-        margin-top: 0.2rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    .expanded-desc {
-        margin: 0;
-        font-size: 0.88rem;
-        color: #c9c3c5;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
-
-    .expanded-meta-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.8rem;
-        color: #8a8385;
-    }
-
-    .expanded-file-list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: grid;
-        gap: 0.4rem;
-    }
-
-    .expanded-file-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.55rem 0.7rem;
-        background: #171515;
-        border: 1px solid #2e2a2b;
-        font-size: 0.82rem;
-    }
-
-    .expanded-file-name {
-        flex: 1;
-        min-width: 0;
-        overflow-wrap: anywhere;
-        color: #ddd7d9;
-    }
-
-    .expanded-file-size {
-        flex-shrink: 0;
-        color: #8a8385;
-    }
-
-    .expanded-link-url {
-        display: block;
-        font-size: 0.82rem;
-        color: #c9c3c5;
-        word-break: break-all;
-        text-decoration: underline;
-        text-underline-offset: 3px;
-    }
-
-    .expanded-link-url:hover {
-        color: #fff;
+        .state-box.loading {
+            animation: none;
+        }
     }
 </style>
