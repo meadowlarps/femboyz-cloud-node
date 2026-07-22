@@ -59,21 +59,26 @@ export async function readFile(filename: string): Promise<Buffer> {
     return await fs.readFile(filepath)
 }
 
-export async function deleteFile(filename: string): Promise<void> {
+export async function deleteFile(filename: string): Promise<number> {
     const filepath = path.join(storageDir, filename)
     if (!filesInStorage256.has(filename)) {
-        scopelog.error(`Attempted to delete non-existent file: ${filename}`)
-        return
+        scopelog.warn(`Attempted to delete non-existent file: ${filename}`)
+        return 0
     }
     const fsize = (await fs.stat(filepath)).size
     await fs.unlink(filepath)
     filesInStorage256.delete(filename)
     storageUsage -= fsize
     scopelog.debug(`Deleted file: Size: ${filesize(fsize)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
+    return fsize
 }
 
 export function getStorageUsage(): number {
     return storageUsage
+}
+
+export function getStorageLimit(): number {
+    return storageLimit
 }
 
 export function isThereEnoughStorageFor(bytes: number): boolean {

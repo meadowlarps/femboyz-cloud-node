@@ -27,11 +27,13 @@ export const envs = {
     EMPTY_STORAGE_DIR_ON_STARTUP:       process.env.EMPTY_STORAGE_DIR_ON_STARTUP === "true",
     BASE_URL:                           process.env.BASE_URL,
     SITE_NAME:                          process.env.SITE_NAME || "set site name in .env",
-    CORS_ORIGIN:                        process.env.CORS_ORIGIN
+    CORS_ORIGIN:                        process.env.CORS_ORIGIN,
+    AUTH_ADMIN_KEY:                     process.env.AUTH_ADMIN_KEY
 }
 
 for (const [key, value] of Object.entries(envs)) {
-    scopelog.info(`ENV: ${key}=${value}`)
+    const loggedValue = key === "AUTH_ADMIN_KEY" || key === "MDB_URI" ? "[REDACTED]" : value
+    scopelog.info(`ENV: ${key}=${loggedValue}`)
 }
 
 scopelog.info("Loaded")

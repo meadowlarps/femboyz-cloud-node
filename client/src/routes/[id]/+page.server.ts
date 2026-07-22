@@ -1,10 +1,10 @@
 import type { PageServerLoad } from './$types'
 import { redirect, error } from '@sveltejs/kit'
+import { env } from '$env/dynamic/private'
 import { fetchUpload } from '$lib/upload/downloader'
 
-const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
-
 export const load: PageServerLoad = async ({ params, fetch }) => {
+    const apiEndpoint = env.INTERNAL_API_ENDPOINT ?? env.VITE_API_ENDPOINT ?? ''
     let upload
     try {
         upload = await fetchUpload(params.id, apiEndpoint, fetch)

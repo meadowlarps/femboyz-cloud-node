@@ -1,9 +1,10 @@
-import type { PageLoad } from './$types'
+import type { PageServerLoad } from './$types'
+import { env } from '$env/dynamic/private'
 import { fetchUploadLimits } from '$lib/upload/uploader'
 
-const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
+export const load: PageServerLoad = async ({ fetch }) => {
+    const apiEndpoint = env.INTERNAL_API_ENDPOINT ?? env.VITE_API_ENDPOINT ?? ''
 
-export const load: PageLoad = async ({ fetch }) => {
     try {
         return {
             uploadLimits: await fetchUploadLimits(apiEndpoint, fetch),

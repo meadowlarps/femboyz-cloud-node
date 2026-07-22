@@ -3,10 +3,12 @@ import { shutdownUnexpectedly }                         from "./utils.js"
 import { XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance } from "./schema.js"
 import { receiveUploadReturnID,
     receiveLinkReturnID,
-    getAllUploadIDs,
-    getUploadByID }                                    from "./uploads.js"
-import { getStorageUsage, isThereEnoughStorageFor, readFile } from "./storage.js"
+    getUploadByID,
+    getAdminUploadPage,
+    deleteUploadByID }                                 from "./uploads.js"
+import { getStorageLimit, getStorageUsage, isThereEnoughStorageFor, readFile } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
+import { adminAuthStatus, parseAdminQuery }             from "./admin.js"
 import type { IncomingMessage }                         from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
@@ -45,7 +47,9 @@ export async function startServer() {
     server.addHook("onRequest", onRequestHook)                      // Log incoming requests
     server.get("/ping", pongHandler)                                // Serve: Pong
     server.get("/", rootHandler)                                    // Serve: Home page route
-    server.get("/api/v2/ids", getListOfIdsHandler)                  // Serve: Route to get a list of all upload IDs
+    server.get("/api/v2/feed", feedHandler)                         // Reserved for the future public feed
+    server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
+    server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
     server.get("/:id", getUploadHandler)                            // Serve: Route to handle fetching an upload by its ID
     server.get("/:id/:fid", getUploadHandler)                       // Serve: Route to specific file of :id upload
     server.get("/api/v2/maxfsize", askMaxFileUploadSizeHandler)     // Serve: Route to check how large file the server can accept
@@ -75,9 +79,36 @@ async function rootHandler(request: FastifyRequest, reply: FastifyReply) {
     reply.send({ message: "Hello, World!" })
 }
 
-async function getListOfIdsHandler(request: FastifyRequest, reply: FastifyReply) {
-    const ids: { id_pub: string, type: string }[] = await getAllUploadIDs()
-    reply.send({ count: ids.length, ids: ids })
+export async function feedHandler(request: FastifyRequest, reply: FastifyReply) {
+    reply.status(501).send({ error: "Feed not implemented" })
+}
+
+async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {
+    reply.header("Cache-Control", "no-store")
+    const status = adminAuthStatus(request.headers.authorization, envs.AUTH_ADMIN_KEY)
+    if (status === 503)
+        throw Object.assign(new Error("Admin key is not configured"), { statusCode: 503 })
+    if (status === 401)
+        throw Object.assign(new Error("Invalid admin key"), { statusCode: 401 })
+}
+
+async function adminUploadsHandler(request: FastifyRequest, reply: FastifyReply) {
+    const query = parseAdminQuery(request.query)
+    const baseUrl = envs.BASE_URL ?? `${request.protocol}://${request.hostname}`
+    const uploads = await getAdminUploadPage(query, baseUrl)
+    const usedBytes = getStorageUsage()
+    const limitBytes = getStorageLimit()
+    reply.send({
+        ...uploads,
+        storage: { usedBytes, limitBytes, freeBytes: Math.max(0, limitBytes - usedBytes) }
+    })
+}
+
+async function adminDeleteUploadHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string }
+    const result = await deleteUploadByID(id)
+    if (!result) throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+    reply.send(result)
 }
 
 async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -96,6 +127,8 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
         return reply
             .header("Content-Type", file.mime)
             .header("Content-Disposition", inlineContentDisposition(file.filename))
+            .header("Content-Security-Policy", "sandbox")
+            .header("X-Content-Type-Options", "nosniff")
             .header("Content-Length", String(buffer.length))
             .send(buffer)
     }
@@ -314,6 +347,7 @@ function errorHandler(err: FastifyError, request: FastifyRequest, reply: Fastify
         : status === 401 ? "Unauthorized"
         : status === 403 ? "Forbidden"
         : status === 404 ? "Not found"
+        : status === 503 ? "Service unavailable"
         : status === 507 ? "Storage limit exceeded"
         : "Internal server error"
 
@@ -322,6 +356,7 @@ function errorHandler(err: FastifyError, request: FastifyRequest, reply: Fastify
         : status === 401 ? 401
         : status === 403 ? 403
         : status === 404 ? 404
+        : status === 503 ? 503
         : status === 507 ? 507
         : 500
 

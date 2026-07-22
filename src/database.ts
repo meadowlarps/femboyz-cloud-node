@@ -13,15 +13,18 @@ async function run() {
     const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 })
     await client.connect()
     DB = initDB(client, envs.MDB_NAME)
-    getDB().collection(envs.MDB_COLLECTION_UPLOADS).createIndex({ id_pub: 1 }, { unique: true }).catch(err => {
+    const uploads = getDB().collection(envs.MDB_COLLECTION_UPLOADS)
+    await Promise.all([
+        uploads.createIndex({ id_pub: 1 }, { unique: true }),
+        uploads.createIndex({ when: -1 })
+    ]).catch(err => {
         const message = err instanceof Error ? err.message : String(err)
         scopelog.error(message)
-        errorFileLogger.error({ err }, `Failed to create index on collection ${envs.MDB_COLLECTION_UPLOADS}`)
+        errorFileLogger.error({ err }, `Failed to create indexes on collection ${envs.MDB_COLLECTION_UPLOADS}`)
         shutdownUnexpectedly()
-    }).finally(() => {
-        scopelog.info(`Ensured index "id_pub" on collection ${envs.MDB_COLLECTION_UPLOADS}`)
-        scopelog.info("Connected")
     })
+    scopelog.info(`Ensured indexes "id_pub" and "when" on collection ${envs.MDB_COLLECTION_UPLOADS}`)
+    scopelog.info("Connected")
 }
 
 function dbErrorHandler(err: unknown) {

@@ -1,11 +1,12 @@
 import type { FastifyRequest } from "fastify"
 import { StorageDBUploadInstanceSchema, type StorageDBUploadInstance, type XMetaFiles } from "./schema.js"
-import { writeFile } from "./storage.js"
+import { deleteFile, writeFile } from "./storage.js"
 import { WASMagic } from "wasmagic"
 import { errorFileLogger, scope } from "./logger.js"
 import { getDB } from "./database.js"
 import { envs } from "./config.js"
-import { randomInt } from "node:crypto";
+import { buildAdminPipeline, cleanupUnreferencedFiles, withStorageMutationLock, type AdminQuery } from "./admin.js"
+import { randomInt } from "node:crypto"
 
 const scopelog = scope("uploads")
 const magic = await WASMagic.create()
@@ -29,15 +30,92 @@ export async function getUploadByID(id: string): Promise<StorageDBUploadInstance
     return result.data
 }
 
-export async function getAllUploadIDs(): Promise<{ id_pub: string, type: string }[]> {
-    const c = getDB().collection(envs.MDB_COLLECTION_UPLOADS)
-    const uploads = await c.find({}, { projection: { id_pub: 1, type: 1, _id: 0 } }).toArray()
-        .catch(err => {
-            const message = err instanceof Error ? err.message : String(err)
-            scopelog.error(`Failed to fetch upload IDs from database: ${message}`)
+export async function getAdminUploadPage(query: AdminQuery, baseUrl: string) {
+    const collection = getDB().collection(envs.MDB_COLLECTION_UPLOADS)
+    const [facet] = await collection.aggregate(buildAdminPipeline(query)).toArray().catch(err => {
+        const message = err instanceof Error ? err.message : String(err)
+        scopelog.error(`Failed to fetch admin uploads: ${message}`)
+        throw Object.assign(new Error("Database error"), { statusCode: 500 })
+    })
+    const rawItems = Array.isArray(facet?.items) ? facet.items : []
+    const items = rawItems.map(raw => {
+        const result = StorageDBUploadInstanceSchema.safeParse(raw)
+        if (!result.success) {
+            scopelog.error(`Invalid upload in admin list: ${JSON.stringify(result.error.issues)}`)
+            throw Object.assign(new Error("Corrupt upload document"), { statusCode: 500 })
+        }
+        const upload = result.data
+        const common = {
+            id: upload.id_pub,
+            type: upload.type,
+            public: upload.public,
+            status: upload.status,
+            meta: upload.meta,
+            issuer: upload.issuer,
+            when: upload.when,
+            stats: upload.stat,
+            fileCount: upload.type === "link" ? 0 : upload.files.length,
+            totalSize: upload.type === "link" ? 0 : upload.files.reduce((sum, file) => sum + file.size, 0)
+        }
+
+        if (upload.type === "link") return { ...common, files: [], link: upload.link.redir }
+        return {
+            ...common,
+            files: upload.files.map((file, index) => ({
+                index,
+                filename: file.filename,
+                size: file.size,
+                mime: file.mime,
+                url: `${baseUrl.replace(/\/$/, "")}/${upload.id_pub}/${index}`,
+                stat_dl: file.stat_dl
+            }))
+        }
+    })
+
+    const matchedCount = Number(facet?.matched?.[0]?.count ?? 0)
+    const totalCount = Number(facet?.total?.[0]?.count ?? 0)
+    return {
+        items,
+        page: query.page,
+        pageSize: query.limit,
+        matchedCount,
+        totalCount,
+        totalPages: Math.ceil(matchedCount / query.limit)
+    }
+}
+
+export async function deleteUploadByID(id: string) {
+    return withStorageMutationLock(async () => {
+        const collection = getDB().collection(envs.MDB_COLLECTION_UPLOADS)
+        const deleted = await collection.findOneAndDelete({ id_pub: id }).catch(err => {
+            errorFileLogger.error({ err }, `Failed to delete upload ${id}`)
             throw Object.assign(new Error("Database error"), { statusCode: 500 })
         })
-    return uploads.map(u => ({ id_pub: u.id_pub as string, type: u.type as string}))
+        if (!deleted) return null
+
+        const files = Array.isArray(deleted.files) ? deleted.files : []
+        const hashes = files.flatMap(file => typeof file?.hashkey256 === "string" ? [file.hashkey256] : [])
+        const cleanup = await cleanupUnreferencedFiles(
+            hashes,
+            async hash => Boolean(await collection.findOne(
+                { "files.hashkey256": hash },
+                { projection: { _id: 1 } }
+            )),
+            deleteFile
+        )
+
+        for (const failure of cleanup.failures)
+            errorFileLogger.error({ err: failure.error, hash: failure.hash }, `Failed to clean up blob for deleted upload ${id}`)
+
+        scopelog.info(`Admin deleted upload ${id}; reclaimed ${cleanup.reclaimedBytes} byte(s)`)
+        return {
+            deleted: true as const,
+            id,
+            reclaimedBytes: cleanup.reclaimedBytes,
+            sharedFilesKept: cleanup.sharedFilesKept,
+            cleanupFailures: cleanup.failures.length
+        }
+    })
 }
 
 export async function receiveLinkReturnID(request: FastifyRequest): Promise<string> {
@@ -94,6 +172,10 @@ export async function receiveLinkReturnID(request: FastifyRequest): Promise<stri
 }
 
 export async function receiveUploadReturnID(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[]): Promise<{ id: string, type: string}> {
+    return withStorageMutationLock(() => receiveUploadUnlocked(request, _meta, _files))
+}
+
+async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[]): Promise<{ id: string, type: string}> {
     // DONE: check STORAGE_LIMIT_BYTES before writing -> done in API route handler to reject immediately on limit exceed
     // DONE: write each buffer to STORAGE_DIR/<sha256>
     // DONE: save document to MongoDB

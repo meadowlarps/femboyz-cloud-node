@@ -429,7 +429,7 @@
 
     .file-icons {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 3.3rem));
+        grid-template-columns: repeat(auto-fit, 3.3rem);
         place-content: center;
         gap: 0.5rem;
         width: 100%;

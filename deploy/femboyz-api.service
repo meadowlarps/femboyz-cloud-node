@@ -1,0 +1,17 @@
+[Unit]
+Description=femboyz.cloud API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=femboyz
+Group=femboyz
+WorkingDirectory=/srv/femboyz-cloud
+Environment=NODE_ENV=prod
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

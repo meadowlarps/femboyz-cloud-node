@@ -12,7 +12,7 @@
         <li class="file-row">
             <div class="file-info">
                 <span class="file-name">{file.filename}</span>
-                <span class="file-meta">{file.mime} &middot; {formatFileSize(file.size)}</span>
+                <span class="file-meta">{formatFileSize(file.size)}</span>
             </div>
             <div class="file-stats">
                 {#if file.stat_dl > 0}
