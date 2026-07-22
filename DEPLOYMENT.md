@@ -6,7 +6,7 @@ builds both applications, restarts them, and verifies their health endpoints.
 
 ## Server setup
 
-The checked-in templates assume Linux, Node.js 24, and this layout:
+The checked-in templates assume Linux, Node.js 22, and this layout:
 
 ```text
 /srv/femboyz-cloud       repository, owned by femboyz:femboyz
@@ -16,7 +16,7 @@ Nginx                     public HTTP/HTTPS entry point
 MongoDB                   managed separately
 ```
 
-Create a `femboyz` user, install Node.js 24, Git, Nginx, and curl, then clone
+Create a `femboyz` user, install Node.js 22, Git, Nginx, and curl, then clone
 the repository:
 
 ```bash
