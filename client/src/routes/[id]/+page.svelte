@@ -11,11 +11,7 @@
     const title = $derived(upload.meta.title || upload.id)
     const desc = $derived(upload.meta.desc)
     const uploadUrl = $derived(`/${upload.id}`)
-    const ogImageUrl = $derived(
-        upload.type === 'album'
-            ? upload.files.find((file) => file.mime.startsWith('image/'))?.url
-            : undefined
-    )
+    const preview = $derived(data.preview)
 
     function formatDate(iso: string) {
         return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
@@ -29,16 +25,21 @@
 </script>
 
 <svelte:head>
-    <title>{title}</title>
-    <meta property="og:title" content={title} />
-    {#if desc}
-        <meta name="description" content={desc} />
-        <meta property="og:description" content={desc} />
-    {/if}
-    {#if ogImageUrl}
-        <meta property="og:image" content={ogImageUrl} />
-    {/if}
+    <title>{preview.title}</title>
+    <meta name="description" content={preview.description} />
+    <meta property="og:title" content={preview.title} />
+    <meta property="og:description" content={preview.description} />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={preview.canonicalUrl} />
+    <meta property="og:site_name" content={preview.siteName} />
+    {#if preview.image}
+        <meta property="og:image" content={preview.image.url} />
+        <meta property="og:image:type" content={preview.image.mime} />
+        <meta property="og:image:alt" content={preview.image.filename} />
+    {:else if preview.video}
+        <meta property="og:video" content={preview.video.url} />
+        <meta property="og:video:type" content={preview.video.mime} />
+    {/if}
 </svelte:head>
 
 {#if upload.type === 'album'}

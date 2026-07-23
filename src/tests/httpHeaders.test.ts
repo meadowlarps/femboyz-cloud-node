@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { validateHeaderValue } from "node:http"
-import { inlineContentDisposition } from "../httpHeaders.js"
+import { inlineContentDisposition, parseByteRange } from "../httpHeaders.js"
 
 describe("inlineContentDisposition", () => {
     test("formats an ASCII filename", () => {
@@ -31,5 +31,35 @@ describe("inlineContentDisposition", () => {
         for (const filename of problematicNames) {
             expect(() => validateHeaderValue("Content-Disposition", inlineContentDisposition(filename))).not.toThrow()
         }
+    })
+})
+
+describe("parseByteRange", () => {
+    test("returns no range when the header is absent", () => {
+        expect(parseByteRange(undefined, 1000)).toBeUndefined()
+    })
+
+    test("parses closed, open-ended, and suffix ranges", () => {
+        expect(parseByteRange("bytes=100-199", 1000)).toEqual({ start: 100, end: 199 })
+        expect(parseByteRange("bytes=100-", 1000)).toEqual({ start: 100, end: 999 })
+        expect(parseByteRange("bytes=-100", 1000)).toEqual({ start: 900, end: 999 })
+    })
+
+    test("clamps ranges to the file boundaries", () => {
+        expect(parseByteRange("bytes=900-1200", 1000)).toEqual({ start: 900, end: 999 })
+        expect(parseByteRange("bytes=-1200", 1000)).toEqual({ start: 0, end: 999 })
+    })
+
+    test.each([
+        ["bytes=", 1000],
+        ["bytes=-", 1000],
+        ["bytes=-0", 1000],
+        ["bytes=200-100", 1000],
+        ["bytes=1000-", 1000],
+        ["bytes=0-1,4-5", 1000],
+        ["items=0-10", 1000],
+        ["bytes=0-0", 0]
+    ])("rejects invalid or unsatisfiable range %s", (header, size) => {
+        expect(() => parseByteRange(header, size)).toThrow(RangeError)
     })
 })

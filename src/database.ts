@@ -8,7 +8,7 @@ let DB: Db
 
 async function run() {
     const uri = `${envs.MDB_URI}:${envs.MDB_PORT}`
-    scopelog.info(`Connecting to ${uri}...`)
+    scopelog.info("Connecting to MongoDB...")
     
     const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 })
     await client.connect()

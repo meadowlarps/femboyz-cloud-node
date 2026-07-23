@@ -2,6 +2,7 @@ import { filesize } from "filesize"
 import { envs } from "./config.js"
 import { scope } from "./logger.js"
 import { shutdownUnexpectedly } from "./utils.js"
+import { createReadStream } from "node:fs"
 import fs from "fs/promises"
 import path from "path"
 
@@ -54,9 +55,9 @@ export async function writeFile(filename: string, data: Buffer): Promise<void> {
     checkStorageUsageWarning()
 }
 
-export async function readFile(filename: string): Promise<Buffer> {
+export function createFileReadStream(filename: string, range?: { start: number, end: number }) {
     const filepath = path.join(storageDir, filename)
-    return await fs.readFile(filepath)
+    return range ? createReadStream(filepath, range) : createReadStream(filepath)
 }
 
 export async function deleteFile(filename: string): Promise<number> {

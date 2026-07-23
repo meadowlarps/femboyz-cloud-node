@@ -6,14 +6,14 @@ import { receiveUploadReturnID,
     getUploadByID,
     getAdminUploadPage,
     deleteUploadByID }                                 from "./uploads.js"
-import { getStorageLimit, getStorageUsage, isThereEnoughStorageFor, readFile } from "./storage.js"
+import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
 import { adminAuthStatus, parseAdminQuery }             from "./admin.js"
-import type { IncomingMessage }                         from "http"
+import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
 import      { envs }        from "./config.js"
-import      { inlineContentDisposition } from "./httpHeaders.js"
+import      { inlineContentDisposition, parseByteRange } from "./httpHeaders.js"
 import Fastify, {
     type FastifyError,
     type FastifyInstance,
@@ -123,14 +123,37 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
         if (isNaN(fidNum) || fidNum < 0) throw Object.assign(new Error("Invalid file index"), { statusCode: 400 })
         const file = upload.files[fidNum]
         if (!file) throw Object.assign(new Error("File not found"), { statusCode: 404 })
-        const buffer = await readFile(file.hashkey256)
-        return reply
+        reply
             .header("Content-Type", file.mime)
             .header("Content-Disposition", inlineContentDisposition(file.filename))
             .header("Content-Security-Policy", "sandbox")
             .header("X-Content-Type-Options", "nosniff")
-            .header("Content-Length", String(buffer.length))
-            .send(buffer)
+            .header("Accept-Ranges", "bytes")
+
+        let range
+        try {
+            range = parseByteRange(request.headers.range, file.size)
+        } catch (err) {
+            if (!(err instanceof RangeError)) throw err
+            return reply
+                .status(416)
+                .header("Content-Range", `bytes */${file.size}`)
+                .send()
+        }
+
+        reply.header("Content-Length", String(range ? range.end - range.start + 1 : file.size))
+
+        if (range)
+            reply.status(206).header("Content-Range", `bytes ${range.start}-${range.end}/${file.size}`)
+
+        if (request.method === "HEAD") {
+            reply.hijack()
+            reply.raw.writeHead(reply.statusCode, reply.getHeaders() as OutgoingHttpHeaders)
+            reply.raw.end()
+            return reply
+        }
+
+        return reply.send(createFileReadStream(file.hashkey256, range))
     }
 
     if (upload.type === "link") {

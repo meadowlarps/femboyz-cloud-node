@@ -8,7 +8,8 @@
     "dev:watch": "NODE_ENV=dev LOGLEVEL=debug tsx watch src/index.ts",
     "build": "tsc",
     "start": "NODE_ENV=prod node dist/index.js",
-    "test": "tsc && NODE_ENV=dev LOGLEVEL=debug vitest run --reporter=verbose"
+    "test": "tsc && NODE_ENV=dev LOGLEVEL=debug vitest run --reporter=verbose && npm run test:preview",
+    "test:preview": "tsx --test test/clientPreview.test.ts"
   },
   "keywords": [],
   "author": "meadowlarps, misikovich",
