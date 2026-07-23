@@ -1,6 +1,6 @@
 import type { FileData, UploadData } from './downloader'
 
-export const OG_CARD_VERSION = '1'
+export const OG_CARD_VERSION = '3'
 
 export type UploadPreview = {
     title: string
@@ -9,6 +9,7 @@ export type UploadPreview = {
     canonicalUrl: string
     cardImageUrl: string | null
     cardImageAlt: string | null
+    suppressMetaText: boolean
     image: FileData | null
     video: FileData | null
     redirectUrl: string | null
@@ -32,15 +33,25 @@ export function hasGeneratedCard(upload: UploadData): boolean {
         || (upload.type === 'album' && upload.files.length > 1)
 }
 
+export function buildUploadPreviewText(upload: UploadData, siteName: string) {
+    const countLabel = buildUploadCountLabel(upload)
+    const customTitle = upload.meta.title.trim()
+    return {
+        title: customTitle || countLabel,
+        description: upload.meta.desc.trim()
+            || (customTitle ? `${countLabel} via ${siteName}` : `via ${siteName}`)
+    }
+}
+
 export function buildUploadPreview(upload: UploadData, origin: string, userAgent: string | null): UploadPreview {
     const countLabel = buildUploadCountLabel(upload)
-    const title = upload.meta.title.trim()
-    const description = upload.meta.desc.trim()
     const canonicalUrl = new URL(`/${upload.id}`, origin)
     const siteName = canonicalUrl.hostname
+    const text = buildUploadPreviewText(upload, siteName)
     const cardImageUrl = hasGeneratedCard(upload)
         ? new URL(`/${upload.id}/og.png?v=${OG_CARD_VERSION}`, origin).href
         : null
+    const previewCrawler = isPreviewCrawler(userAgent)
     const onlyFile = upload.type === 'album' && upload.files.length === 1 ? upload.files[0] : undefined
     const image = upload.type === 'album'
         ? upload.files.find(file => file.mime.startsWith('image/')) ?? null
@@ -50,15 +61,15 @@ export function buildUploadPreview(upload: UploadData, origin: string, userAgent
         : null
 
     return {
-        title: title || countLabel,
-        description: description || (title ? `${countLabel} via ${siteName}` : `via ${siteName}`),
+        ...text,
         siteName,
         canonicalUrl: canonicalUrl.href,
         cardImageUrl,
-        cardImageAlt: cardImageUrl ? `${title || countLabel}: ${countLabel} via ${siteName}` : null,
+        cardImageAlt: cardImageUrl ? `${text.title}: ${countLabel} via ${siteName}` : null,
+        suppressMetaText: cardImageUrl !== null && previewCrawler,
         image,
         video,
-        redirectUrl: isPreviewCrawler(userAgent)
+        redirectUrl: previewCrawler
             && onlyFile
             && (onlyFile.mime.startsWith('image/') || onlyFile.mime.startsWith('video/'))
             ? onlyFile.url

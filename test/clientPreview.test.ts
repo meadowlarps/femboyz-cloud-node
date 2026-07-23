@@ -102,9 +102,14 @@ test('generates versioned cards for files, playlists, and multi-media albums', (
     assert.equal(hasGeneratedCard(link), false)
 
     const preview = buildUploadPreview(files, 'https://femboyz.cloud', null)
+    assert.equal(OG_CARD_VERSION, '3')
     assert.equal(preview.cardImageUrl, `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`)
     assert.equal(preview.cardImageAlt, '1 file: 1 file via femboyz.cloud')
+    assert.equal(preview.suppressMetaText, false)
+    assert.equal(buildUploadPreview(files, 'https://femboyz.cloud', 'Discordbot/2.0').suppressMetaText, true)
+    assert.equal(buildUploadPreview(files, 'https://femboyz.cloud', 'TelegramBot').suppressMetaText, true)
     assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', null).cardImageUrl, null)
+    assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', 'Discordbot/2.0').suppressMetaText, false)
 })
 
 test('exports the same type-aware count labels used by metadata and generated cards', () => {

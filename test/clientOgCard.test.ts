@@ -5,6 +5,7 @@ import {
     buildOgCardElement,
     buildTileLabels,
     canNormalizeLeadImage,
+    fileTypeColor,
     fileTypeLabel,
     mediaTypeLabel,
     normalizeLeadImage,
@@ -24,12 +25,12 @@ function file(index: number, filename: string, mime: string, size = 1000): FileD
     }
 }
 
-function upload(type: UploadData['type'], files: FileData[], title = ''): UploadData {
+function upload(type: UploadData['type'], files: FileData[], title = '', desc = ''): UploadData {
     return {
         id: '1234ABCD',
         type,
         public: false,
-        meta: { title, desc: '' },
+        meta: { title, desc },
         views: 0,
         files,
         when: '2026-07-23T00:00:00.000Z'
@@ -51,13 +52,24 @@ test('builds safe file labels and preserves the first six item order', () => {
     assert.deepEqual(buildTileLabels(files, 2), ['0', '1', '3', '4', '5', '6'])
 })
 
-test('selects only the first album image and guards normalization inputs', () => {
+test('uses Miniupload file colors', () => {
+    assert.equal(fileTypeColor(file(0, 'photo.jpg', 'image/jpeg')), '#66b8e8')
+    assert.equal(fileTypeColor(file(0, 'clip.mp4', 'video/mp4')), '#c78be8')
+    assert.equal(fileTypeColor(file(0, 'track.mp3', 'audio/mpeg')), '#e887b3')
+    assert.equal(fileTypeColor(file(0, 'manual.pdf', 'application/pdf')), '#e86f77')
+    assert.equal(fileTypeColor(file(0, 'archive.zip', 'application/zip')), '#e6b85f')
+    assert.equal(fileTypeColor(file(0, 'notes.txt', 'text/plain')), '#75cda5')
+    assert.equal(fileTypeColor(file(0, 'program.exe', 'application/octet-stream')), '#918a8d')
+})
+
+test('selects an image only when it is the first album item and guards normalization inputs', () => {
     const video = file(0, 'clip.mp4', 'video/mp4')
     const webp = file(1, 'photo.webp', 'image/webp')
     const png = file(2, 'photo.png', 'image/png')
     const album = upload('album', [video, webp, png])
 
-    assert.equal(selectLeadImage(album), webp)
+    assert.equal(selectLeadImage(album), null)
+    assert.equal(selectLeadImage(upload('album', [webp, video])), webp)
     assert.equal(selectLeadImage(upload('files', [png])), null)
     assert.equal(canNormalizeLeadImage(webp), true)
     assert.equal(canNormalizeLeadImage(file(0, 'vector.svg', 'image/svg+xml')), false)
@@ -78,19 +90,30 @@ test('normalizes common raster formats to a bounded PNG and rejects malformed in
         assert.ok(dataUri?.startsWith('data:image/png;base64,'))
         const png = Buffer.from(dataUri.slice('data:image/png;base64,'.length), 'base64')
         assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
-        assert.equal(png.readUInt32BE(16), 760)
+        assert.equal(png.readUInt32BE(16), 640)
         assert.equal(png.readUInt32BE(20), 360)
     }
 
     assert.equal(await normalizeLeadImage(new Uint8Array([1, 2, 3])), null)
 })
 
-test('renders a 1200x630 PNG without fetching remote assets or exposing custom text', async () => {
+test('renders a compact borderless card and only the first album item', async () => {
     const files = upload('files', [
         file(0, 'archive.zip', 'application/zip'),
         file(1, 'manual.pdf', 'application/pdf')
-    ], '🔒 private title')
-    assert.doesNotMatch(JSON.stringify(buildOgCardElement(files, 'femboyz.cloud', null)), /private title/)
+    ], '🔒 private title', 'A useful description')
+    const elementTree = JSON.stringify(buildOgCardElement(files, 'femboyz.cloud', null))
+    assert.match(elementTree, /\? private title/)
+    assert.match(elementTree, /A useful description/)
+    assert.doesNotMatch(elementTree, /🔒/)
+    assert.equal(buildOgCardElement(files, 'femboyz.cloud', null).props.style?.border, undefined)
+
+    const albumTree = JSON.stringify(buildOgCardElement(upload('album', [
+        file(0, 'clip.mp4', 'video/mp4'),
+        file(1, 'photo.png', 'image/png')
+    ]), 'femboyz.cloud', null))
+    assert.match(albumTree, /VID/)
+    assert.doesNotMatch(albumTree, /IMG/)
 
     const originalFetch = globalThis.fetch
     let fetchCount = 0
@@ -102,8 +125,8 @@ test('renders a 1200x630 PNG without fetching remote assets or exposing custom t
     try {
         const png = Buffer.from(await renderOgCard(files, 'femboyz.cloud', null))
         assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
-        assert.equal(png.readUInt32BE(16), 1200)
-        assert.equal(png.readUInt32BE(20), 630)
+        assert.equal(png.readUInt32BE(16), 720)
+        assert.equal(png.readUInt32BE(20), 600)
         assert.equal(fetchCount, 0)
     } finally {
         globalThis.fetch = originalFetch

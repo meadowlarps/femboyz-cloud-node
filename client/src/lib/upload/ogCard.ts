@@ -1,11 +1,11 @@
 import { ImageResponse } from '@vercel/og'
 import sharp from 'sharp'
 import type { FileData, UploadData } from './downloader'
-import { buildUploadCountLabel } from './preview'
+import { buildUploadPreviewText } from './preview'
 
-export const OG_CARD_WIDTH = 1200
-export const OG_CARD_HEIGHT = 630
-export const OG_LEAD_WIDTH = 760
+export const OG_CARD_WIDTH = 720
+export const OG_CARD_HEIGHT = 600
+export const OG_LEAD_WIDTH = 640
 export const OG_LEAD_HEIGHT = 360
 export const MAX_OG_SOURCE_BYTES = 25 * 1024 * 1024
 export const MAX_OG_SOURCE_PIXELS = 40_000_000
@@ -45,9 +45,8 @@ function element(type: string, props: Omit<OgElement['props'], 'children'> = {},
 }
 
 export function selectLeadImage(upload: UploadData): FileData | null {
-    return upload.type === 'album'
-        ? upload.files.find(file => file.mime.startsWith('image/')) ?? null
-        : null
+    const first = upload.type === 'album' ? upload.files[0] : undefined
+    return first?.mime.toLowerCase().startsWith('image/') ? first : null
 }
 
 export function canNormalizeLeadImage(file: FileData): boolean {
@@ -99,29 +98,44 @@ export function mediaTypeLabel(file: FileData): string {
     return 'FILE'
 }
 
-function buildMediaTileLabels(files: FileData[], excludedIndex: number | null = null): string[] {
-    return files
-        .filter(file => file.index !== excludedIndex)
-        .slice(0, 6)
-        .map(mediaTypeLabel)
+export function fileTypeColor(file: FileData): string {
+    const mime = file.mime.toLowerCase()
+    if (mime.startsWith('image/')) return '#66b8e8'
+    if (mime.startsWith('video/')) return '#c78be8'
+    if (mime.startsWith('audio/')) return '#e887b3'
+    if (mime === 'application/pdf') return '#e86f77'
+    if (/zip|compressed|archive|tar|rar|7z|gzip/.test(mime)) return '#e6b85f'
+    if (mime.startsWith('text/') || /json|xml|document|word|sheet|presentation/.test(mime)) return '#75cda5'
+    return '#918a8d'
 }
 
-function tile(label: string, compact = false): OgElement {
+function tile(label: string, color: string, width = 190, height = 190): OgElement {
     return element('div', {
         style: {
             alignItems: 'center',
-            border: '2px solid #8a8a8a',
-            color: '#ffffff',
+            border: `2px solid ${color}`,
+            color,
             display: 'flex',
-            fontSize: compact ? 28 : 34,
-            height: compact ? 104 : 130,
+            fontSize: 34,
+            height,
             justifyContent: 'center',
-            width: compact ? 140 : 190
+            width
         }
     }, label)
 }
 
+function safeCardText(value: string, maxLength: number): string {
+    const clean = value
+        .normalize('NFKC')
+        .replace(/\s+/g, ' ')
+        .replace(/[^\u0020-\u017f\u0400-\u045f]/gu, '?')
+        .trim()
+    const chars = Array.from(clean)
+    return chars.length <= maxLength ? clean : `${chars.slice(0, maxLength - 3).join('')}...`
+}
+
 function header(upload: UploadData, siteName: string): OgElement {
+    const text = buildUploadPreviewText(upload, siteName)
     return element('div', {
         style: {
             display: 'flex',
@@ -133,73 +147,55 @@ function header(upload: UploadData, siteName: string): OgElement {
         style: {
             color: '#ffffff',
             display: 'flex',
-            fontSize: 48,
+            fontSize: 44,
             lineHeight: 1
         }
-    }, buildUploadCountLabel(upload).toUpperCase()),
+    }, safeCardText(text.title, 70)),
     element('div', {
         style: {
             color: '#a7a7a7',
             display: 'flex',
-            fontSize: 27
+            fontSize: 27,
+            lineHeight: 1.15
         }
-    }, `via ${siteName}`))
+    }, safeCardText(text.description, 130)))
 }
 
-function tiles(labels: string[], compact = false): OgElement {
+function tiles(files: FileData[]): OgElement {
     return element('div', {
         style: {
             alignContent: 'flex-start',
             display: 'flex',
             flexWrap: 'wrap',
-            gap: compact ? 16 : 20,
-            width: compact ? 296 : 610
+            gap: 20,
+            width: OG_LEAD_WIDTH
         }
-    }, ...labels.map(label => tile(label, compact)))
+    }, ...files.slice(0, 6).map(file => tile(fileTypeLabel(file), fileTypeColor(file))))
 }
 
 function albumContent(upload: UploadData, leadImageDataUri: string | null): OgElement {
-    const lead = selectLeadImage(upload)
-    if (!lead) return tiles(buildMediaTileLabels(upload.files))
+    const first = upload.files[0]
+    if (!first) return element('div')
 
-    const leadVisual = leadImageDataUri
+    const lead = selectLeadImage(upload)
+    return lead && leadImageDataUri
         ? element('img', {
             src: leadImageDataUri,
             width: OG_LEAD_WIDTH,
             height: OG_LEAD_HEIGHT,
             style: {
-                border: '2px solid #8a8a8a',
                 height: OG_LEAD_HEIGHT,
                 objectFit: 'cover',
                 width: OG_LEAD_WIDTH
             }
         })
-        : element('div', {
-            style: {
-                alignItems: 'center',
-                border: '2px solid #8a8a8a',
-                color: '#ffffff',
-                display: 'flex',
-                fontSize: 52,
-                height: OG_LEAD_HEIGHT,
-                justifyContent: 'center',
-                width: OG_LEAD_WIDTH
-            }
-        }, mediaTypeLabel(lead))
-
-    return element('div', {
-        style: {
-            display: 'flex',
-            gap: 24,
-            height: OG_LEAD_HEIGHT
-        }
-    }, leadVisual, tiles(buildMediaTileLabels(upload.files, lead.index).slice(0, 5), true))
+        : tile(mediaTypeLabel(first), fileTypeColor(first), OG_LEAD_WIDTH, OG_LEAD_HEIGHT)
 }
 
 export function buildOgCardElement(upload: UploadData, siteName: string, leadImageDataUri: string | null): OgElement {
     const content = upload.type === 'album'
         ? albumContent(upload, leadImageDataUri)
-        : tiles(buildTileLabels(upload.files))
+        : tiles(upload.files)
 
     return element('div', {
         style: {
@@ -207,26 +203,17 @@ export function buildOgCardElement(upload: UploadData, siteName: string, leadIma
             background: '#000000',
             color: '#ffffff',
             display: 'flex',
-            height: '100%',
-            justifyContent: 'center',
-            padding: 28,
-            width: '100%'
-        }
-    },
-    element('div', {
-        style: {
-            border: '2px solid #8a8a8a',
-            display: 'flex',
             flexDirection: 'column',
             gap: 24,
             height: '100%',
-            padding: 32,
+            padding: 40,
             width: '100%'
         }
-    }, header(upload, siteName), content))
+    }, header(upload, siteName), content)
 }
 
 function buildFallbackElement(upload: UploadData, siteName: string): OgElement {
+    const text = buildUploadPreviewText(upload, siteName)
     return element('div', {
         style: {
             alignItems: 'center',
@@ -241,8 +228,9 @@ function buildFallbackElement(upload: UploadData, siteName: string): OgElement {
             width: '100%'
         }
     },
-    buildUploadCountLabel(upload).toUpperCase(),
-    element('div', { style: { color: '#a7a7a7', display: 'flex', fontSize: 28 } }, `via ${siteName}`))
+    safeCardText(text.title, 70),
+    element('div', { style: { color: '#a7a7a7', display: 'flex', fontSize: 28 } },
+        safeCardText(text.description, 130)))
 }
 
 async function render(elementTree: OgElement): Promise<ArrayBuffer> {
