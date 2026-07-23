@@ -1,12 +1,12 @@
 import { ImageResponse } from '@vercel/og'
 import sharp from 'sharp'
 import type { FileData, UploadData } from './downloader'
-import { buildUploadPreviewText } from './preview'
+import { buildUploadCardText } from './preview'
 
 export const OG_CARD_WIDTH = 720
 export const OG_CARD_HEIGHT = 600
 export const OG_LEAD_WIDTH = 640
-export const OG_LEAD_HEIGHT = 360
+export const OG_LEAD_HEIGHT = 400
 export const MAX_OG_SOURCE_BYTES = 25 * 1024 * 1024
 export const MAX_OG_SOURCE_PIXELS = 40_000_000
 
@@ -109,7 +109,7 @@ export function fileTypeColor(file: FileData): string {
     return '#918a8d'
 }
 
-function tile(label: string, color: string, width = 190, height = 190): OgElement {
+function tile(label: string, color: string, width = 188, height = 170): OgElement {
     return element('div', {
         style: {
             alignItems: 'center',
@@ -135,7 +135,7 @@ function safeCardText(value: string, maxLength: number): string {
 }
 
 function header(upload: UploadData, siteName: string): OgElement {
-    const text = buildUploadPreviewText(upload, siteName)
+    const text = buildUploadCardText(upload, siteName)
     return element('div', {
         style: {
             display: 'flex',
@@ -165,9 +165,13 @@ function tiles(files: FileData[]): OgElement {
     return element('div', {
         style: {
             alignContent: 'flex-start',
+            border: '2px solid #3f3f3f',
+            boxSizing: 'border-box',
             display: 'flex',
             flexWrap: 'wrap',
-            gap: 20,
+            gap: 16,
+            height: 400,
+            padding: 20,
             width: OG_LEAD_WIDTH
         }
     }, ...files.slice(0, 6).map(file => tile(fileTypeLabel(file), fileTypeColor(file))))
@@ -184,6 +188,8 @@ function albumContent(upload: UploadData, leadImageDataUri: string | null): OgEl
             width: OG_LEAD_WIDTH,
             height: OG_LEAD_HEIGHT,
             style: {
+                border: '2px solid #3f3f3f',
+                boxSizing: 'border-box',
                 height: OG_LEAD_HEIGHT,
                 objectFit: 'cover',
                 width: OG_LEAD_WIDTH
@@ -213,7 +219,7 @@ export function buildOgCardElement(upload: UploadData, siteName: string, leadIma
 }
 
 function buildFallbackElement(upload: UploadData, siteName: string): OgElement {
-    const text = buildUploadPreviewText(upload, siteName)
+    const text = buildUploadCardText(upload, siteName)
     return element('div', {
         style: {
             alignItems: 'center',

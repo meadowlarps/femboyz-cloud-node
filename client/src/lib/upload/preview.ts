@@ -1,6 +1,6 @@
 import type { FileData, UploadData } from './downloader'
 
-export const OG_CARD_VERSION = '3'
+export const OG_CARD_VERSION = '6'
 
 export type UploadPreview = {
     title: string
@@ -32,7 +32,7 @@ export function hasGeneratedCard(upload: UploadData): boolean {
         || (upload.type === 'album' && upload.files.length > 1)
 }
 
-export function buildUploadPreviewText(upload: UploadData, siteName: string) {
+export function buildUploadCardText(upload: UploadData, siteName: string) {
     const countLabel = buildUploadCountLabel(upload)
     const customTitle = upload.meta.title.trim()
     return {
@@ -42,11 +42,18 @@ export function buildUploadPreviewText(upload: UploadData, siteName: string) {
     }
 }
 
+export function buildUploadPreviewText(upload: UploadData) {
+    return {
+        title: upload.meta.title.trim() || upload.id,
+        description: upload.meta.desc.trim()
+    }
+}
+
 export function buildUploadPreview(upload: UploadData, origin: string, userAgent: string | null): UploadPreview {
     const countLabel = buildUploadCountLabel(upload)
     const canonicalUrl = new URL(`/${upload.id}`, origin)
     const siteName = canonicalUrl.hostname
-    const text = buildUploadPreviewText(upload, siteName)
+    const text = buildUploadPreviewText(upload)
     const cardImageUrl = hasGeneratedCard(upload)
         ? new URL(`/${upload.id}/og.png?v=${OG_CARD_VERSION}`, origin).href
         : null
@@ -71,6 +78,6 @@ export function buildUploadPreview(upload: UploadData, origin: string, userAgent
             && onlyFile
             && (onlyFile.mime.startsWith('image/') || onlyFile.mime.startsWith('video/'))
             ? onlyFile.url
-            : previewCrawler ? cardImageUrl : null
+            : null
     }
 }

@@ -39,23 +39,21 @@ test('recognizes only Discord and Telegram preview crawlers', () => {
     assert.equal(isPreviewCrawler(null), false)
 })
 
-test('redirects preview crawlers to raw single media or a generated card', () => {
+test('redirects preview crawlers only for raw single media', () => {
     const image = file(0, 'image/png')
     const video = file(0, 'video/mp4')
     const gif = file(0, 'image/gif')
     const crawler = 'Discordbot/2.0'
-    const cardUrl = `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`
-
     assert.equal(buildUploadPreview(upload('album', [image]), 'https://femboyz.cloud', crawler).redirectUrl, image.url)
     assert.equal(buildUploadPreview(upload('album', [video]), 'https://femboyz.cloud', crawler).redirectUrl, video.url)
     assert.equal(buildUploadPreview(upload('album', [gif]), 'https://femboyz.cloud', crawler).redirectUrl, gif.url)
     assert.equal(buildUploadPreview(upload('album', [image]), 'https://femboyz.cloud', 'Mozilla/5.0').redirectUrl, null)
-    assert.equal(buildUploadPreview(upload('album', [image, video]), 'https://femboyz.cloud', crawler).redirectUrl, cardUrl)
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/pdf')]), 'https://femboyz.cloud', crawler).redirectUrl, cardUrl)
-    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', 'TelegramBot').redirectUrl, cardUrl)
+    assert.equal(buildUploadPreview(upload('album', [image, video]), 'https://femboyz.cloud', crawler).redirectUrl, null)
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/pdf')]), 'https://femboyz.cloud', crawler).redirectUrl, null)
+    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', 'TelegramBot').redirectUrl, null)
 })
 
-test('prefers user text and generates type-aware fallbacks', () => {
+test('uses the custom title or upload ID and only a custom description', () => {
     const custom = buildUploadPreview(
         upload('album', [file(0, 'image/png'), file(1, 'video/mp4')], '  My upload  ', '  My description  '),
         'https://femboyz.cloud',
@@ -66,14 +64,11 @@ test('prefers user text and generates type-aware fallbacks', () => {
     assert.equal(custom.siteName, 'femboyz.cloud')
     assert.equal(custom.canonicalUrl, 'https://femboyz.cloud/1234ABCD')
 
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/zip')]), 'https://femboyz.cloud', null).title, '1 file')
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/zip'), file(1, 'text/plain')]), 'https://femboyz.cloud', null).title, '2 files')
-    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', null).title, '1 track')
-    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg'), file(1, 'audio/ogg')]), 'https://femboyz.cloud', null).title, '2 tracks')
-    assert.equal(buildUploadPreview(upload('album', [file(0, 'image/png')]), 'https://femboyz.cloud', null).title, '1 media item')
-    assert.equal(buildUploadPreview(upload('album', [file(0, 'image/png'), file(1, 'video/mp4')]), 'https://femboyz.cloud', null).title, '2 media')
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')]), 'https://femboyz.cloud', null).description, 'via femboyz.cloud')
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')], 'Notes'), 'https://femboyz.cloud', null).description, '1 file via femboyz.cloud')
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/zip')]), 'https://femboyz.cloud', null).title, '1234ABCD')
+    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', null).title, '1234ABCD')
+    assert.equal(buildUploadPreview(upload('album', [file(0, 'image/png')]), 'https://femboyz.cloud', null).title, '1234ABCD')
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')]), 'https://femboyz.cloud', null).description, '')
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')], 'Notes'), 'https://femboyz.cloud', null).description, '')
 })
 
 test('uses the first image, then falls back to the first video', () => {
@@ -103,9 +98,9 @@ test('generates versioned cards for files, playlists, and multi-media albums', (
     assert.equal(hasGeneratedCard(link), false)
 
     const preview = buildUploadPreview(files, 'https://femboyz.cloud', null)
-    assert.equal(OG_CARD_VERSION, '3')
+    assert.equal(OG_CARD_VERSION, '6')
     assert.equal(preview.cardImageUrl, `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`)
-    assert.equal(preview.cardImageAlt, '1 file: 1 file via femboyz.cloud')
+    assert.equal(preview.cardImageAlt, '1234ABCD: 1 file via femboyz.cloud')
     assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', null).cardImageUrl, null)
 })
 

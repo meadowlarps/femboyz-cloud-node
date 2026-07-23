@@ -91,7 +91,7 @@ test('normalizes common raster formats to a bounded PNG and rejects malformed in
         const png = Buffer.from(dataUri.slice('data:image/png;base64,'.length), 'base64')
         assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
         assert.equal(png.readUInt32BE(16), 640)
-        assert.equal(png.readUInt32BE(20), 360)
+        assert.equal(png.readUInt32BE(20), 400)
     }
 
     assert.equal(await normalizeLeadImage(new Uint8Array([1, 2, 3])), null)
@@ -106,6 +106,8 @@ test('renders a compact borderless card and only the first album item', async ()
     assert.match(elementTree, /\? private title/)
     assert.match(elementTree, /A useful description/)
     assert.doesNotMatch(elementTree, /🔒/)
+    assert.match(elementTree, /2px solid #3f3f3f/)
+    assert.match(elementTree, /"width":188/)
     assert.equal(buildOgCardElement(files, 'femboyz.cloud', null).props.style?.border, undefined)
 
     const albumTree = JSON.stringify(buildOgCardElement(upload('album', [

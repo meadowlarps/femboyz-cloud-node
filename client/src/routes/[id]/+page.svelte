@@ -26,9 +26,11 @@
 
 <svelte:head>
     <title>{preview.title}</title>
-    <meta name="description" content={preview.description} />
     <meta property="og:title" content={preview.title} />
-    <meta property="og:description" content={preview.description} />
+    {#if preview.description}
+        <meta name="description" content={preview.description} />
+        <meta property="og:description" content={preview.description} />
+    {/if}
     <meta property="og:site_name" content={preview.siteName} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={preview.canonicalUrl} />
