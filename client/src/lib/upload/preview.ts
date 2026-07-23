@@ -1,6 +1,6 @@
 import type { FileData, UploadData } from './downloader'
 
-export const OG_CARD_VERSION = '6'
+export const OG_CARD_VERSION = '7'
 
 export type UploadPreview = {
     title: string

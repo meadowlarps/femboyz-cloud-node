@@ -177,14 +177,13 @@ function tiles(files: FileData[]): OgElement {
     }, ...files.slice(0, 6).map(file => tile(fileTypeLabel(file), fileTypeColor(file))))
 }
 
-function albumContent(upload: UploadData, leadImageDataUri: string | null): OgElement {
+function albumContent(upload: UploadData, leadMediaDataUri: string | null): OgElement {
     const first = upload.files[0]
     if (!first) return element('div')
 
-    const lead = selectLeadImage(upload)
-    return lead && leadImageDataUri
+    return leadMediaDataUri
         ? element('img', {
-            src: leadImageDataUri,
+            src: leadMediaDataUri,
             width: OG_LEAD_WIDTH,
             height: OG_LEAD_HEIGHT,
             style: {
@@ -198,9 +197,9 @@ function albumContent(upload: UploadData, leadImageDataUri: string | null): OgEl
         : tile(mediaTypeLabel(first), fileTypeColor(first), OG_LEAD_WIDTH, OG_LEAD_HEIGHT)
 }
 
-export function buildOgCardElement(upload: UploadData, siteName: string, leadImageDataUri: string | null): OgElement {
+export function buildOgCardElement(upload: UploadData, siteName: string, leadMediaDataUri: string | null): OgElement {
     const content = upload.type === 'album'
-        ? albumContent(upload, leadImageDataUri)
+        ? albumContent(upload, leadMediaDataUri)
         : tiles(upload.files)
 
     return element('div', {
@@ -248,9 +247,9 @@ async function render(elementTree: OgElement): Promise<ArrayBuffer> {
     return response.arrayBuffer()
 }
 
-export async function renderOgCard(upload: UploadData, siteName: string, leadImageDataUri: string | null): Promise<ArrayBuffer> {
+export async function renderOgCard(upload: UploadData, siteName: string, leadMediaDataUri: string | null): Promise<ArrayBuffer> {
     try {
-        return await render(buildOgCardElement(upload, siteName, leadImageDataUri))
+        return await render(buildOgCardElement(upload, siteName, leadMediaDataUri))
     } catch {
         return render(buildFallbackElement(upload, siteName))
     }

@@ -10,6 +10,7 @@ import {
     selectLeadImage
 } from '$lib/upload/ogCard'
 import { hasGeneratedCard } from '$lib/upload/preview'
+import { extractVideoFrame } from '$lib/server/upload/videoFrame'
 
 function rawFileUrl(upload: UploadData, file: FileData, apiEndpoint: string): string {
     return apiEndpoint
@@ -17,9 +18,15 @@ function rawFileUrl(upload: UploadData, file: FileData, apiEndpoint: string): st
         : file.url
 }
 
-async function loadLeadImage(upload: UploadData, apiEndpoint: string, fetcher: typeof fetch): Promise<string | null> {
+async function loadLeadMedia(upload: UploadData, apiEndpoint: string, fetcher: typeof fetch): Promise<string | null> {
     const lead = selectLeadImage(upload)
-    if (!lead || !canNormalizeLeadImage(lead)) return null
+    if (!lead) {
+        const first = upload.type === 'album' ? upload.files[0] : undefined
+        return first?.mime.toLowerCase().startsWith('video/')
+            ? extractVideoFrame(rawFileUrl(upload, first, apiEndpoint))
+            : null
+    }
+    if (!canNormalizeLeadImage(lead)) return null
 
     try {
         const response = await fetcher(rawFileUrl(upload, lead, apiEndpoint))
@@ -49,8 +56,8 @@ export const GET: RequestHandler = async ({ params, fetch, url }) => {
 
     if (!hasGeneratedCard(upload)) throw error(404, 'Preview not found')
 
-    const leadImageDataUri = await loadLeadImage(upload, apiEndpoint, fetch)
-    const png = await renderOgCard(upload, url.hostname, leadImageDataUri)
+    const leadMediaDataUri = await loadLeadMedia(upload, apiEndpoint, fetch)
+    const png = await renderOgCard(upload, url.hostname, leadMediaDataUri)
 
     return new Response(png, {
         headers: {

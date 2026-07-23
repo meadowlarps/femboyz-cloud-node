@@ -117,6 +117,13 @@ test('renders a compact borderless card and only the first album item', async ()
     assert.match(albumTree, /VID/)
     assert.doesNotMatch(albumTree, /IMG/)
 
+    const videoFrameTree = JSON.stringify(buildOgCardElement(upload('album', [
+        file(0, 'clip.mp4', 'video/mp4'),
+        file(1, 'second.mp4', 'video/mp4')
+    ]), 'femboyz.cloud', 'data:image/png;base64,frame'))
+    assert.match(videoFrameTree, /data:image\/png;base64,frame/)
+    assert.doesNotMatch(videoFrameTree, /VID/)
+
     const originalFetch = globalThis.fetch
     let fetchCount = 0
     globalThis.fetch = (async () => {
