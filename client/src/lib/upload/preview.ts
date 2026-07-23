@@ -9,7 +9,6 @@ export type UploadPreview = {
     canonicalUrl: string
     cardImageUrl: string | null
     cardImageAlt: string | null
-    suppressMetaText: boolean
     image: FileData | null
     video: FileData | null
     redirectUrl: string | null
@@ -66,13 +65,12 @@ export function buildUploadPreview(upload: UploadData, origin: string, userAgent
         canonicalUrl: canonicalUrl.href,
         cardImageUrl,
         cardImageAlt: cardImageUrl ? `${text.title}: ${countLabel} via ${siteName}` : null,
-        suppressMetaText: cardImageUrl !== null && previewCrawler,
         image,
         video,
         redirectUrl: previewCrawler
             && onlyFile
             && (onlyFile.mime.startsWith('image/') || onlyFile.mime.startsWith('video/'))
             ? onlyFile.url
-            : null
+            : previewCrawler ? cardImageUrl : null
     }
 }

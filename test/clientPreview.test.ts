@@ -39,19 +39,20 @@ test('recognizes only Discord and Telegram preview crawlers', () => {
     assert.equal(isPreviewCrawler(null), false)
 })
 
-test('redirects preview crawlers only for a single album media file', () => {
+test('redirects preview crawlers to raw single media or a generated card', () => {
     const image = file(0, 'image/png')
     const video = file(0, 'video/mp4')
     const gif = file(0, 'image/gif')
     const crawler = 'Discordbot/2.0'
+    const cardUrl = `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`
 
     assert.equal(buildUploadPreview(upload('album', [image]), 'https://femboyz.cloud', crawler).redirectUrl, image.url)
     assert.equal(buildUploadPreview(upload('album', [video]), 'https://femboyz.cloud', crawler).redirectUrl, video.url)
     assert.equal(buildUploadPreview(upload('album', [gif]), 'https://femboyz.cloud', crawler).redirectUrl, gif.url)
     assert.equal(buildUploadPreview(upload('album', [image]), 'https://femboyz.cloud', 'Mozilla/5.0').redirectUrl, null)
-    assert.equal(buildUploadPreview(upload('album', [image, video]), 'https://femboyz.cloud', crawler).redirectUrl, null)
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/pdf')]), 'https://femboyz.cloud', crawler).redirectUrl, null)
-    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', crawler).redirectUrl, null)
+    assert.equal(buildUploadPreview(upload('album', [image, video]), 'https://femboyz.cloud', crawler).redirectUrl, cardUrl)
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'application/pdf')]), 'https://femboyz.cloud', crawler).redirectUrl, cardUrl)
+    assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', 'TelegramBot').redirectUrl, cardUrl)
 })
 
 test('prefers user text and generates type-aware fallbacks', () => {
@@ -105,11 +106,7 @@ test('generates versioned cards for files, playlists, and multi-media albums', (
     assert.equal(OG_CARD_VERSION, '3')
     assert.equal(preview.cardImageUrl, `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`)
     assert.equal(preview.cardImageAlt, '1 file: 1 file via femboyz.cloud')
-    assert.equal(preview.suppressMetaText, false)
-    assert.equal(buildUploadPreview(files, 'https://femboyz.cloud', 'Discordbot/2.0').suppressMetaText, true)
-    assert.equal(buildUploadPreview(files, 'https://femboyz.cloud', 'TelegramBot').suppressMetaText, true)
     assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', null).cardImageUrl, null)
-    assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', 'Discordbot/2.0').suppressMetaText, false)
 })
 
 test('exports the same type-aware count labels used by metadata and generated cards', () => {

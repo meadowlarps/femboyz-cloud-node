@@ -25,13 +25,11 @@
 </script>
 
 <svelte:head>
-    {#if !preview.suppressMetaText}
-        <title>{preview.title}</title>
-        <meta name="description" content={preview.description} />
-        <meta property="og:title" content={preview.title} />
-        <meta property="og:description" content={preview.description} />
-        <meta property="og:site_name" content={preview.siteName} />
-    {/if}
+    <title>{preview.title}</title>
+    <meta name="description" content={preview.description} />
+    <meta property="og:title" content={preview.title} />
+    <meta property="og:description" content={preview.description} />
+    <meta property="og:site_name" content={preview.siteName} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={preview.canonicalUrl} />
     {#if preview.cardImageUrl}
