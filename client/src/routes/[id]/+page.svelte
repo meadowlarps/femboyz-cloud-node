@@ -32,7 +32,13 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content={preview.canonicalUrl} />
     <meta property="og:site_name" content={preview.siteName} />
-    {#if preview.image}
+    {#if preview.cardImageUrl}
+        <meta property="og:image" content={preview.cardImageUrl} />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={preview.cardImageAlt ?? preview.title} />
+    {:else if preview.image}
         <meta property="og:image" content={preview.image.url} />
         <meta property="og:image:type" content={preview.image.mime} />
         <meta property="og:image:alt" content={preview.image.filename} />

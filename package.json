@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "NODE_ENV=prod node dist/index.js",
     "test": "tsc && NODE_ENV=dev LOGLEVEL=debug vitest run --reporter=verbose && npm run test:preview",
-    "test:preview": "tsx --test test/clientPreview.test.ts"
+    "test:preview": "tsx --test test/client*.test.ts"
   },
   "keywords": [],
   "author": "meadowlarps, misikovich",

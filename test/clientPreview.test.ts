@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildUploadPreview, isPreviewCrawler } from '../client/src/lib/upload/preview.ts'
+import {
+    OG_CARD_VERSION,
+    buildUploadCountLabel,
+    buildUploadPreview,
+    hasGeneratedCard,
+    isPreviewCrawler
+} from '../client/src/lib/upload/preview.ts'
 import type { FileData, UploadData } from '../client/src/lib/upload/downloader.ts'
 
 function file(index: number, mime: string): FileData {
@@ -80,4 +86,29 @@ test('uses the first image, then falls back to the first video', () => {
     assert.equal(mixed.video, null)
     assert.equal(videos.image, null)
     assert.equal(videos.video?.url, firstVideo.url)
+})
+
+test('generates versioned cards for files, playlists, and multi-media albums', () => {
+    const files = upload('files', [file(0, 'application/pdf')])
+    const playlist = upload('playlist', [file(0, 'audio/mpeg')])
+    const album = upload('album', [file(0, 'image/png'), file(1, 'video/mp4')])
+    const singleMedia = upload('album', [file(0, 'image/png')])
+    const link = upload('link', [])
+
+    assert.equal(hasGeneratedCard(files), true)
+    assert.equal(hasGeneratedCard(playlist), true)
+    assert.equal(hasGeneratedCard(album), true)
+    assert.equal(hasGeneratedCard(singleMedia), false)
+    assert.equal(hasGeneratedCard(link), false)
+
+    const preview = buildUploadPreview(files, 'https://femboyz.cloud', null)
+    assert.equal(preview.cardImageUrl, `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`)
+    assert.equal(preview.cardImageAlt, '1 file: 1 file via femboyz.cloud')
+    assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', null).cardImageUrl, null)
+})
+
+test('exports the same type-aware count labels used by metadata and generated cards', () => {
+    assert.equal(buildUploadCountLabel(upload('files', [file(0, 'text/plain')])), '1 file')
+    assert.equal(buildUploadCountLabel(upload('playlist', [file(0, 'audio/ogg'), file(1, 'audio/mpeg')])), '2 tracks')
+    assert.equal(buildUploadCountLabel(upload('album', [file(0, 'video/mp4'), file(1, 'image/png')])), '2 media')
 })
