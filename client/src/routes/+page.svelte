@@ -182,6 +182,10 @@
     }    
 </script>
 
+<svelte:head>
+    <title>femboyz.cloud</title>
+</svelte:head>
+
 <div class="page-layout">
 <div class="upload-sidebar">
 <div class="upload-field">
