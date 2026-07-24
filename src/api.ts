@@ -29,7 +29,7 @@ declare module "fastify" {
 }
 
 const scopelog = scope("api")
-const server: FastifyInstance = Fastify({ logger: false })
+const server: FastifyInstance = Fastify({ logger: false, trustProxy: "127.0.0.1" })
 const PORT = envs.PORT
 
 
