@@ -5,6 +5,7 @@
     import { prefersReducedMotion } from 'svelte/motion'
     import { fade } from 'svelte/transition'
     import { fetchUpload, type UploadData } from '$lib/upload/downloader'
+    import { buildMiniUploadTypeLabel } from '$lib/upload/miniUpload'
     import { formatFileSize } from '$lib/upload/uploader'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
 
@@ -27,6 +28,7 @@
     const files = $derived(data?.files ?? [])
     const hasMultiple = $derived(files.length > 1)
     const label = $derived(data?.meta.title || id)
+    const typeLabel = $derived(data ? buildMiniUploadTypeLabel(data) : '')
     const uploadUrl = $derived(`/${id}`)
     const dateLabel = $derived(
         data ? new Date(data.when).toLocaleDateString(undefined, { dateStyle: 'medium' }) : ''
@@ -186,7 +188,7 @@
                         aria-label={`${label} preview`}
                         aria-roledescription="carousel"
                     >
-                        <span class="type-badge">Album</span>
+                        <span class="type-badge">{typeLabel}</span>
                         <div
                             class="embla-viewport"
                             use:emblaCarouselSvelte={{ options: carouselOptions, plugins: [] }}
@@ -247,7 +249,7 @@
                     </div>
                 {:else}
                     <a class="file-stage" href={uploadUrl} aria-label={`Open ${label}`}>
-                        <span class="type-badge">{data.type}</span>
+                        <span class="type-badge">{typeLabel}</span>
                         <span class="file-icons" aria-hidden="true">
                             {#each files as file (file.index)}
                                 <span class="file-icon" data-kind={mimeKind(file.mime)}>
