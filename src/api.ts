@@ -9,6 +9,7 @@ import { receiveUploadReturnID,
 import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
 import { adminAuthStatus, parseAdminQuery }             from "./admin.js"
+import { setTimeout as delay }                          from "node:timers/promises"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
@@ -88,8 +89,10 @@ async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {
     const status = adminAuthStatus(request.headers.authorization, envs.AUTH_ADMIN_KEY)
     if (status === 503)
         throw Object.assign(new Error("Admin key is not configured"), { statusCode: 503 })
-    if (status === 401)
+    if (status === 401) {
+        await delay(1000)
         throw Object.assign(new Error("Invalid admin key"), { statusCode: 401 })
+    }
 }
 
 async function adminUploadsHandler(request: FastifyRequest, reply: FastifyReply) {

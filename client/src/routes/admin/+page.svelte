@@ -59,6 +59,7 @@
 
     let adminKey = $state('')
     let authenticated = $state(false)
+    let signingIn = $state(false)
     let data = $state<AdminResponse | null>(null)
     let loading = $state(false)
     let errorMessage = $state('')
@@ -72,10 +73,7 @@
 
     onMount(() => {
         adminKey = sessionStorage.getItem(sessionKeyName) ?? ''
-        if (adminKey) {
-            authenticated = true
-            void loadUploads()
-        }
+        if (adminKey) void authenticate()
     })
 
     function signOut(message = '') {
@@ -108,14 +106,19 @@
 
     async function signIn(event: SubmitEvent) {
         event.preventDefault()
-        if (!adminKey) return
-        sessionStorage.setItem(sessionKeyName, adminKey)
-        authenticated = true
-        currentPage = 1
-        await loadUploads()
+        await authenticate()
     }
 
-    async function loadUploads() {
+    async function authenticate() {
+        if (!adminKey) return
+        sessionStorage.setItem(sessionKeyName, adminKey)
+        signingIn = true
+        currentPage = 1
+        authenticated = await loadUploads()
+        signingIn = false
+    }
+
+    async function loadUploads(): Promise<boolean> {
         loading = true
         errorMessage = ''
         const params = new URLSearchParams({
@@ -128,9 +131,11 @@
 
         try {
             data = await adminFetch<AdminResponse>(`/api/v2/admin/uploads?${params}`)
+            return true
         } catch (error) {
-            if (error instanceof AdminRequestError && error.status === 401) return
+            if (error instanceof AdminRequestError && error.status === 401) return false
             errorMessage = error instanceof Error ? error.message : 'Could not load uploads.'
+            return false
         } finally {
             loading = false
         }
@@ -200,12 +205,14 @@
 {#if !authenticated}
     <section class="login-panel" aria-labelledby="admin-login-title">
         <h1 id="admin-login-title">Admin</h1>
-        <form onsubmit={signIn}>
+        <form onsubmit={signIn} aria-busy={signingIn}>
             <label>
                 <span>Key</span>
-                <input bind:value={adminKey} type="password" autocomplete="current-password" required />
+                <input bind:value={adminKey} type="password" autocomplete="current-password" required disabled={signingIn} />
             </label>
-            <button class="fb-button" type="submit">Sign in</button>
+            <button class="fb-button" type="submit" disabled={signingIn}>
+                {signingIn ? 'Signing in…' : 'Sign in'}
+            </button>
         </form>
         {#if errorMessage}<p class="error" role="alert">{errorMessage}</p>{/if}
     </section>
