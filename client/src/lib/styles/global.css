@@ -1,4 +1,6 @@
 :root {
+    color-scheme: dark;
+    accent-color: #c30f45;
     --color-accent: #c30f45;
     --color-fb-white: #fff0f3;
     --color-fb-white-semi: #fff0f3bf;

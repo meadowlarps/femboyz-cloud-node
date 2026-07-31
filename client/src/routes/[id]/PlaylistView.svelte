@@ -36,11 +36,16 @@
         gap: 0.5rem;
     }
 
+    .track {
+        background: #262224;
+        border: 1px solid #332e30;
+    }
+
     .track-header {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        padding: 0.75rem 1rem;
+        padding: 0.75rem 1rem 0.5rem;
     }
 
     .track-index {
@@ -88,11 +93,13 @@
     .audio-player {
         width: 100%;
         display: block;
-        height: 2.5rem;
-        border-top: none;
+        height: 3rem;
+        padding: 0 0.75rem 0.75rem;
+        box-sizing: border-box;
     }
 
-    audio::-webkit-media-controls-panel {
-        background: #1b1a1a;
+    .audio-player:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: -2px;
     }
 </style>
