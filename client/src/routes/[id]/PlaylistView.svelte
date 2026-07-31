@@ -1,5 +1,6 @@
 <script lang="ts">
     import { fileDownloadUrl, type FileData } from '$lib/upload/downloader'
+    import DownloadIcon from '$lib/DownloadIcon.svelte'
     import { formatFileSize } from '$lib/upload/uploader'
     import { fade } from 'svelte/transition';
 
@@ -17,9 +18,12 @@
                 </div>
                 <div class="track-actions">
                     {#if file.stat_dl > 0}
-                        <span class="play-count">{file.stat_dl}</span>
+                        <span class="dl-count" title="{file.stat_dl} {file.stat_dl === 1 ? 'download' : 'downloads'}">
+                            <DownloadIcon />
+                            {file.stat_dl}
+                        </span>
                     {/if}
-                    <a class="fb-button dl-btn" href={fileDownloadUrl(file)} download={file.filename}>↓</a>
+                    <a class="fb-button fb-button-ghost dl-btn" href={fileDownloadUrl(file)} download={file.filename}>Download</a>
                 </div>
             </div>
             <audio controls src={file.url} preload="none" class="audio-player"></audio>
@@ -80,14 +84,20 @@
         flex-shrink: 0;
     }
 
-    .play-count {
-        font-size: 0.8rem;
+    .dl-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.82rem;
         color: #6a6468;
+        white-space: nowrap;
     }
 
     .dl-btn {
+        font-size: 0.88rem;
+        padding: 0.5rem 0.9rem;
         text-decoration: none;
-        font-size: 0.9rem;
+        white-space: nowrap;
     }
 
     .audio-player {

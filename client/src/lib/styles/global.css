@@ -30,5 +30,19 @@ select {
     background-color: var(--color-fb-white);
     transform: scale(1.04);
     cursor: pointer;
-    
+
+}
+
+/* Outline variant — accent border only, fills in on hover. */
+.fb-button-ghost {
+    color: var(--color-accent);
+    background-color: transparent;
+    border: 1px solid var(--color-accent);
+    transition: color 0.2s ease-out, background-color 0.2s ease-out, border-color 0.2s ease-out, transform 0.4s ease, scale 0.4s ease;
+}
+
+.fb-button-ghost:hover,
+.fb-button-ghost:focus-visible {
+    color: #fff;
+    background-color: var(--color-accent);
 }

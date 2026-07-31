@@ -1,5 +1,6 @@
 <script lang="ts">
     import { fileDownloadUrl, type FileData } from '$lib/upload/downloader'
+    import DownloadIcon from '$lib/DownloadIcon.svelte'
     import { formatFileSize } from '$lib/upload/uploader'
     import { fade } from 'svelte/transition';
     
@@ -16,9 +17,12 @@
             </div>
             <div class="file-stats">
                 {#if file.stat_dl > 0}
-                    <span class="dl-count">{file.stat_dl} {file.stat_dl === 1 ? 'download' : 'downloads'}</span>
+                    <span class="dl-count">
+                        <DownloadIcon />
+                        {file.stat_dl}
+                    </span>
                 {/if}
-                <a class="fb-button dl-btn" href={fileDownloadUrl(file)} download={file.filename}>Download</a>
+                <a class="fb-button fb-button-ghost dl-btn" href={fileDownloadUrl(file)} download={file.filename}>Download</a>
             </div>
         </li>
     {/each}
@@ -70,6 +74,9 @@
     }
 
     .dl-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
         font-size: 0.82rem;
         color: #6a6468;
         white-space: nowrap;
