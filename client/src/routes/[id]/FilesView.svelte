@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { FileData } from '$lib/upload/downloader'
+    import { fileDownloadUrl, type FileData } from '$lib/upload/downloader'
     import { formatFileSize } from '$lib/upload/uploader'
     import { fade } from 'svelte/transition';
     
@@ -18,7 +18,7 @@
                 {#if file.stat_dl > 0}
                     <span class="dl-count">{file.stat_dl} {file.stat_dl === 1 ? 'download' : 'downloads'}</span>
                 {/if}
-                <a class="fb-button dl-btn" href={file.url} target="_blank" rel="noopener">Download</a>
+                <a class="fb-button dl-btn" href={fileDownloadUrl(file)} download={file.filename}>Download</a>
             </div>
         </li>
     {/each}

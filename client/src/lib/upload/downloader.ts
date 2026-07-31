@@ -18,6 +18,14 @@ export type FileData = {
     stat_dl: number
 }
 
+/**
+ * Same file, but asking the API for `Content-Disposition: attachment` so the browser
+ * saves it instead of playing it. `file.url` itself must stay inline for <audio>/<img>.
+ */
+export function fileDownloadUrl(file: FileData): string {
+    return `${file.url}${file.url.includes('?') ? '&' : '?'}dl=1`
+}
+
 export async function fetchUpload(
     id: string,
     apiEndpoint: string,

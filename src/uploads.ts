@@ -30,6 +30,19 @@ export async function getUploadByID(id: string): Promise<StorageDBUploadInstance
     return result.data
 }
 
+/** Best-effort counter bump — never blocks or fails the file response it accompanies. */
+export async function incrementFileDownload(id: string, fileIndex: number): Promise<void> {
+    await getDB()
+        .collection(envs.MDB_COLLECTION_UPLOADS)
+        .updateOne(
+            { id_pub: id },
+            { $inc: { [`files.${fileIndex}.stat_dl`]: 1, "stat.down": 1 } })
+        .catch(err => {
+            const message = err instanceof Error ? err.message : String(err)
+            scopelog.error(`Failed to count download of ${id}/${fileIndex}: ${message}`)
+        })
+}
+
 export async function getAdminUploadPage(query: AdminQuery, baseUrl: string) {
     const collection = getDB().collection(envs.MDB_COLLECTION_UPLOADS)
     const [facet] = await collection.aggregate(buildAdminPipeline(query)).toArray().catch(err => {

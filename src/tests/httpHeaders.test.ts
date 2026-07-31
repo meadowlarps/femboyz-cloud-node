@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { validateHeaderValue } from "node:http"
-import { inlineContentDisposition, parseByteRange } from "../httpHeaders.js"
+import { attachmentContentDisposition, inlineContentDisposition, parseByteRange } from "../httpHeaders.js"
 
 describe("inlineContentDisposition", () => {
     test("formats an ASCII filename", () => {
@@ -30,6 +30,33 @@ describe("inlineContentDisposition", () => {
 
         for (const filename of problematicNames) {
             expect(() => validateHeaderValue("Content-Disposition", inlineContentDisposition(filename))).not.toThrow()
+        }
+    })
+})
+
+describe("attachmentContentDisposition", () => {
+    test("formats an ASCII filename", () => {
+        expect(attachmentContentDisposition("video.mp4"))
+            .toBe("attachment; filename=\"video.mp4\"; filename*=UTF-8''video.mp4")
+    })
+
+    test("keeps Unicode out of the raw header and encodes it as UTF-8", () => {
+        expect(attachmentContentDisposition("résumé 🎬.mp4"))
+            .toBe("attachment; filename=\"r_sum_ _.mp4\"; filename*=UTF-8''r%C3%A9sum%C3%A9%20%F0%9F%8E%AC.mp4")
+    })
+
+    test("sanitizes exactly like the inline variant", () => {
+        const filename = "clips\\bad\r\nInjected: yes.mp4"
+
+        expect(attachmentContentDisposition(filename))
+            .toBe(inlineContentDisposition(filename).replace(/^inline;/, "attachment;"))
+    })
+
+    test("always produces a value accepted by Node's HTTP implementation", () => {
+        const problematicNames = ["line\nbreak.mp4", "фильм.mp4", "emoji-🎬.mp4", "broken-\ud800.mp4"]
+
+        for (const filename of problematicNames) {
+            expect(() => validateHeaderValue("Content-Disposition", attachmentContentDisposition(filename))).not.toThrow()
         }
     })
 })

@@ -2,7 +2,7 @@
  * Build a Content-Disposition value without putting user-controlled Unicode or
  * control characters directly into an HTTP header.
  */
-export function inlineContentDisposition(filename: string): string {
+function buildContentDisposition(filename: string, type: "inline" | "attachment"): string {
     const safeFilename = filename
         .toWellFormed()
         .replace(/[\u0000-\u001f\u007f\\/]/g, "_")
@@ -14,7 +14,16 @@ export function inlineContentDisposition(filename: string): string {
     const encoded = encodeURIComponent(safeFilename)
         .replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
 
-    return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`
+    return `${type}; filename="${fallback}"; filename*=UTF-8''${encoded}`
+}
+
+export function inlineContentDisposition(filename: string): string {
+    return buildContentDisposition(filename, "inline")
+}
+
+/** Forces a save dialog instead of in-browser rendering — used by the `?dl=1` download links. */
+export function attachmentContentDisposition(filename: string): string {
+    return buildContentDisposition(filename, "attachment")
 }
 
 export function parseByteRange(header: string | undefined, size: number): { start: number, end: number } | undefined {

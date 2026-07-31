@@ -5,7 +5,8 @@ import { receiveUploadReturnID,
     receiveLinkReturnID,
     getUploadByID,
     getAdminUploadPage,
-    deleteUploadByID }                                 from "./uploads.js"
+    deleteUploadByID,
+    incrementFileDownload }                            from "./uploads.js"
 import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
 import { adminAuthStatus, parseAdminQuery }             from "./admin.js"
@@ -14,7 +15,7 @@ import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
 import      { envs }        from "./config.js"
-import      { inlineContentDisposition, parseByteRange } from "./httpHeaders.js"
+import      { attachmentContentDisposition, inlineContentDisposition, parseByteRange } from "./httpHeaders.js"
 import Fastify, {
     type FastifyError,
     type FastifyInstance,
@@ -126,9 +127,15 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
         if (isNaN(fidNum) || fidNum < 0) throw Object.assign(new Error("Invalid file index"), { statusCode: 400 })
         const file = upload.files[fidNum]
         if (!file) throw Object.assign(new Error("File not found"), { statusCode: 404 })
+
+        const { dl } = request.query as { dl?: string }
+        const wantsDownload = dl === "1"
+
         reply
             .header("Content-Type", file.mime)
-            .header("Content-Disposition", inlineContentDisposition(file.filename))
+            .header("Content-Disposition", wantsDownload
+                ? attachmentContentDisposition(file.filename)
+                : inlineContentDisposition(file.filename))
             .header("Content-Security-Policy", "sandbox")
             .header("X-Content-Type-Options", "nosniff")
             .header("Accept-Ranges", "bytes")
@@ -155,6 +162,9 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
             reply.raw.end()
             return reply
         }
+
+        // Only whole-file download requests count — ranged reads are seeks or resumed transfers.
+        if (wantsDownload && !range) void incrementFileDownload(id, fidNum)
 
         return reply.send(createFileReadStream(file.hashkey256, range))
     }
