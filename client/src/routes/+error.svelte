@@ -17,13 +17,17 @@
 
 	<div class="copy">
 		{#if !notFound}
-			<p class="eyebrow">Something went wrong</p>
+			<p class="eyebrow">Huh!?!?!?</p>
 		{/if}
-		<h1>{notFound ? 'This page can not be found' : $page.error?.message}</h1>
+		<h1>
+			{notFound 
+				? 'We cant find this page' 
+				: 'We broke something...'}
+		</h1>
 		<p>
 			{notFound
 				? 'The link may be broken, expired, or floating somewhere else'
-				: 'Try again or head back home'}
+				: 'Try again later or head back home'}
 		</p>
 		<a class="fb-button" href="/">Back to home</a>
 	</div>
