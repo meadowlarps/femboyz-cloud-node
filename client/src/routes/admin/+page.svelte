@@ -2,6 +2,7 @@
     import { onMount } from 'svelte'
     import { spawnAlert } from '$lib/alerts'
     import { formatFileSize } from '$lib/upload/uploader'
+    import LogsView from './LogsView.svelte'
 
     type AdminFile = {
         index: number
@@ -59,6 +60,7 @@
 
     let adminKey = $state('')
     let authenticated = $state(false)
+    let tab = $state<'uploads' | 'logs'>('uploads')
     let signingIn = $state(false)
     let data = $state<AdminResponse | null>(null)
     let loading = $state(false)
@@ -80,6 +82,7 @@
         sessionStorage.removeItem(sessionKeyName)
         adminKey = ''
         authenticated = false
+        tab = 'uploads'
         data = null
         errorMessage = message
     }
@@ -226,141 +229,150 @@
             <button class="quiet-button" type="button" onclick={() => signOut()}>Log out</button>
         </header>
 
-        {#if data}
-            <section class="summary" aria-label="Storage overview">
-                <div><strong>{data.totalCount}</strong><span>Total uploads</span></div>
-                <div><strong>{data.matchedCount}</strong><span>Matching</span></div>
-                <div><strong>{formatFileSize(data.storage.usedBytes)}</strong><span>Used</span></div>
-                <div><strong>{formatFileSize(data.storage.freeBytes)}</strong><span>Free of {formatFileSize(data.storage.limitBytes)}</span></div>
-            </section>
-        {/if}
+        <div class="mode-switcher">
+            <button class="mode-tab" class:active={tab === 'uploads'} type="button" onclick={() => (tab = 'uploads')}>Uploads</button>
+            <button class="mode-tab" class:active={tab === 'logs'} type="button" onclick={() => (tab = 'logs')}>Error logs</button>
+        </div>
 
-        <form class="controls" onsubmit={submitSearch} aria-label="Upload filters">
-            <label class="search-control">
-                <span>Search issuer, ID, or title</span>
-                <div>
-                    <input bind:value={searchInput} type="search" maxlength="200" placeholder="IP, UUID, user agent, ID, title" />
-                    <button class="fb-button" type="submit">Search</button>
-                </div>
-            </label>
-            <label>
-                <span>Type</span>
-                <select bind:value={typeFilter} onchange={controlsChanged}>
-                    <option value="all">All types</option>
-                    <option value="files">Files</option>
-                    <option value="album">Albums</option>
-                    <option value="playlist">Playlists</option>
-                    <option value="link">Links</option>
-                </select>
-            </label>
-            <label>
-                <span>Sort</span>
-                <select bind:value={sort} onchange={controlsChanged}>
-                    <option value="newest">Newest</option>
-                    <option value="oldest">Oldest</option>
-                    <option value="largest">Largest</option>
-                    <option value="smallest">Smallest</option>
-                </select>
-            </label>
-            <label>
-                <span>Per page</span>
-                <select bind:value={pageSize} onchange={controlsChanged}>
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                </select>
-            </label>
-        </form>
+        {#if tab === 'logs'}
+            <LogsView {adminFetch} />
+        {:else}
+            {#if data}
+                <section class="summary" aria-label="Storage overview">
+                    <div><strong>{data.totalCount}</strong><span>Total uploads</span></div>
+                    <div><strong>{data.matchedCount}</strong><span>Matching</span></div>
+                    <div><strong>{formatFileSize(data.storage.usedBytes)}</strong><span>Used</span></div>
+                    <div><strong>{formatFileSize(data.storage.freeBytes)}</strong><span>Free of {formatFileSize(data.storage.limitBytes)}</span></div>
+                </section>
+            {/if}
 
-        {#if errorMessage}
-            <p class="error" role="alert">{errorMessage}</p>
-        {/if}
+            <form class="controls" onsubmit={submitSearch} aria-label="Upload filters">
+                <label class="search-control">
+                    <span>Search issuer, ID, or title</span>
+                    <div>
+                        <input bind:value={searchInput} type="search" maxlength="200" placeholder="IP, UUID, user agent, ID, title" />
+                        <button class="fb-button" type="submit">Search</button>
+                    </div>
+                </label>
+                <label>
+                    <span>Type</span>
+                    <select bind:value={typeFilter} onchange={controlsChanged}>
+                        <option value="all">All types</option>
+                        <option value="files">Files</option>
+                        <option value="album">Albums</option>
+                        <option value="playlist">Playlists</option>
+                        <option value="link">Links</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Sort</span>
+                    <select bind:value={sort} onchange={controlsChanged}>
+                        <option value="newest">Newest</option>
+                        <option value="oldest">Oldest</option>
+                        <option value="largest">Largest</option>
+                        <option value="smallest">Smallest</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Per page</span>
+                    <select bind:value={pageSize} onchange={controlsChanged}>
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                    </select>
+                </label>
+            </form>
 
-        {#if loading && !data}
-            <p class="state" aria-live="polite">Loading uploads…</p>
-        {:else if data?.items.length === 0}
-            <p class="state">No uploads match these controls.</p>
-        {:else if data}
-            <div class:updating={loading} class="upload-list" aria-busy={loading}>
-                {#each data.items as upload (upload.id)}
-                    <article class="upload-row">
-                        <header class="upload-row-header">
-                            <div>
-                                <div class="title-line">
-                                    <a href={`/${upload.id}`} target="_blank" rel="noopener noreferrer">
-                                        {upload.meta.title || upload.id}
-                                    </a>
-                                    <span class="badge">{upload.type}</span>
-                                    <span class="badge muted">{upload.status}</span>
-                                    <span class="badge muted">{upload.public ? 'public' : 'private'}</span>
+            {#if errorMessage}
+                <p class="error" role="alert">{errorMessage}</p>
+            {/if}
+
+            {#if loading && !data}
+                <p class="state" aria-live="polite">Loading uploads…</p>
+            {:else if data?.items.length === 0}
+                <p class="state">No uploads match these controls.</p>
+            {:else if data}
+                <div class:updating={loading} class="upload-list" aria-busy={loading}>
+                    {#each data.items as upload (upload.id)}
+                        <article class="upload-row">
+                            <header class="upload-row-header">
+                                <div>
+                                    <div class="title-line">
+                                        <a href={`/${upload.id}`} target="_blank" rel="noopener noreferrer">
+                                            {upload.meta.title || upload.id}
+                                        </a>
+                                        <span class="badge">{upload.type}</span>
+                                        <span class="badge muted">{upload.status}</span>
+                                        <span class="badge muted">{upload.public ? 'public' : 'private'}</span>
+                                    </div>
+                                    <p class="upload-id">{upload.id} · {formatDate(upload.when)}</p>
+                                    {#if upload.meta.desc}<p class="description">{upload.meta.desc}</p>{/if}
                                 </div>
-                                <p class="upload-id">{upload.id} · {formatDate(upload.when)}</p>
-                                {#if upload.meta.desc}<p class="description">{upload.meta.desc}</p>{/if}
-                            </div>
-                            <button
-                                class="delete-button"
-                                type="button"
-                                disabled={deleting.has(upload.id)}
-                                onclick={() => deleteUpload(upload)}
-                            >
-                                {deleting.has(upload.id) ? 'Deleting…' : 'Delete permanently'}
-                            </button>
-                        </header>
+                                <button
+                                    class="delete-button"
+                                    type="button"
+                                    disabled={deleting.has(upload.id)}
+                                    onclick={() => deleteUpload(upload)}
+                                >
+                                    {deleting.has(upload.id) ? 'Deleting…' : 'Delete permanently'}
+                                </button>
+                            </header>
 
-                        <dl class="metadata">
-                            <div><dt>Size</dt><dd>{formatFileSize(upload.totalSize)} · {upload.fileCount} file(s)</dd></div>
-                            <div><dt>Activity</dt><dd>{upload.stats.views} views · {fileDownloads(upload)} file downloads</dd></div>
-                            <div><dt>IP</dt><dd>{upload.issuer.ip}</dd></div>
-                            <div><dt>UUID</dt><dd>{upload.issuer.uuid}</dd></div>
-                            <div class="wide"><dt>User agent</dt><dd>{upload.issuer.ua}</dd></div>
-                        </dl>
+                            <dl class="metadata">
+                                <div><dt>Size</dt><dd>{formatFileSize(upload.totalSize)} · {upload.fileCount} file(s)</dd></div>
+                                <div><dt>Activity</dt><dd>{upload.stats.views} views · {fileDownloads(upload)} file downloads</dd></div>
+                                <div><dt>IP</dt><dd>{upload.issuer.ip}</dd></div>
+                                <div><dt>UUID</dt><dd>{upload.issuer.uuid}</dd></div>
+                                <div class="wide"><dt>User agent</dt><dd>{upload.issuer.ua}</dd></div>
+                            </dl>
 
-                        {#if upload.type === 'link' && upload.link}
-                            <a class="external-link" href={upload.link} target="_blank" rel="noopener noreferrer">{upload.link}</a>
-                        {:else if upload.files.length > 0}
-                            <div class="file-grid">
-                                {#each upload.files as file (file.index)}
-                                    <section class="file-card">
-                                        <div class="preview">
-                                            {#if file.mime.startsWith('image/')}
-                                                <img src={file.url} alt={file.filename} loading="lazy" />
-                                            {:else if file.mime.startsWith('video/')}
-                                                <!-- User uploads do not include caption resources. -->
-                                                <!-- svelte-ignore a11y_media_has_caption -->
-                                                <video src={file.url} controls playsinline preload="metadata"></video>
-                                            {:else if file.mime.startsWith('audio/')}
-                                                <audio src={file.url} controls preload="none"></audio>
-                                            {:else}
-                                                <a href={file.url} target="_blank" rel="noopener noreferrer">Open file</a>
-                                            {/if}
-                                        </div>
-                                        <div class="file-details">
-                                            <strong>{file.filename}</strong>
-                                            <span>{file.mime} · {formatFileSize(file.size)} · {file.stat_dl} downloads</span>
-                                        </div>
-                                    </section>
-                                {/each}
-                            </div>
-                        {/if}
-                    </article>
-                {/each}
-            </div>
+                            {#if upload.type === 'link' && upload.link}
+                                <a class="external-link" href={upload.link} target="_blank" rel="noopener noreferrer">{upload.link}</a>
+                            {:else if upload.files.length > 0}
+                                <div class="file-grid">
+                                    {#each upload.files as file (file.index)}
+                                        <section class="file-card">
+                                            <div class="preview">
+                                                {#if file.mime.startsWith('image/')}
+                                                    <img src={file.url} alt={file.filename} loading="lazy" />
+                                                {:else if file.mime.startsWith('video/')}
+                                                    <!-- User uploads do not include caption resources. -->
+                                                    <!-- svelte-ignore a11y_media_has_caption -->
+                                                    <video src={file.url} controls playsinline preload="metadata"></video>
+                                                {:else if file.mime.startsWith('audio/')}
+                                                    <audio src={file.url} controls preload="none"></audio>
+                                                {:else}
+                                                    <a href={file.url} target="_blank" rel="noopener noreferrer">Open file</a>
+                                                {/if}
+                                            </div>
+                                            <div class="file-details">
+                                                <strong>{file.filename}</strong>
+                                                <span>{file.mime} · {formatFileSize(file.size)} · {file.stat_dl} downloads</span>
+                                            </div>
+                                        </section>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </article>
+                    {/each}
+                </div>
 
-            <nav class="pagination" aria-label="Upload pages">
-                <button
-                    class="quiet-button"
-                    type="button"
-                    disabled={currentPage <= 1 || loading}
-                    onclick={() => goToPage(currentPage - 1)}
-                >Previous</button>
-                <span>Page {data.page} of {Math.max(1, data.totalPages)}</span>
-                <button
-                    class="quiet-button"
-                    type="button"
-                    disabled={currentPage >= data.totalPages || loading}
-                    onclick={() => goToPage(currentPage + 1)}
-                >Next</button>
-            </nav>
+                <nav class="pagination" aria-label="Upload pages">
+                    <button
+                        class="quiet-button"
+                        type="button"
+                        disabled={currentPage <= 1 || loading}
+                        onclick={() => goToPage(currentPage - 1)}
+                    >Previous</button>
+                    <span>Page {data.page} of {Math.max(1, data.totalPages)}</span>
+                    <button
+                        class="quiet-button"
+                        type="button"
+                        disabled={currentPage >= data.totalPages || loading}
+                        onclick={() => goToPage(currentPage + 1)}
+                    >Next</button>
+                </nav>
+            {/if}
         {/if}
     </section>
 {/if}
@@ -427,6 +439,37 @@
     .admin-header p {
         margin: 0.35rem 0 0;
         color: #9e9699;
+    }
+
+    .mode-switcher {
+        display: flex;
+        margin-top: 1.5rem;
+        border-bottom: 1px solid #3b3538;
+    }
+
+    .mode-tab {
+        flex: 1;
+        padding: 0.55rem 1rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        color: #8a8385;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.88rem;
+        letter-spacing: 0.02em;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .mode-tab:hover {
+        color: #c9c3c5;
+        background: #2a2728;
+    }
+
+    .mode-tab.active {
+        color: #f4f4f4;
+        border-bottom-color: var(--color-accent);
     }
 
     .summary {

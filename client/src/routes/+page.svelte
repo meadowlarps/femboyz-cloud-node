@@ -198,14 +198,15 @@
         <div>
             <h1>New upload</h1>
             {#if mode === 'files'}
-                <p>Add details and choose one or more files.</p>
+                <p>Add details and choose one or more files</p>
                 {#if uploadLimits}
                     <p class="limit-note">
                         Up to {uploadLimits.maxcount} files, {formatFileSize(uploadLimits.maxsizeperfile - 1024 * 1024)} each.
                     </p>
                 {/if}
             {:else}
-                <p>Shorten a link.</p>
+                <p>Shorten a link</p>
+                <p>Automatically copied to clipboard</p>
             {/if}
         </div>
     </div>

@@ -1,4 +1,4 @@
-import { errorFileLogger, scope }                       from "./logger.js"
+import { ERROR_LOG_PATH, errorFileLogger, scope }       from "./logger.js"
 import { shutdownUnexpectedly }                         from "./utils.js"
 import { XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance } from "./schema.js"
 import { receiveUploadReturnID,
@@ -10,6 +10,7 @@ import { receiveUploadReturnID,
 import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
 import { adminAuthStatus, parseAdminQuery }             from "./admin.js"
+import { buildErrorLogPage, parseErrorLogQuery, readErrorLogTail } from "./errorlog.js"
 import { setTimeout as delay }                          from "node:timers/promises"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
@@ -52,6 +53,7 @@ export async function startServer() {
     server.get("/api/v2/feed", feedHandler)                         // Reserved for the future public feed
     server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
     server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
+    server.get("/api/v2/admin/logs", { preHandler: adminAuthHandler }, adminLogsHandler)
     server.get("/:id", getUploadHandler)                            // Serve: Route to handle fetching an upload by its ID
     server.get("/:id/:fid", getUploadHandler)                       // Serve: Route to specific file of :id upload
     server.get("/api/v2/maxfsize", askMaxFileUploadSizeHandler)     // Serve: Route to check how large file the server can accept
@@ -113,6 +115,12 @@ async function adminDeleteUploadHandler(request: FastifyRequest, reply: FastifyR
     const result = await deleteUploadByID(id)
     if (!result) throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
     reply.send(result)
+}
+
+async function adminLogsHandler(request: FastifyRequest, reply: FastifyReply) {
+    const query = parseErrorLogQuery(request.query)
+    const tail = await readErrorLogTail(ERROR_LOG_PATH)
+    reply.send(buildErrorLogPage(query, tail))
 }
 
 async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {

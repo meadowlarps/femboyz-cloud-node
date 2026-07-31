@@ -3,9 +3,11 @@ import { mkdirSync } from "node:fs"
 
 mkdirSync("./logs", { recursive: true })
 
+export const ERROR_LOG_PATH = "./logs/errors.log"
+
 export const errorFileLogger = pino(
     { level: "error" },
-    pino.destination("./logs/errors.log")
+    pino.destination(ERROR_LOG_PATH)
 )
 
 const logger = pino({
