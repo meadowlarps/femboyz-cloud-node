@@ -10,6 +10,7 @@ import {
     selectLeadImage
 } from '$lib/upload/ogCard'
 import { hasGeneratedCard } from '$lib/upload/preview'
+import { forwardedHeaders } from '$lib/upload/forwarded'
 import { extractVideoFrame } from '$lib/server/upload/videoFrame'
 
 function rawFileUrl(upload: UploadData, file: FileData, apiEndpoint: string): string {
@@ -18,7 +19,12 @@ function rawFileUrl(upload: UploadData, file: FileData, apiEndpoint: string): st
         : file.url
 }
 
-async function loadLeadMedia(upload: UploadData, apiEndpoint: string, fetcher: typeof fetch): Promise<string | null> {
+async function loadLeadMedia(
+    upload: UploadData,
+    apiEndpoint: string,
+    fetcher: typeof fetch,
+    forwarded: Record<string, string> = {}
+): Promise<string | null> {
     const lead = selectLeadImage(upload)
     if (!lead) {
         const first = upload.type === 'album' ? upload.files[0] : undefined
@@ -29,7 +35,7 @@ async function loadLeadMedia(upload: UploadData, apiEndpoint: string, fetcher: t
     if (!canNormalizeLeadImage(lead)) return null
 
     try {
-        const response = await fetcher(rawFileUrl(upload, lead, apiEndpoint))
+        const response = await fetcher(rawFileUrl(upload, lead, apiEndpoint), { headers: forwarded })
         if (!response.ok) return null
 
         const contentLength = Number(response.headers.get('content-length'))
@@ -43,12 +49,13 @@ async function loadLeadMedia(upload: UploadData, apiEndpoint: string, fetcher: t
     }
 }
 
-export const GET: RequestHandler = async ({ params, fetch, url }) => {
+export const GET: RequestHandler = async ({ params, fetch, request, url }) => {
     const apiEndpoint = env.INTERNAL_API_ENDPOINT ?? env.VITE_API_ENDPOINT ?? ''
+    const forwarded = forwardedHeaders(request)
     let upload: UploadData
 
     try {
-        upload = await fetchUpload(params.id, apiEndpoint, fetch)
+        upload = await fetchUpload(params.id, apiEndpoint, fetch, forwarded)
     } catch (err) {
         const status = err instanceof Error ? parseInt(err.message) : NaN
         throw error(isNaN(status) ? 500 : status, 'Upload not found')
@@ -56,7 +63,7 @@ export const GET: RequestHandler = async ({ params, fetch, url }) => {
 
     if (!hasGeneratedCard(upload)) throw error(404, 'Preview not found')
 
-    const leadMediaDataUri = await loadLeadMedia(upload, apiEndpoint, fetch)
+    const leadMediaDataUri = await loadLeadMedia(upload, apiEndpoint, fetch, forwarded)
     const png = await renderOgCard(upload, url.hostname, leadMediaDataUri)
 
     return new Response(png, {

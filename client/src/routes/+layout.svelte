@@ -6,7 +6,7 @@
 	import AlertStack from '$lib/AlertStack.svelte'
 
 	let { children } = $props()
-	const miniLogo = $derived($page.route.id === '/[id]')
+	const miniLogo = $derived($page.route.id === '/[id=uploadid]')
 </script>
 
 <svelte:head>

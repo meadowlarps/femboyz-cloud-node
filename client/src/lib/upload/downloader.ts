@@ -29,10 +29,11 @@ export function fileDownloadUrl(file: FileData): string {
 export async function fetchUpload(
     id: string,
     apiEndpoint: string,
-    fetcher: typeof fetch = fetch
+    fetcher: typeof fetch = fetch,
+    forwarded: Record<string, string> = {}
 ): Promise<UploadData> {
     const response = await fetcher(`${apiEndpoint.replace(/\/$/, '')}/${id}`, {
-        headers: { Accept: 'application/json' }
+        headers: { Accept: 'application/json', ...forwarded }
     })
 
     if (!response.ok) {

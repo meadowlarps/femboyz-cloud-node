@@ -32,7 +32,9 @@ declare module "fastify" {
 }
 
 const scopelog = scope("api")
-const server: FastifyInstance = Fastify({ logger: false, trustProxy: "127.0.0.1" })
+// "loopback" covers 127.0.0.1/8 and ::1 — nginx and the SSR layer both sit on localhost, and
+// resolving "localhost" to ::1 would otherwise make the forwarded client IP silently ignored.
+const server: FastifyInstance = Fastify({ logger: false, trustProxy: "loopback" })
 const PORT = envs.PORT
 
 

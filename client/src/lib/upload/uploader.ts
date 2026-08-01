@@ -42,8 +42,14 @@ type _XMetaFile = {
     bytes: number
 }
 
-export async function fetchUploadLimits(apiEndpoint: string, fetcher: typeof fetch = fetch) {
-    const response = await fetcher(`${apiEndpoint.replace(/\/$/, '')}/api/v2/maxfsize`)
+export async function fetchUploadLimits(
+    apiEndpoint: string,
+    fetcher: typeof fetch = fetch,
+    forwarded: Record<string, string> = {}
+) {
+    const response = await fetcher(`${apiEndpoint.replace(/\/$/, '')}/api/v2/maxfsize`, {
+        headers: forwarded
+    })
 
     if (!response.ok) {
         throw new Error(`Request failed with ${response.status}`)
