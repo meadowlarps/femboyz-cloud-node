@@ -9,9 +9,12 @@ import { receiveUploadReturnID,
     incrementFileDownload }                            from "./uploads.js"
 import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
-import { adminAuthStatus, parseAdminQuery }             from "./admin.js"
+import { adminAuthStatus,
+    authBlockRemainingMs,
+    clearAuthFailures,
+    registerAuthFailure,
+    parseAdminQuery }                                   from "./admin.js"
 import { buildErrorLogPage, parseErrorLogQuery, readErrorLogTail } from "./errorlog.js"
-import { setTimeout as delay }                          from "node:timers/promises"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
@@ -91,13 +94,27 @@ export async function feedHandler(request: FastifyRequest, reply: FastifyReply) 
 
 async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {
     reply.header("Cache-Control", "no-store")
+
+    const blockedMs = authBlockRemainingMs(request.ip)
+    if (blockedMs > 0) {
+        reply.header("Retry-After", String(Math.ceil(blockedMs / 1000)))
+        throw Object.assign(new Error("Too many failed admin auth attempts"), { statusCode: 429 })
+    }
+
     const status = adminAuthStatus(request.headers.authorization, envs.AUTH_ADMIN_KEY)
     if (status === 503)
         throw Object.assign(new Error("Admin key is not configured"), { statusCode: 503 })
     if (status === 401) {
-        await delay(1000)
+        const { blocked, blockedUntil } = registerAuthFailure(request.ip)
+        if (blocked) {
+            const summary = `Admin auth blocked - ip "${request.ip}" exceeded ${envs.AUTH_ADMIN_MAX_FAILS} failed attempts, `
+                + `blocked until ${new Date(blockedUntil).toISOString()} - ua "${request.headers["user-agent"] ?? "unknown"}"`
+            scopelog.warn(summary)
+            errorFileLogger.error(summary)
+        }
         throw Object.assign(new Error("Invalid admin key"), { statusCode: 401 })
     }
+    clearAuthFailures(request.ip)
 }
 
 async function adminUploadsHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -389,7 +406,8 @@ function errorHandler(err: FastifyError, request: FastifyRequest, reply: Fastify
     errorFileLogger.error({ err }, `${err.message} - "${status}" on "${request.method}" "${request.url}" from "${request.ip}"`)
 
     const clientMessage =
-        status === 400 || status > 404 && status < 500 ? "Bad request"
+        status === 429 ? "Too many failed attempts"
+        : status === 400 || status > 404 && status < 500 ? "Bad request"
         : status === 401 ? "Unauthorized"
         : status === 403 ? "Forbidden"
         : status === 404 ? "Not found"
@@ -398,7 +416,8 @@ function errorHandler(err: FastifyError, request: FastifyRequest, reply: Fastify
         : "Internal server error"
 
     const clientStatus =
-        status === 400 || status > 404 && status < 500 ? 400
+        status === 429 ? 429
+        : status === 400 || status > 404 && status < 500 ? 400
         : status === 401 ? 401
         : status === 403 ? 403
         : status === 404 ? 404

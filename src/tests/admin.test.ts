@@ -1,14 +1,20 @@
-import { expect, test } from "vitest"
+import { beforeEach, expect, test } from "vitest"
 import type { FastifyReply, FastifyRequest } from "fastify"
 import {
     adminAuthStatus,
+    authBlockRemainingMs,
     buildAdminPipeline,
     cleanupUnreferencedFiles,
+    clearAuthFailures,
     escapeRegExp,
     parseAdminQuery,
-    withStorageMutationLock
+    registerAuthFailure,
+    withStorageMutationLock,
+    _resetAuthFailures
 } from "../admin.js"
 import { feedHandler } from "../api.js"
+
+const MINUTE = 60_000
 
 test("admin authorization accepts only the exact configured bearer key", () => {
     expect(adminAuthStatus("Bearer correct-key", "correct-key")).toBe(200)
@@ -16,6 +22,40 @@ test("admin authorization accepts only the exact configured bearer key", () => {
     expect(adminAuthStatus("Basic correct-key", "correct-key")).toBe(401)
     expect(adminAuthStatus("Bearer correct-key-extra", "correct-key")).toBe(401)
     expect(adminAuthStatus("Bearer correct-key", undefined)).toBe(503)
+})
+
+beforeEach(_resetAuthFailures)
+
+test("admin auth blocks an ip only after the failure threshold is crossed", () => {
+    const now = 1_000_000
+    for (let i = 1; i <= 4; i++)
+        expect(registerAuthFailure("1.2.3.4", now + i).blocked).toBe(false)
+    expect(authBlockRemainingMs("1.2.3.4", now + 5)).toBe(0)
+
+    expect(registerAuthFailure("1.2.3.4", now + 5).blocked).toBe(true)
+    expect(authBlockRemainingMs("1.2.3.4", now + 5)).toBe(15 * MINUTE)
+    expect(authBlockRemainingMs("1.2.3.4", now + 14 * MINUTE)).toBeGreaterThan(0)
+    expect(authBlockRemainingMs("1.2.3.4", now + 16 * MINUTE)).toBe(0)
+})
+
+test("admin auth failure counters reset on success and expire with the window", () => {
+    const now = 1_000_000
+    for (let i = 1; i <= 3; i++) registerAuthFailure("1.2.3.4", now + i)
+    clearAuthFailures("1.2.3.4")
+    for (let i = 1; i <= 3; i++)
+        expect(registerAuthFailure("1.2.3.4", now + 10 + i).blocked).toBe(false)
+
+    for (let i = 0; i < 10; i++)
+        expect(registerAuthFailure("5.6.7.8", now + i * 16 * MINUTE).blocked).toBe(false)
+})
+
+test("admin auth failures are tracked per ip", () => {
+    const now = 1_000_000
+    for (let i = 1; i <= 4; i++) registerAuthFailure("1.2.3.4", now + i)
+    expect(registerAuthFailure("5.6.7.8", now + 5).blocked).toBe(false)
+    expect(authBlockRemainingMs("5.6.7.8", now + 5)).toBe(0)
+    expect(registerAuthFailure("1.2.3.4", now + 6).blocked).toBe(true)
+    expect(authBlockRemainingMs("5.6.7.8", now + 6)).toBe(0)
 })
 
 test("admin query parsing applies bounds and defaults", () => {

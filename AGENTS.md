@@ -130,6 +130,8 @@ All images or video → `"album"`, all audio → `"playlist"`, mixed or other �
 | `BASE_URL`                          | Public base URL (e.g.`https://femboyz.cloud`) — used in OG tags and file URLs |
 | `SITE_NAME`                         | Display name shown in plain-text previews                                      |
 | `AUTH_ADMIN_KEY`                    | Bearer key required by `/api/v2/admin/*`                                        |
+| `AUTH_ADMIN_MAX_FAILS`              | Failed admin auth attempts per IP before a block (default 5)                    |
+| `AUTH_ADMIN_BLOCK_MINUTES`          | Block duration, also the failure-counter window (default 15)                    |
 
 ## Dependencies
 

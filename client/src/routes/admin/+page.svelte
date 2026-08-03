@@ -98,6 +98,11 @@
             signOut('The admin key was rejected.')
             throw new AdminRequestError(401, 'Unauthorized')
         }
+        if (response.status === 429) {
+            const seconds = Number(response.headers.get('Retry-After'))
+            const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.max(1, Math.ceil(seconds / 60)) : 15
+            throw new AdminRequestError(429, `Too many failed attempts. Try again in ~${minutes}m.`)
+        }
         if (!response.ok) {
             const message = response.status === 503
                 ? 'AUTH_ADMIN_KEY is not configured on the API server.'

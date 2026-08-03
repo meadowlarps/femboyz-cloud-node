@@ -28,7 +28,9 @@ export const envs = {
     BASE_URL:                           process.env.BASE_URL,
     SITE_NAME:                          process.env.SITE_NAME || "set site name in .env",
     CORS_ORIGIN:                        process.env.CORS_ORIGIN,
-    AUTH_ADMIN_KEY:                     process.env.AUTH_ADMIN_KEY
+    AUTH_ADMIN_KEY:                     process.env.AUTH_ADMIN_KEY,
+    AUTH_ADMIN_MAX_FAILS:               Number(process.env.AUTH_ADMIN_MAX_FAILS) || 5,
+    AUTH_ADMIN_BLOCK_MINUTES:           Number(process.env.AUTH_ADMIN_BLOCK_MINUTES) || 15
 }
 
 for (const [key, value] of Object.entries(envs)) {
