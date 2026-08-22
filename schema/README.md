@@ -11,6 +11,7 @@ Specifications for frontend API protocols, binary streaming interfaces, and inte
 | **[frontend_file_upload.md](./frontend_file_upload.md)** | Binary File Stream | `POST /api/v2/udstream` | Single-request streaming upload with Base64 `X-Meta` header and binary chunk validation. |
 | **[frontend_link_upload.md](./frontend_link_upload.md)** | Link Upload | `POST /api/v2/ulink` | URL redirect creation with ping verification. |
 | **[frontend_upload_receiveByID.md](./frontend_upload_receiveByID.md)** | Content Delivery | `GET /:id`, `GET /:id/:fid` | Landing page rendering, text unfurling, JSON metadata, and byte-range binary streaming. |
+| **[frontend_upload_viewed.md](./frontend_upload_viewed.md)** | Upload Views | `POST /api/v2/viewed/:id` | Atomic interactive view counting with in-memory public feed refresh. |
 | **[mongo_upload.md](./mongo_upload.md)** | Database Schema | MongoDB `uploads` | Discriminated union document model, indexing, and MIME classification rules. |
 
 ---

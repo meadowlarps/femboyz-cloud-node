@@ -42,3 +42,18 @@ export async function fetchUpload(
 
     return await response.json() as UploadData
 }
+
+export async function markUploadViewed(
+    id: string,
+    apiEndpoint: string,
+    fetcher: typeof fetch = fetch
+): Promise<void> {
+    const response = await fetcher(
+        `${apiEndpoint.replace(/\/$/, '')}/api/v2/viewed/${encodeURIComponent(id)}`,
+        { method: 'POST' }
+    )
+
+    if (!response.ok) {
+        throw new Error(`${response.status}`)
+    }
+}

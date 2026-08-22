@@ -7,7 +7,7 @@ import { getDB } from "./database.js"
 import { envs } from "./config.js"
 import { buildAdminPipeline, cleanupUnreferencedFiles, withStorageMutationLock, type AdminQuery } from "./admin.js"
 import { randomInt } from "node:crypto"
-import { feed_upload_add, feed_upload_remove } from "./feed.js"
+import { feed_update_upload, feed_upload_add, feed_upload_remove } from "./feed.js"
 
 const scopelog = scope("uploads")
 const magic = await WASMagic.create()
@@ -29,6 +29,24 @@ export async function getUploadByID(id: string): Promise<StorageDBUploadInstance
         throw Object.assign(new Error("Corrupt upload document"), { statusCode: 500 })
     }
     return result.data
+}
+
+export async function incrementUploadView(id: string): Promise<boolean> {
+    const result = await getDB()
+        .collection(envs.MDB_COLLECTION_UPLOADS)
+        .updateOne(
+            { id_pub: id },
+            { $inc: { "stat.views": 1 } }
+        )
+        .catch(err => {
+            const message = err instanceof Error ? err.message : String(err)
+            scopelog.error(`Failed to count view of ${id}: ${message}`)
+            throw Object.assign(new Error("Database error"), { statusCode: 500 })
+        })
+
+    if (result.matchedCount === 0) return false
+    await feed_update_upload(id)
+    return true
 }
 
 /** Best-effort counter bump — never blocks or fails the file response it accompanies. */

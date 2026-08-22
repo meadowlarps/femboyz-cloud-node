@@ -4,14 +4,37 @@
     import AlbumView from './AlbumView.svelte'
     import PlaylistView from './PlaylistView.svelte'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
+    import { markUploadViewed } from '$lib/upload/downloader'
 
     let { data }: { data: PageData } = $props()
+    const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
+
+    let viewIncrement = $state(0)
 
     const upload = $derived(data.upload)
+    const uploadId = $derived(data.upload.id)
+    const viewCount = $derived(upload.views + viewIncrement)
     const title = $derived(upload.meta.title || upload.id)
     const desc = $derived(upload.meta.desc)
     const uploadUrl = $derived(`/${upload.id}`)
     const preview = $derived(data.preview)
+
+    $effect(() => {
+        const id = uploadId
+        viewIncrement = 0
+
+        const viewTimer = setTimeout(async () => {
+            try {
+                await markUploadViewed(id, apiEndpoint)
+                if (uploadId === id) viewIncrement = 1
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err)
+                console.warn(`Failed to count view of ${id}: ${message}`)
+            }
+        }, 2000)
+
+        return () => clearTimeout(viewTimer)
+    })
 
     function formatDate(iso: string) {
         return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
@@ -63,11 +86,20 @@
                 <p class="upload-desc">{desc}</p>
             {/if}
             <div class="upload-meta-row">
-                <span class="meta-item">{formatDate(upload.when)}</span>
-                {#if upload.views > 0}
-                    <span class="meta-item">{upload.views} {upload.views === 1 ? 'view' : 'views'}</span>
-                {/if}
-                <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+                <div class="upload-meta-details">
+                    <span class="meta-item">{formatDate(upload.when)}</span>
+                    <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+                </div>
+                <span class="view-count" aria-label={`${viewCount} ${viewCount === 1 ? 'view' : 'views'}`}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <span class="view-count-number" class:incremented={viewIncrement > 0} aria-hidden="true">
+                        <span class="previous-count">{upload.views}</span>
+                        <span class="next-count">{upload.views + 1}</span>
+                    </span>
+                </span>
             </div>
         </div>
     </AlbumView>
@@ -88,11 +120,20 @@
             {/if}
 
             <div class="upload-meta-row">
-                <span class="meta-item">{formatDate(upload.when)}</span>
-                {#if upload.views > 0}
-                    <span class="meta-item">{upload.views} {upload.views === 1 ? 'view' : 'views'}</span>
-                {/if}
-                <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+                <div class="upload-meta-details">
+                    <span class="meta-item">{formatDate(upload.when)}</span>
+                    <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+                </div>
+                <span class="view-count" aria-label={`${viewCount} ${viewCount === 1 ? 'view' : 'views'}`}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <span class="view-count-number" class:incremented={viewIncrement > 0} aria-hidden="true">
+                        <span class="previous-count">{upload.views}</span>
+                        <span class="next-count">{upload.views + 1}</span>
+                    </span>
+                </span>
             </div>
         </header>
 
@@ -199,7 +240,8 @@
         overflow-wrap: anywhere;
     }
 
-    .upload-meta-row {
+    .upload-meta-row,
+    .upload-meta-details {
         display: flex;
         align-items: center;
         gap: 1rem;
@@ -211,9 +253,76 @@
         color: #6a6468;
     }
 
-    .meta-item + .meta-item::before {
+    .upload-meta-details .meta-item + .meta-item::before {
         content: '·';
         margin-right: 1rem;
+    }
+
+    .view-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-left: auto;
+        color: #6a6468;
+        font-size: 0.85rem;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+    }
+
+    .view-count-number {
+        display: inline-grid;
+        overflow: hidden;
+    }
+
+    .view-count-number > span {
+        grid-area: 1 / 1;
+        min-width: 1ch;
+        text-align: right;
+        transition-property: opacity, transform, filter;
+        transition-duration: 220ms;
+        transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .previous-count {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+
+    .next-count {
+        opacity: 0;
+        transform: translateY(0.25rem);
+        filter: blur(2px);
+    }
+
+    .view-count-number.incremented .previous-count {
+        opacity: 0;
+        transform: translateY(-0.25rem);
+        filter: blur(2px);
+    }
+
+    .view-count-number.incremented .next-count {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+
+    .view-count svg {
+        width: 1rem;
+        height: 1rem;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .view-count-number > span {
+            transform: none;
+            filter: none;
+            transition-duration: 0.01ms;
+        }
     }
 
     @media (max-width: 36rem) {

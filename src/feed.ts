@@ -51,6 +51,31 @@ export function feed_get_all_uploads(): readonly StorageDBUploadInstance[] {
     return uploads
 }
 
+export async function feed_update_upload(id: string): Promise<void> {
+    const document = await getDB()
+        .collection(envs.MDB_COLLECTION_UPLOADS)
+        .findOne({ id_pub: id }, { projection: { _id: 0 } })
+        .catch(err => {
+            const message = err instanceof Error ? err.message : String(err)
+            scopelog.error(`Failed to refresh upload ${id}: ${message}`)
+            throw Object.assign(new Error("Database error"), { statusCode: 500 })
+        })
+
+    if (!document) {
+        feed_upload_remove(id)
+        return
+    }
+
+    const result = StorageDBUploadInstanceSchema.safeParse(document)
+    if (!result.success) {
+        scopelog.error(`Invalid document for ID ${id}: ${JSON.stringify(result.error.issues)}`)
+        throw Object.assign(new Error("Corrupt upload document"), { statusCode: 500 })
+    }
+
+    feed_upload_remove(id)
+    feed_upload_add(result.data)
+}
+
 export function feed_upload_add(upload: StorageDBUploadInstance): void {
     if (!upload.public) return
 

@@ -32,8 +32,8 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | `src/config.ts`   | Reads`.env.*`, exports `envs` object                                                    |
 | `src/database.ts` | MongoDB connect/disconnect,`getDB()`                                                    |
 | `src/storage.ts`  | Filesystem storage: write/read/delete files, usage tracking                             |
-| `src/feed.ts`     | Newest-first in-memory public feed, range validation, startup load, add/delete sync     |
-| `src/uploads.ts`  | Business logic: receive file streams, receive links, ID generation, MIME classification |
+| `src/feed.ts`     | Newest-first in-memory public feed, range validation, startup load, add/delete/update sync |
+| `src/uploads.ts`  | Business logic: receive file streams, receive links, ID generation, view/download counters, MIME classification |
 | `src/schema.ts`   | Zod schemas:`XMetaFilesSchema`, `StorageDBUploadInstanceSchema`                         |
 | `src/logger.ts`   | Pino logger,`scope(name)` factory, `errorFileLogger` → `./logs/errors.log`             |
 | `src/utils.ts`    | `shutdownUnexpectedly()` (process.exit(1))                                              |
@@ -48,11 +48,13 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | GET    | `/api/v2/feed`     | `feed_handle`                  | Public uploads, newest-first, paginated with `s`/`e`              |
 | GET    | `/api/v2/admin/uploads` | `adminUploadsHandler`     | Authorized paginated/searchable upload inventory                 |
 | DELETE | `/api/v2/admin/uploads/:id` | `adminDeleteUploadHandler` | Authorized permanent upload deletion                          |
+| GET    | `/api/v2/admin/logs` | `adminLogsHandler`    | Authorized error log viewer and filtering                       |
 | GET    | `/:id`             | `getUploadHandler`            | Fetch upload by ID — link→302, files→HTML/JSON/text by Accept |
 | GET    | `/:id/:fid`        | `getUploadHandler`            | Serve raw file by index (Content-Type + Content-Disposition)     |
 | GET    | `/api/v2/maxfsize` | `askMaxFileUploadSizeHandler` | Max acceptable upload size given current storage                 |
 | POST   | `/api/v2/ulink`    | `ulinkHandler`                | Receive link upload (JSON body)                                  |
 | POST   | `/api/v2/udstream` | `udstreamHandler`             | Receive file stream upload                                       |
+| POST   | `/api/v2/viewed/:id` | `viewedUploadHandler` | Record an interactive view and refresh the in-memory public feed |
 
 ## Frontend protocols
 
@@ -102,6 +104,10 @@ Server splits stream using `bytes` fields, verifies each chunk with SHA-256.
 ```
 
 Server pings the URL (HEAD) before saving.
+
+### View tracking — `POST /api/v2/viewed/:id`
+
+No body required. The client triggers this request after an upload detail page has remained open for 2 seconds (cancelled if the user leaves earlier). Returns `204 No Content`, atomically increments MongoDB `stat.views`, and synchronizes the in-memory public feed. Full protocol schema: `schema/frontend_upload_viewed.md`.
 
 ## Storage
 

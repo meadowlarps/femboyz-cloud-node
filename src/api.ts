@@ -6,7 +6,8 @@ import { receiveUploadReturnID,
     getUploadByID,
     getAdminUploadPage,
     deleteUploadByID,
-    incrementFileDownload }                            from "./uploads.js"
+    incrementFileDownload,
+    incrementUploadView }                              from "./uploads.js"
 import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
 import { adminAuthStatus,
@@ -57,6 +58,7 @@ export async function startServer() {
     server.get("/ping", pongHandler)                                // Serve: Pong
     server.get("/", rootHandler)                                    // Serve: Home page route
     server.get("/api/v2/feed", feed_handle)                          // Serve: Paginated public upload feed
+    server.post("/api/v2/viewed/:id", viewedUploadHandler)          // Count: Interactive upload view
     server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
     server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
     server.get("/api/v2/admin/logs", { preHandler: adminAuthHandler }, adminLogsHandler)
@@ -125,6 +127,13 @@ export async function feed_handle(request: FastifyRequest, reply: FastifyReply) 
         total: all_uploads.length,
         has_more: range.end < all_uploads.length
     })
+}
+
+export async function viewedUploadHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string }
+    if (!await incrementUploadView(id))
+        throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+    reply.status(204).send()
 }
 
 async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {
