@@ -7,6 +7,7 @@ import { getDB } from "./database.js"
 import { envs } from "./config.js"
 import { buildAdminPipeline, cleanupUnreferencedFiles, withStorageMutationLock, type AdminQuery } from "./admin.js"
 import { randomInt } from "node:crypto"
+import { feed_upload_add, feed_upload_remove } from "./feed.js"
 
 const scopelog = scope("uploads")
 const magic = await WASMagic.create()
@@ -105,6 +106,7 @@ export async function deleteUploadByID(id: string) {
             throw Object.assign(new Error("Database error"), { statusCode: 500 })
         })
         if (!deleted) return null
+        feed_upload_remove(id)
 
         const files = Array.isArray(deleted.files) ? deleted.files : []
         const hashes = files.flatMap(file => typeof file?.hashkey256 === "string" ? [file.hashkey256] : [])
@@ -246,6 +248,7 @@ async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles,
             throw Object.assign(new Error("Database error"), { statusCode: 500 })
         }
     }
+    feed_upload_add(mongoDocument)
 
     scopelog.info(`Upload ${mongoDocument.id_pub} saved to database with ${mongoDocument.files.length} file(s)`)
 

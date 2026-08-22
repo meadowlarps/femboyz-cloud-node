@@ -45,4 +45,4 @@ Progress tracking is per-file, calculated by walking cumulative byte offsets acr
 
 ### API contract
 
-See `(repo root)/schema/*.info` files for the canonical server↔frontend protocol. `downloader.ts` mirrors `schema/frontend_upload_receiveByID.info`.
+See `(repo root)/schema/*.md` files for the canonical server↔frontend protocol. `downloader.ts` mirrors `schema/frontend_upload_receiveByID.md`.

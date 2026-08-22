@@ -15,6 +15,7 @@ import { adminAuthStatus,
     registerAuthFailure,
     parseAdminQuery }                                   from "./admin.js"
 import { buildErrorLogPage, parseErrorLogQuery, readErrorLogTail } from "./errorlog.js"
+import { feed_get_all_uploads, feed_query_parse }        from "./feed.js"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
@@ -55,7 +56,7 @@ export async function startServer() {
     server.addHook("onRequest", onRequestHook)                      // Log incoming requests
     server.get("/ping", pongHandler)                                // Serve: Pong
     server.get("/", rootHandler)                                    // Serve: Home page route
-    server.get("/api/v2/feed", feedHandler)                         // Reserved for the future public feed
+    server.get("/api/v2/feed", feed_handle)                          // Serve: Paginated public upload feed
     server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
     server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
     server.get("/api/v2/admin/logs", { preHandler: adminAuthHandler }, adminLogsHandler)
@@ -88,8 +89,42 @@ async function rootHandler(request: FastifyRequest, reply: FastifyReply) {
     reply.send({ message: "Hello, World!" })
 }
 
-export async function feedHandler(request: FastifyRequest, reply: FastifyReply) {
-    reply.status(501).send({ error: "Feed not implemented" })
+export async function feed_handle(request: FastifyRequest, reply: FastifyReply) {
+    const range = feed_query_parse(request.query)
+    const all_uploads = feed_get_all_uploads()
+    const base_url = (envs.BASE_URL ?? `${request.protocol}://${request.hostname}`).replace(/\/$/, "")
+    const items = all_uploads.slice(range.start, range.end).map(upload => {
+        const common = {
+            id: upload.id_pub,
+            type: upload.type,
+            meta: upload.meta,
+            views: upload.stat.views,
+            when: upload.when
+        }
+
+        if (upload.type === "link")
+            return { ...common, files: [], link: upload.link.redir }
+
+        return {
+            ...common,
+            files: upload.files.map((file, index) => ({
+                index,
+                filename: file.filename,
+                size: file.size,
+                mime: file.mime,
+                url: `${base_url}/${upload.id_pub}/${index}`,
+                stat_dl: file.stat_dl
+            }))
+        }
+    })
+
+    reply.send({
+        items,
+        start: range.start,
+        end: range.end,
+        total: all_uploads.length,
+        has_more: range.end < all_uploads.length
+    })
 }
 
 async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {

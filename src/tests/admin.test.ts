@@ -1,5 +1,4 @@
 import { beforeEach, expect, test } from "vitest"
-import type { FastifyReply, FastifyRequest } from "fastify"
 import {
     adminAuthStatus,
     authBlockRemainingMs,
@@ -12,7 +11,6 @@ import {
     withStorageMutationLock,
     _resetAuthFailures
 } from "../admin.js"
-import { feedHandler } from "../api.js"
 
 const MINUTE = 60_000
 
@@ -131,21 +129,3 @@ test("storage mutation lock serializes concurrent work", async () => {
     expect(events).toEqual(["first-start", "first-end", "second"])
 })
 
-test("feed endpoint is an explicit 501 placeholder", async () => {
-    let status = 0
-    let body: unknown
-    const reply = {
-        status(code: number) {
-            status = code
-            return this
-        },
-        send(value: unknown) {
-            body = value
-            return this
-        }
-    } as unknown as FastifyReply
-
-    await feedHandler({} as FastifyRequest, reply)
-    expect(status).toBe(501)
-    expect(body).toEqual({ error: "Feed not implemented" })
-})

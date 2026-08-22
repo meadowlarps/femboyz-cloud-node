@@ -19,19 +19,20 @@ Env loaded from `.env.${NODE_ENV}` via dotenv.
 TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://github.com/misikovich/femboyz-cloud-server).
 
 - `src/` → source, `dist/` → compiled output
-- Entry point: `src/index.ts` — init order: `runDB()` → `initStorage()` → `startServer()`
+- Entry point: `src/index.ts` — init order: `runDB()` → `feed_init()` → `initStorage()` → `startServer()`
 
 ### Module map
 
 
 | File              | Role                                                                                    |
 | ----------------- | --------------------------------------------------------------------------------------- |
-| `src/index.ts`    | Boot: DB → storage → HTTP server                                                      |
+| `src/index.ts`    | Boot: DB → public feed → storage → HTTP server                                        |
 | `src/api.ts`      | Fastify server, all route handlers                                                      |
 | `src/admin.ts`    | Admin auth, query pipeline, blob cleanup, and storage mutation lock                     |
 | `src/config.ts`   | Reads`.env.*`, exports `envs` object                                                    |
 | `src/database.ts` | MongoDB connect/disconnect,`getDB()`                                                    |
 | `src/storage.ts`  | Filesystem storage: write/read/delete files, usage tracking                             |
+| `src/feed.ts`     | Newest-first in-memory public feed, range validation, startup load, add/delete sync     |
 | `src/uploads.ts`  | Business logic: receive file streams, receive links, ID generation, MIME classification |
 | `src/schema.ts`   | Zod schemas:`XMetaFilesSchema`, `StorageDBUploadInstanceSchema`                         |
 | `src/logger.ts`   | Pino logger,`scope(name)` factory, `errorFileLogger` → `./logs/errors.log`             |
@@ -44,7 +45,7 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | ------ | ------------------ | ----------------------------- | ---------------------------------------------------------------- |
 | GET    | `/ping`            | `pongHandler`                 | Health check                                                     |
 | GET    | `/`                | `rootHandler`                 | Root                                                             |
-| GET    | `/api/v2/feed`     | `feedHandler`                 | Reserved public feed placeholder (501)                           |
+| GET    | `/api/v2/feed`     | `feed_handle`                  | Public uploads, newest-first, paginated with `s`/`e`              |
 | GET    | `/api/v2/admin/uploads` | `adminUploadsHandler`     | Authorized paginated/searchable upload inventory                 |
 | DELETE | `/api/v2/admin/uploads/:id` | `adminDeleteUploadHandler` | Authorized permanent upload deletion                          |
 | GET    | `/:id`             | `getUploadHandler`            | Fetch upload by ID — link→302, files→HTML/JSON/text by Accept |
@@ -54,6 +55,20 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | POST   | `/api/v2/udstream` | `udstreamHandler`             | Receive file stream upload                                       |
 
 ## Frontend protocols
+
+### Public feed — `GET /api/v2/feed`
+
+No authentication or request body. The in-memory feed contains MongoDB uploads with `public: true`; it loads during startup and stays synchronized when uploads are created or deleted.
+
+Ranges are start-inclusive and end-exclusive:
+
+```http
+GET /api/v2/feed             # defaults to s=0&e=20
+GET /api/v2/feed?s=20        # e defaults to 40
+GET /api/v2/feed?s=20&e=40   # returns items 20–39
+```
+
+`s` must be a non-negative integer, `e` must be greater than `s`, and the range may contain at most 100 items. Invalid ranges return 400. Responses contain `items`, `start`, `end`, `total`, and `has_more`; feed items omit issuer data and internal file hashes. Full protocol schema: `schema/frontend_feed.md`.
 
 ### File upload — `POST /api/v2/udstream`
 

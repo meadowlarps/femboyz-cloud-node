@@ -3,6 +3,7 @@ import { envs } from "./config.js"
 import { runDB } from "./database.js"
 import { startServer } from "./api.js"
 import { initStorage } from "./storage.js"
+import { feed_init } from "./feed.js"
 import { shutdownUnexpectedly } from "./utils.js"
 import { createInterface } from "node:readline/promises"
 
@@ -12,6 +13,7 @@ scopelog.info("BEGIN INIT")
 // app
 await runDB()
 await initStorage()
+await feed_init()
 await startServer()
 
 if (envs.EMPTY_STORAGE_DIR_ON_STARTUP) {
@@ -29,5 +31,6 @@ if (envs.EMPTY_STORAGE_DIR_ON_STARTUP) {
 
     const { emptyStorageAndDB } = await import("./utils.js")
     await emptyStorageAndDB()
+    await feed_init()
     await initStorage()
 }

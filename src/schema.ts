@@ -6,7 +6,7 @@ const minFileSize  = envs.MIN_FILE_SIZE                 || 0
 const maxTitle     = envs.MAX_TITLE_LENGTH_PER_UPLOAD   || 255
 const maxDesc      = envs.MAX_DESC_LENGTH_PER_UPLOAD    || 1024
 
-// schema/frontend_file_upload.info
+// schema/frontend_file_upload.md
 export const XMetaFilesSchema = z.object({
     type: z.literal("files"),
     is_public: z.boolean(),
@@ -23,7 +23,7 @@ export const XMetaFilesSchema = z.object({
 
 export type XMetaFiles = z.infer<typeof XMetaFilesSchema>
 
-// schema/mongo_upload.info
+// schema/mongo_upload.md
 const storageDBUploadInstanceSchemaCommon = z.object({
     id_pub: z.string().min(8).max(10),
     public: z.boolean().default(false),
