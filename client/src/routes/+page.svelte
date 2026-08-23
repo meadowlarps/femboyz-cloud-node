@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte'
     import { fade, slide } from 'svelte/transition';
     import type { PageData } from './$types'
     import {
@@ -9,9 +10,11 @@
         sendLinkUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
+    import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedResponse } from '$lib/upload/feed'
     import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
     import { spawnAlert } from '$lib/alerts'
 
+    const GALLERY_REFRESH_MS = 30_000
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
 
     let { data }: { data: PageData } = $props()
@@ -37,6 +40,28 @@
     let visibleCount = $state(16)
     let visibleUploads = $derived(uploadHistory.slice(0, visibleCount))
     let hasMore = $derived(uploadHistory.length > visibleCount)
+    let galleryPages = $state<FeedResponse[]>([])
+    let galleryLoading = $state(false)
+    let galleryError = $state('')
+    let galleryItems = $derived(galleryPages.flatMap((page) => page.items))
+    let galleryLast = $derived(galleryPages.length > 0 ? galleryPages[galleryPages.length - 1] : undefined)
+    let galleryTotal = $derived(galleryLast?.total ?? 0)
+    let galleryHasMore = $derived(galleryLast?.has_more ?? false)
+    let galleryVisible = $derived(galleryItems.filter((item) => item.type !== 'link'))
+
+    let galleryRevealed = $state(false)
+
+    // Feed fetch fires immediately, but the section itself is revealed a
+    // second later so the one-by-one history card fetches get a head start.
+    onMount(() => {
+        void loadGalleryPage(0)
+        const revealTimer = setTimeout(() => { galleryRevealed = true }, 1000)
+        const refreshTimer = setInterval(() => { void refreshGallery() }, GALLERY_REFRESH_MS)
+        return () => {
+            clearTimeout(revealTimer)
+            clearInterval(refreshTimer)
+        }
+    })
 
     $effect(() => {
         uploadHistory = getHistory()
@@ -117,6 +142,47 @@
         uploadHistory = getHistory()
     }
 
+    async function loadGalleryPage(start: number) {
+        if (galleryLoading) return
+        galleryError = ''
+        try {
+            galleryLoading = true
+            const page = await fetchFeed(apiEndpoint, start, start + FEED_PAGE_SIZE)
+            galleryPages = [...galleryPages, page]
+        } catch (error) {
+            galleryError = error instanceof Error ? error.message : 'Failed to load feed'
+        } finally {
+            galleryLoading = false
+        }
+    }
+
+    function loadMoreGallery() {
+        const last = galleryLast
+        if (!last || !last.has_more) return
+        void loadGalleryPage(last.end)
+    }
+
+    // Re-fetches the loaded feed range so new public uploads appear without a
+    // page reload. Current cards are kept untouched when nothing changed.
+    async function refreshGallery() {
+        const end = galleryLast?.end ?? 0
+        if (end === 0 || galleryLoading) return
+        try {
+            const range = await fetchFeedRange(apiEndpoint, end)
+            const unchanged =
+                range.items.length === galleryItems.length &&
+                range.items.every((item, index) => item.id === galleryItems[index]?.id) &&
+                range.total === galleryTotal &&
+                range.has_more === galleryHasMore
+            if (!unchanged) {
+                const prevById = new Map(galleryItems.map((item) => [item.id, item]))
+                galleryPages = [{ ...range, items: range.items.map((item) => prevById.get(item.id) ?? item) }]
+            }
+        } catch {
+            // keep current cards; retried on the next refresh
+        }
+    }
+
     async function uploadFiles() {
         uploadError = ''
         uploadResultId = ''
@@ -132,6 +198,7 @@
             addToHistory(result.id)
             uploadHistory = getHistory()
             spawnAlert('success', `Upload complete: ${result.id}`)
+            if (isPublic) void refreshGallery()
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
             spawnAlert('error', `Upload failed: ${uploadError}`)
@@ -371,6 +438,53 @@
     {/if}
 </div>
 </div>
+
+{#if galleryRevealed}
+<section class="gallery-section" aria-label="Public gallery" transition:fade={{ duration: 400 }}>
+    <div class="gallery-header">
+        <h2>Gallery</h2>
+        {#if galleryPages.length > 0}
+            <span class="gallery-count">{galleryTotal} {galleryTotal === 1 ? 'upload' : 'uploads'}</span>
+        {/if}
+    </div>
+
+    {#if galleryPages.length === 0}
+        {#if galleryError}
+            <p class="error-message">Could not load the public gallery: {galleryError}</p>
+            <button class="fb-button fb-button-ghost gallery-more" type="button" onclick={() => loadGalleryPage(0)}>
+                Try again
+            </button>
+        {:else}
+            <p class="gallery-note">Loading public uploads...</p>
+        {/if}
+    {:else if galleryTotal === 0}
+        <p class="gallery-note">No public uploads yet — tick "Make public" when uploading to appear here.</p>
+    {:else}
+        <div class="gallery-grid-wrap" class:fade-bottom={galleryHasMore}>
+            <div class="uploads-grid">
+                {#each galleryVisible as item (item.id)}
+                    <MiniUpload id={item.id} initial={item} showViews />
+                {/each}
+            </div>
+        </div>
+
+        {#if galleryError}
+            <p class="error-message">Could not load more uploads: {galleryError}</p>
+        {/if}
+
+        {#if galleryHasMore}
+            <button
+                class="fb-button fb-button-ghost gallery-more"
+                type="button"
+                onclick={loadMoreGallery}
+                disabled={galleryLoading}
+            >
+                {galleryLoading ? 'Loading...' : 'Load more'}
+            </button>
+        {/if}
+    {/if}
+</section>
+{/if}
 
 
 <style>
@@ -728,13 +842,31 @@
         border: 1px solid #3b3538;
         color: #8a8385;
         cursor: pointer;
-        transition: border-color 0.15s, color 0.15s, transform 0.2s, box-shadow 0.2s ease;
+        transition: border-color 0.15s, color 0.15s, transform 0.2s;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: #1b1a1ae6 0 0 5rem 8rem;
         padding: 0;
         z-index: 15;
+        position: relative;
+    }
+
+    /* Fades out the bottom rows of the uploads grid. Upward-only, so it can
+       never veil the sections below. */
+    .load-more-btn::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: calc(100% + 1rem);
+        height: 9rem;
+        background: linear-gradient(to bottom, transparent, #1b1a1a);
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+
+    .load-more-btn:hover::before {
+        opacity: 0.5;
     }
 
     .load-more-btn svg {
@@ -748,7 +880,57 @@
         border-color: var(--color-accent);
         color: #f4f4f4;
         transform: translateY(2px);
-        box-shadow: #1b1a1a82 0 0 5rem 8rem;
+    }
+
+    .gallery-section {
+        display: grid;
+        gap: 1rem;
+        margin-top: 17rem;
+    }
+
+    .gallery-grid-wrap {
+        position: relative;
+    }
+
+    .gallery-grid-wrap.fade-bottom::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 5;
+        height: 10rem;
+        background: linear-gradient(to bottom, transparent, rgb(27 26 26 / 82%) 68%, #1b1a1a);
+        pointer-events: none;
+    }
+
+    .gallery-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid #3b3538;
+        padding-bottom: 0.5rem;
+    }
+
+    .gallery-header h2 {
+        margin: 0;
+        font-size: 2rem;
+    }
+
+    .gallery-count {
+        color: #8a8385;
+        font-size: 0.9rem;
+    }
+
+    .gallery-note {
+        margin: 0;
+        color: #c9c3c5;
+    }
+
+    .gallery-more {
+        justify-self: center;
+        min-width: 12rem;
     }
 
     @media (max-width: 48rem) {

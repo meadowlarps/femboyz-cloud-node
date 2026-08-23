@@ -28,7 +28,7 @@ select {
 .fb-button:focus-visible {
     color: #060606;
     background-color: var(--color-fb-white);
-    transform: scale(1.04);
+    transform: scale(1.02);
     cursor: pointer;
 
 }

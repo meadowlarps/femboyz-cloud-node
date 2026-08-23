@@ -5,8 +5,63 @@
 	import { page } from '$app/stores'
 	import AlertStack from '$lib/AlertStack.svelte'
 
+	const GALLERY_LOGO_TRIGGER_RATIO = 0.55
+
 	let { children } = $props()
-	const miniLogo = $derived($page.route.id === '/[id=uploadid]')
+	let galleryInView = $state(false)
+	const miniLogo = $derived($page.route.id === '/[id=uploadid]' || galleryInView)
+
+	$effect(() => {
+		const isHome = $page.route.id === '/'
+		galleryInView = false
+		if (!isHome) return
+
+		let gallery: Element | undefined
+		let mutationObserver: MutationObserver | undefined
+		let syncFrame: number | undefined
+
+		function syncLogo() {
+			syncFrame = undefined
+			if (!gallery) return
+
+			const triggerY = window.innerHeight * GALLERY_LOGO_TRIGGER_RATIO
+			galleryInView = gallery.getBoundingClientRect().top <= triggerY
+		}
+
+		function scheduleSync() {
+			if (syncFrame !== undefined) return
+			syncFrame = requestAnimationFrame(syncLogo)
+		}
+
+		function observeGallery() {
+			gallery = document.querySelector('.gallery-section') ?? undefined
+			if (!gallery) return false
+
+			window.addEventListener('scroll', scheduleSync, { passive: true })
+			window.addEventListener('resize', scheduleSync)
+			syncLogo()
+			return true
+		}
+
+		if (!observeGallery()) {
+			mutationObserver = new MutationObserver(() => {
+				if (observeGallery()) mutationObserver?.disconnect()
+			})
+			mutationObserver.observe(document.querySelector('.page-content') ?? document.body, {
+				childList: true,
+				subtree: true
+			})
+		}
+
+		return () => {
+			if (gallery) {
+				window.removeEventListener('scroll', scheduleSync)
+				window.removeEventListener('resize', scheduleSync)
+			}
+			if (syncFrame !== undefined) cancelAnimationFrame(syncFrame)
+			mutationObserver?.disconnect()
+		}
+	})
 </script>
 
 <svelte:head>
@@ -62,20 +117,27 @@
 		background: none;
 	}
 
+	.brand {
+		display: block;
+		width: 17.91rem;
+		transition: width 0.5s ease;
+	}
+
 	.brand .logo-img {
-		transition: filter 0.35s ease-out, transform 0.25s ease, width 0.5s ease;
+		width: 100%;
+		transition: filter 0.35s ease-out, transform 0.25s ease;
 	}
 
 	.brand:hover .logo-img {
 		transform: scale(1.03);
 	}
 
-	:global(.brand.mini) .logo-img {
+	:global(.brand.mini) {
 		width: 7.5rem;
 	}
 
-	:global(.brand.mini:hover) .logo-img{
-		width: 100%;
+	:global(.brand.mini:hover) {
+		width: 17.91rem;
 	}
 
 	.logo-img {

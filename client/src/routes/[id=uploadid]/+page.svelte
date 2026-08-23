@@ -4,6 +4,7 @@
     import AlbumView from './AlbumView.svelte'
     import PlaylistView from './PlaylistView.svelte'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
+    import ViewIcon from '$lib/ViewIcon.svelte'
     import { markUploadViewed } from '$lib/upload/downloader'
 
     let { data }: { data: PageData } = $props()
@@ -91,10 +92,7 @@
                     <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
                 </div>
                 <span class="view-count" aria-label={`${viewCount} ${viewCount === 1 ? 'view' : 'views'}`}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-                        <circle cx="12" cy="12" r="3" />
-                    </svg>
+                    <ViewIcon />
                     <span class="view-count-number" class:incremented={viewIncrement > 0} aria-hidden="true">
                         <span class="previous-count">{upload.views}</span>
                         <span class="next-count">{upload.views + 1}</span>
@@ -125,10 +123,7 @@
                     <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
                 </div>
                 <span class="view-count" aria-label={`${viewCount} ${viewCount === 1 ? 'view' : 'views'}`}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-                        <circle cx="12" cy="12" r="3" />
-                    </svg>
+                    <ViewIcon />
                     <span class="view-count-number" class:incremented={viewIncrement > 0} aria-hidden="true">
                         <span class="previous-count">{upload.views}</span>
                         <span class="next-count">{upload.views + 1}</span>
@@ -307,14 +302,8 @@
         filter: blur(0);
     }
 
-    .view-count svg {
-        width: 1rem;
-        height: 1rem;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
+    .view-count {
+        --view-icon-size: 1rem;
     }
 
     @media (prefers-reduced-motion: reduce) {

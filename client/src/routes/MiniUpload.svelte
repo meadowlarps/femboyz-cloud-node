@@ -4,18 +4,30 @@
     import { onDestroy } from 'svelte'
     import { prefersReducedMotion } from 'svelte/motion'
     import { fade } from 'svelte/transition'
-    import { fetchUpload, type UploadData } from '$lib/upload/downloader'
+    import { fetchUpload } from '$lib/upload/downloader'
+    import type { FeedItem } from '$lib/upload/feed'
     import { buildMiniUploadTypeLabel } from '$lib/upload/miniUpload'
     import { formatFileSize } from '$lib/upload/uploader'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
+    import ViewIcon from '$lib/ViewIcon.svelte'
 
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
 
     type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'archive' | 'document' | 'binary'
 
-    let { id, onIgnore }: { id: string; onIgnore: (id: string) => void } = $props()
+    let {
+        id,
+        initial,
+        onIgnore,
+        showViews = false
+    }: {
+        id: string
+        initial?: FeedItem
+        onIgnore?: (id: string) => void
+        showViews?: boolean
+    } = $props()
 
-    let data = $state<UploadData | null>(null)
+    let data = $state<FeedItem | null>(null)
     let error = $state('')
     let ignored = $state(false)
     let carouselApi = $state<EmblaCarouselType>()
@@ -41,21 +53,32 @@
 
     $effect(() => {
         const uploadId = id
+        const preloaded = initial
         let cancelled = false
 
-        data = null
         error = ''
         ignored = false
         selectedIndex = 0
         persistentSelection = false
         clearReturnTimer()
 
+        if (preloaded) {
+            if (preloaded.type === 'link') {
+                ignored = true
+                onIgnore?.(uploadId)
+                return
+            }
+            data = preloaded
+            return
+        }
+
+        data = null
         fetchUpload(uploadId, apiEndpoint)
             .then((result) => {
                 if (cancelled) return
                 if (result.type === 'link') {
                     ignored = true
-                    onIgnore(uploadId)
+                    onIgnore?.(uploadId)
                     return
                 }
                 data = result
@@ -266,7 +289,17 @@
                         <CopyLinkButton url={uploadUrl} label={`Copy link to ${label}`} />
                     </div>
                     <div class="card-meta">
-                        <span>{files.length} {files.length === 1 ? 'file' : 'files'} &middot; {formatFileSize(totalSize)}</span>
+                        {#if showViews}
+                            <span
+                                class="card-views"
+                                aria-label={`${data.views} ${data.views === 1 ? 'view' : 'views'}`}
+                            >
+                                <ViewIcon />
+                                <span aria-hidden="true">{data.views}</span>
+                            </span>
+                        {:else}
+                            <span>{files.length} {files.length === 1 ? 'file' : 'files'} &middot; {formatFileSize(totalSize)}</span>
+                        {/if}
                         <time datetime={data.when}>{dateLabel}</time>
                     </div>
                 </footer>
@@ -496,6 +529,15 @@
         gap: 0.25rem;
         color: #8a8385;
         font-size: 0.68rem;
+    }
+
+    .card-views {
+        --view-icon-size: 0.8rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
     }
 
     .card-meta time {
