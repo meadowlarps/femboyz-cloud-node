@@ -1,5 +1,6 @@
 import type { PageServerLoad } from './$types'
 import { redirect, error } from '@sveltejs/kit'
+import { fetchUploadComments, type CommentPublic } from '$lib/upload/comments'
 import { env } from '$env/dynamic/private'
 import { fetchUpload } from '$lib/upload/downloader'
 import { forwardedHeaders } from '$lib/upload/forwarded'
@@ -24,5 +25,17 @@ export const load: PageServerLoad = async ({ params, fetch, request, url }) => {
         throw redirect(302, preview.redirectUrl)
     }
 
-    return { upload, preview }
+    const comments = upload.public
+        ? await fetchUploadComments(params.id, apiEndpoint, fetch, forwardedHeaders(request))
+            .catch(() => {
+                throw error(502, 'Comments unavailable')
+            })
+        : []
+
+    return {
+        upload,
+        preview,
+        comments,
+        apiEndpoint: env.VITE_API_ENDPOINT ?? ''
+    }
 }

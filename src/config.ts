@@ -10,17 +10,19 @@ scopelog.info(`Loading config for ${env_type} environment`)
 dotenv.config({ path: `.env.${env_type}` })
 
 export const envs = {
-    CURR_ENV:   process.env.CURR_ENV!,
-    MDB_URI:    process.env.MDB_URI!,
-    MDB_PORT:   Number(process.env.MDB_PORT)!,
-    MDB_NAME:   process.env.MDB_NAME!,
-    MDB_COLLECTION_UPLOADS: process.env.MDB_COLLECTION_UPLOADS!,
-    PORT:       Number(process.env.WEBSRV_PORT!),
+    CURR_ENV:   												process.env.CURR_ENV!,
+    MDB_URI:    												process.env.MDB_URI!,
+    MDB_PORT:   												Number(process.env.MDB_PORT)!,
+    MDB_NAME:   												process.env.MDB_NAME!,
+    MDB_COLLECTION_UPLOADS: 						process.env.MDB_COLLECTION_UPLOADS!,
+		MDB_COLLECTION_COMMENTS:						process.env.MDB_COLLECTION_COMMENTS!,
+    PORT:       												Number(process.env.WEBSRV_PORT!),
     MAX_FILE_SIZE:                      Number(process.env.MAX_FILE_SIZE),
     MIN_FILE_SIZE:                      Number(process.env.MIN_FILE_SIZE),
     MAX_FILE_COUNT_PER_UPLOAD:          Number(process.env.MAX_FILE_COUNT_PER_UPLOAD),
     MAX_TITLE_LENGTH_PER_UPLOAD:        Number(process.env.MAX_TITLE_LENGTH_PER_UPLOAD),
     MAX_DESC_LENGTH_PER_UPLOAD:         Number(process.env.MAX_DESC_LENGTH_PER_UPLOAD),
+		MAX_COMMENT_LENGTH:									Number(process.env.MAX_COMMENT_LENGTH) || 600,
     STORAGE_DIR:                        process.env.STORAGE_DIR,
     STORAGE_LIMIT_BYTES:                Number(process.env.STORAGE_LIMIT_BYTES),
     STORAGE_USAGE_WARNING_PERCENTAGE:   Number(process.env.STORAGE_USAGE_WARNING_PERCENTAGE),
@@ -30,7 +32,8 @@ export const envs = {
     CORS_ORIGIN:                        process.env.CORS_ORIGIN,
     AUTH_ADMIN_KEY:                     process.env.AUTH_ADMIN_KEY,
     AUTH_ADMIN_MAX_FAILS:               Number(process.env.AUTH_ADMIN_MAX_FAILS) || 5,
-    AUTH_ADMIN_BLOCK_MINUTES:           Number(process.env.AUTH_ADMIN_BLOCK_MINUTES) || 15
+    AUTH_ADMIN_BLOCK_MINUTES:           Number(process.env.AUTH_ADMIN_BLOCK_MINUTES) || 15,
+
 }
 
 for (const [key, value] of Object.entries(envs)) {

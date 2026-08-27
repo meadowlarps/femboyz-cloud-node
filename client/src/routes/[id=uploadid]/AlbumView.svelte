@@ -5,8 +5,22 @@
     import type { FileData } from '$lib/upload/downloader'
     import { formatFileSize } from '$lib/upload/uploader'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
+    import type { CommentPublic } from '$lib/upload/comments'
+    import CommentsView from './CommentsView.svelte'
 
-    let { files, children }: { files: FileData[]; children: Snippet } = $props()
+    let {
+        files,
+        comments,
+        upload_id,
+        api_endpoint,
+        children
+    }: {
+        files: FileData[]
+        comments?: CommentPublic[]
+        upload_id: string
+        api_endpoint: string
+        children: Snippet
+    } = $props()
 
     let carouselApi = $state<EmblaCarouselType>()
     let carouselRoot = $state<HTMLElement>()
@@ -181,6 +195,12 @@
     <div class="album-details">
         {@render children()}
     </div>
+
+    {#if comments}
+        <div class="album-comments">
+            <CommentsView {comments} {upload_id} {api_endpoint} />
+        </div>
+    {/if}
 </section>
 
 <style>
@@ -189,7 +209,8 @@
         grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
         grid-template-areas:
             "stage files"
-            "details .";
+            "details ."
+            "comments .";
         align-items: start;
         gap: 1rem;
         width: min(100%, 72rem);
@@ -200,7 +221,8 @@
         grid-template-columns: minmax(0, 60rem);
         grid-template-areas:
             "stage"
-            "details";
+            "details"
+            "comments";
         justify-content: center;
     }
 
@@ -367,6 +389,11 @@
         min-width: 0;
     }
 
+    .album-comments {
+        grid-area: comments;
+        min-width: 0;
+    }
+
     .sr-only {
         position: absolute;
         width: 1px;
@@ -385,13 +412,15 @@
             grid-template-areas:
                 "stage"
                 "files"
-                "details";
+                "details"
+                "comments";
         }
 
         .album-view.single {
             grid-template-areas:
                 "stage"
-                "details";
+                "details"
+                "comments";
         }
 
         .media-stage {

@@ -14,16 +14,19 @@ async function run() {
     await client.connect()
     DB = initDB(client, envs.MDB_NAME)
     const uploads = getDB().collection(envs.MDB_COLLECTION_UPLOADS)
+    const comments = getDB().collection(envs.MDB_COLLECTION_COMMENTS)
     await Promise.all([
         uploads.createIndex({ id_pub: 1 }, { unique: true }),
-        uploads.createIndex({ when: -1 })
+        uploads.createIndex({ when: -1 }),
+        comments.createIndex({ id_comment_pub: 1 }, { unique: true }),
+        comments.createIndex({ id_upload_pub: 1, when: 1, id_comment_pub: 1 })
     ]).catch(err => {
         const message = err instanceof Error ? err.message : String(err)
         scopelog.error(message)
-        errorFileLogger.error({ err }, `Failed to create indexes on collection ${envs.MDB_COLLECTION_UPLOADS}`)
+        errorFileLogger.error({ err }, "Failed to create database indexes")
         shutdownUnexpectedly()
     })
-    scopelog.info(`Ensured indexes "id_pub" and "when" on collection ${envs.MDB_COLLECTION_UPLOADS}`)
+    scopelog.info(`Ensured indexes on collections ${envs.MDB_COLLECTION_UPLOADS} and ${envs.MDB_COLLECTION_COMMENTS}`)
     scopelog.info("Connected")
 }
 

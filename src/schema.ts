@@ -5,6 +5,23 @@ const maxFiles     = envs.MAX_FILE_COUNT_PER_UPLOAD     || 6
 const minFileSize  = envs.MIN_FILE_SIZE                 || 0
 const maxTitle     = envs.MAX_TITLE_LENGTH_PER_UPLOAD   || 255
 const maxDesc      = envs.MAX_DESC_LENGTH_PER_UPLOAD    || 1024
+const maxComLen	   = envs.MAX_COMMENT_LENGTH						|| 500
+
+const COMMENT_ID_REGEX = /^\d{8}$/
+const CLIENT_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export const CommentIdSchema = z.string().regex(COMMENT_ID_REGEX)
+export const ClientUuidSchema = z.string().regex(CLIENT_UUID_REGEX)
+
+export const CommentReactionStateSchema = z.object({
+	rating: z.enum(["up", "down"]).nullable(),
+	eyes: z.boolean()
+})
+
+export const CommentReactionUpdateSchema = z.object({
+	rating: z.enum(["up", "down"]).nullable(),
+	eyes: z.boolean()
+})
 
 // schema/frontend_file_upload.md
 export const XMetaFilesSchema = z.object({
@@ -54,4 +71,46 @@ export const StorageDBUploadInstanceSchema = z.union([
     })
 ])
 
+export const CommentInstanceSchemaDB = z.object({
+    id_upload_pub:					z.string(),   										// pub id of the upload the comment connects to
+    id_comment_pub:					CommentIdSchema,									// unique 8-digit comment id
+		id_reply_to: 						CommentIdSchema.optional(),				// replies to id
+		content: 								z.string().min(1).max(maxComLen),
+		when:										z.iso.datetime(),
+		stat:										z.object({
+			up: 	z.int().nonnegative().default(0),
+			down:	z.int().nonnegative().default(0),
+			eyes: z.int().nonnegative().default(0)
+		}),
+		reactions:							z.record(ClientUuidSchema, CommentReactionStateSchema).optional(),
+		issuer: 								z.object({
+			ip: z.string(),
+			ua: z.string(),
+			uuid: ClientUuidSchema
+		})
+})
+
+export const CommentCreateSchema = z.object({
+    id_reply_to: CommentIdSchema.optional(),
+    content:     z.string().trim().min(1).max(maxComLen)
+})
+
+export const CommentPublicSchema = z.object({
+    id:          CommentIdSchema,                           // mapped from id_comment_pub
+    id_reply_to: CommentIdSchema.optional(),
+    content:     z.string(),
+    when:        z.iso.datetime(),
+    stat: z.object({
+        up:   z.int().nonnegative(),
+        down: z.int().nonnegative(),
+				eyes: z.int().nonnegative()
+    })
+})
+
+
 export type StorageDBUploadInstance = z.infer<typeof StorageDBUploadInstanceSchema>
+export type CommentInstanceDB = z.infer<typeof CommentInstanceSchemaDB>
+export type CommentCreate = z.infer<typeof CommentCreateSchema>
+export type CommentPublic = z.infer<typeof CommentPublicSchema>
+export type CommentReactionState = z.infer<typeof CommentReactionStateSchema>
+export type CommentReactionUpdate = z.infer<typeof CommentReactionUpdateSchema>

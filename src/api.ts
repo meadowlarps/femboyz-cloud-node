@@ -17,6 +17,7 @@ import { adminAuthStatus,
     parseAdminQuery }                                   from "./admin.js"
 import { buildErrorLogPage, parseErrorLogQuery, readErrorLogTail } from "./errorlog.js"
 import { feed_get_all_uploads, feed_query_parse }        from "./feed.js"
+import { createComment, getCommentByID, getCommentsByUploadID, updateCommentReaction } from "./comments.js"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
@@ -47,7 +48,8 @@ export async function startServer() {
     scopelog.info("Starting server...")
 
     await server.register(cors, {
-        origin: envs.CORS_ORIGIN === "*" ? true : (envs.CORS_ORIGIN ?? false)
+        origin: envs.CORS_ORIGIN === "*" ? true : (envs.CORS_ORIGIN ?? false),
+        methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
     })
 
     server.setErrorHandler(errorHandler)
@@ -62,6 +64,10 @@ export async function startServer() {
     server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
     server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
     server.get("/api/v2/admin/logs", { preHandler: adminAuthHandler }, adminLogsHandler)
+    server.post("/api/v2/uploads/:uploadId/comments", createCommentHandler)
+    server.get("/api/v2/uploads/:uploadId/comments", getUploadCommentsHandler)
+    server.put("/api/v2/comments/:commentId/reactions", updateCommentReactionHandler)
+    server.get("/api/v2/comments/:commentId", getCommentHandler)
     server.get("/:id", getUploadHandler)                            // Serve: Route to handle fetching an upload by its ID
     server.get("/:id/:fid", getUploadHandler)                       // Serve: Route to specific file of :id upload
     server.get("/api/v2/maxfsize", askMaxFileUploadSizeHandler)     // Serve: Route to check how large file the server can accept
@@ -134,6 +140,32 @@ export async function viewedUploadHandler(request: FastifyRequest, reply: Fastif
     if (!await incrementUploadView(id))
         throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
     reply.status(204).send()
+}
+
+export async function createCommentHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { uploadId } = request.params as { uploadId: string }
+    reply.status(201).send(await createComment(request, uploadId))
+}
+
+export async function getUploadCommentsHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { uploadId } = request.params as { uploadId: string }
+    const comments = await getCommentsByUploadID(uploadId)
+    if (!comments)
+        throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+    reply.send(comments)
+}
+
+export async function getCommentHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { commentId } = request.params as { commentId: string }
+    const comment = await getCommentByID(commentId)
+    if (!comment)
+        throw Object.assign(new Error("Comment not found"), { statusCode: 404 })
+    reply.send(comment)
+}
+
+export async function updateCommentReactionHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { commentId } = request.params as { commentId: string }
+    reply.send(await updateCommentReaction(request, commentId))
 }
 
 async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {

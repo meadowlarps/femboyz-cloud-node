@@ -3,12 +3,15 @@
     import FilesView from './FilesView.svelte'
     import AlbumView from './AlbumView.svelte'
     import PlaylistView from './PlaylistView.svelte'
+    import CommentsView from './CommentsView.svelte'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
     import ViewIcon from '$lib/ViewIcon.svelte'
     import { markUploadViewed } from '$lib/upload/downloader'
 
     let { data }: { data: PageData } = $props()
-    const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
+
+    const comments = $derived(data.comments)
+    const apiEndpoint = $derived(data.apiEndpoint)
 
     let viewIncrement = $state(0)
 
@@ -75,7 +78,12 @@
 </svelte:head>
 
 {#if upload.type === 'album'}
-    <AlbumView files={upload.files}>
+    <AlbumView
+        files={upload.files}
+        comments={upload.public ? comments : undefined}
+        upload_id={uploadId}
+        api_endpoint={apiEndpoint}
+    >
         <div class="album-info">
             <div class="upload-title-row">
                 <div class="upload-title-group">
@@ -140,6 +148,9 @@
             {/if}
         </div>
     </div>
+        {#if upload.public}
+            <CommentsView {comments} upload_id={uploadId} api_endpoint={apiEndpoint} />
+        {/if}
     </div>
 {/if}
 
@@ -153,16 +164,18 @@
 
     /* Panel — files / playlist */
     .panel-wrap {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 48rem);
         justify-content: center;
+        gap: 1rem;
     }
 
     .upload-panel {
         display: inline-grid;
-        min-width: min(38rem, 100%);
-        max-width: min(100%, 48rem);
+        min-width: 0;
+        max-width: 100%;
         background: #221f20;
-        border: 2px solid var(--color-accent);
+        border: 1px solid #2e2b2c;
         overflow: hidden;
     }
 
