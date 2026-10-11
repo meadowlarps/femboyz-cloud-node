@@ -26,7 +26,7 @@ SvelteKit 2 + Svelte 5 (runes mode forced project-wide via `svelte.config.js` â€
 `+page.ts` `load` â†’ calls `fetchUploadLimits` (`GET /api/v2/maxfsize`) at page load time and passes limits down as `PageData`.
 
 `+page.svelte` holds all upload state. On submit it calls `sendUpload` from `$lib/upload/uploader.ts`, which:
-1. Hashes every file with `crypto.subtle` (SHA-256) before sending
+1. Hashes every file (SHA-256 via `hash-wasm`, read in 64 MB chunks since Chrome cannot read >2 GB Blobs into one ArrayBuffer) before sending
 2. Builds an `XMetaFiles` object, base64-encodes it into `X-Meta` header
 3. Concatenates all `File` blobs into one `Blob` and POSTs via XHR (not `fetch`) so upload progress events work
 4. Returns `UploadResult { id, type }` on success

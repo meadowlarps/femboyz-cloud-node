@@ -1,3 +1,5 @@
+import { createSHA256 } from 'hash-wasm'
+
 export type UploadTokenInfo = {
     label: string
     max_files: number | null
@@ -131,11 +133,16 @@ async function createFileEntry(file: File): Promise<_XMetaFile> {
     }
 }
 
+// Chrome can't read Blobs over ~2 GB into one ArrayBuffer (NotReadableError), so hash in chunks
+const HASH_CHUNK_BYTES = 64 * 1024 * 1024
+
 async function hashFileSha256(file: File) {
-    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
-    return [...new Uint8Array(digest)]
-        .map((byte) => byte.toString(16).padStart(2, '0'))
-        .join('')
+    const hasher = await createSHA256()
+    for (let offset = 0; offset < file.size; offset += HASH_CHUNK_BYTES) {
+        const chunk = await file.slice(offset, offset + HASH_CHUNK_BYTES).arrayBuffer()
+        hasher.update(new Uint8Array(chunk))
+    }
+    return hasher.digest('hex')
 }
 
 function encodeBase64Json(value: unknown) {

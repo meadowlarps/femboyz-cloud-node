@@ -182,7 +182,7 @@
                 break
             }
             if (file.size > effectiveLimits.maxsizeperfile) {
-                nextErrors.push(`${file.name} is larger than ${formatFileSize(effectiveLimits.maxsizeperfile)}.`)
+                nextErrors.push(`${file.name} is larger than ${displayedFileSizeLimit(effectiveLimits)}.`)
                 continue
             }
             nextFiles.push(file)
@@ -190,6 +190,11 @@
 
         files = [...files, ...nextFiles]
         fileErrors = nextErrors
+    }
+
+    // MAX_FILE_SIZE carries 1 MB of headroom on the server; token limits are exact
+    function displayedFileSizeLimit(limits: UploadLimits) {
+        return formatFileSize(limits.token ? limits.maxsizeperfile : limits.maxsizeperfile - 1024 * 1024)
     }
 
     function addFiles(event: Event) {
@@ -361,7 +366,7 @@
                     <p class="limit-note token-note">{tokenSummary(tokenLimits.token)}</p>
                 {:else if uploadLimits}
                     <p class="limit-note">
-                        Up to {uploadLimits.maxcount} files, {formatFileSize(uploadLimits.maxsizeperfile - 1024 * 1024)} each.
+                        Up to {uploadLimits.maxcount} files, {displayedFileSizeLimit(uploadLimits)} each.
                     </p>
                 {/if}
             {:else}
@@ -821,7 +826,8 @@
     .error-list {
         display: grid;
         gap: 0.25rem;
-        padding-left: 1.2rem;
+        padding: 0;
+        list-style: none;
     }
 
     .file-list {
