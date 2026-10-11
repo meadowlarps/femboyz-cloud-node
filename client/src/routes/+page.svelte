@@ -5,6 +5,10 @@
     import {
         type UploadLimits,
         type UploadProgress,
+        type UploadTokenInfo,
+        UPLOAD_TOKEN_MIN_LENGTH,
+        UploadTokenError,
+        fetchUploadLimits,
         formatFileSize,
         sendUpload,
         sendLinkUpload
@@ -15,6 +19,8 @@
     import { spawnAlert } from '$lib/alerts'
 
     const GALLERY_REFRESH_MS = 30_000
+    const TOKEN_HOLD_MS = 600
+    const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
 
     let { data }: { data: PageData } = $props()
@@ -31,11 +37,24 @@
     let uploadResultId = $state('')
     let isUploading = $state(false)
     let uploadProgress = $state<UploadProgress>()
-    let isFileLimitReached = $derived(uploadLimits ? files.length >= uploadLimits.maxcount : false)
+    let tokenOpen = $state(false)
+    let tokenValue = $state('')
+    let tokenLimits = $state<UploadLimits | null>(null)
+    let tokenError = $state('')
+    let tokenChecking = $state(false)
+    let tokenInput = $state<HTMLInputElement>()
+    let tokenHoldTimer: ReturnType<typeof setTimeout> | undefined
+    let tokenHoldFired = false
+    let effectiveLimits = $derived(tokenLimits ?? uploadLimits)
+    let tokenPending = $derived(tokenOpen && tokenValue.trim() !== '' && !tokenLimits)
+    let isFileLimitReached = $derived(effectiveLimits ? files.length >= effectiveLimits.maxcount : false)
     let isDragging = $state(false)
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
     let hideProgressTimer: ReturnType<typeof setTimeout> | undefined
+    let uploadDisabled = $derived(mode === 'files'
+        ? (files.length === 0 || isUploading || tokenPending)
+        : (linkUrl.trim() === '' || isUploading))
     let uploadHistory = $state<string[]>([])
     let visibleCount = $state(16)
     let visibleUploads = $derived(uploadHistory.slice(0, visibleCount))
@@ -86,19 +105,84 @@
         }
     })
 
+    // Validates the typed token against the server once it could be one (custom tokens vary in length).
+    $effect(() => {
+        const token = tokenValue.trim()
+        tokenLimits = null
+        tokenError = ''
+        if (token.length < UPLOAD_TOKEN_MIN_LENGTH) return
+
+        const timer = setTimeout(async () => {
+            tokenChecking = true
+            try {
+                const limits = await fetchUploadLimits(apiEndpoint, fetch, {}, token)
+                if (tokenValue.trim() === token) tokenLimits = limits
+            } catch (error) {
+                if (tokenValue.trim() === token)
+                    tokenError = error instanceof Error ? error.message : 'Token check failed'
+            } finally {
+                tokenChecking = false
+            }
+        }, TOKEN_CHECK_DEBOUNCE_MS)
+        return () => clearTimeout(timer)
+    })
+
+    $effect(() => {
+        if (tokenOpen) tokenInput?.focus()
+    })
+
+    function tokenHoldStart(event: PointerEvent) {
+        if (mode !== 'files' || isUploading || event.button !== 0) return
+        tokenHoldFired = false
+        clearTimeout(tokenHoldTimer)
+        tokenHoldTimer = setTimeout(() => {
+            tokenHoldFired = true
+            tokenOpen = true
+        }, TOKEN_HOLD_MS)
+    }
+
+    function tokenHoldCancel() {
+        clearTimeout(tokenHoldTimer)
+        tokenHoldTimer = undefined
+    }
+
+    function tokenClose() {
+        tokenOpen = false
+        tokenValue = ''
+    }
+
+    function tokenSummary(info: UploadTokenInfo) {
+        const label = info.label ? ` "${info.label}"` : ''
+        const count = info.max_files === null ? 'Unlimited files' : `${info.max_files} file${info.max_files === 1 ? '' : 's'}`
+        const size = info.max_bytes === null ? 'unlimited size' : formatFileSize(info.max_bytes)
+        const uses = info.uses_left === null ? '' : ` · ${info.uses_left} use${info.uses_left === 1 ? '' : 's'} left`
+        const expires = info.expires_at ? ` · expires ${new Date(info.expires_at).toLocaleString()}` : ''
+        return `Token${label}: ${count} / ${size}${uses}${expires}`
+    }
+
+    function uploadClick() {
+        // the click that ends a long-press only opens the token field
+        if (tokenHoldFired) {
+            tokenHoldFired = false
+            return
+        }
+        if (uploadDisabled) return
+        void (mode === 'files' ? uploadFiles() : uploadLink())
+    }
+
     function processFiles(selectedFiles: File[]) {
         const nextFiles: File[] = []
         const nextErrors: string[] = []
 
-        if (!uploadLimits) return
+        if (!effectiveLimits) return
 
         for (const file of selectedFiles) {
-            if (files.length + nextFiles.length >= uploadLimits.maxcount) {
-                nextErrors.push(`Only ${uploadLimits.maxcount} files can be uploaded at once.`)
+            if (files.length + nextFiles.length >= effectiveLimits.maxcount) {
+                nextErrors.push(`Only ${effectiveLimits.maxcount} files can be uploaded at once.`)
                 break
             }
-            if (file.size > uploadLimits.maxsizeperfile) {
-                nextErrors.push(`${file.name} is larger than ${formatFileSize(uploadLimits.maxsizeperfile)}.`)
+            if (file.size > effectiveLimits.maxsizeperfile) {
+                nextErrors.push(`${file.name} is larger than ${formatFileSize(effectiveLimits.maxsizeperfile)}.`)
                 continue
             }
             nextFiles.push(file)
@@ -116,7 +200,7 @@
 
     function handleDragOver(event: DragEvent) {
         event.preventDefault()
-        if (!uploadLimits || isFileLimitReached) return
+        if (!effectiveLimits || isFileLimitReached) return
         isDragging = true
     }
 
@@ -127,7 +211,7 @@
     function handleDrop(event: DragEvent) {
         event.preventDefault()
         isDragging = false
-        if (!uploadLimits || isFileLimitReached) return
+        if (!effectiveLimits || isFileLimitReached) return
         processFiles(Array.from(event.dataTransfer?.files ?? []))
     }
 
@@ -189,11 +273,14 @@
         uploadProgress = undefined
         clearProgressTimers()
 
+        const token = tokenLimits ? tokenValue.trim() : undefined
         try {
             isUploading = true
             const result = await sendUpload(apiEndpoint, files, title, description, isPublic, (progress) => {
                 uploadProgress = progress
-            })
+            }, token)
+            // a token covers a single upload — it has to be entered again for the next one
+            if (token) tokenClose()
             uploadResultId = result.id
             addToHistory(result.id)
             uploadHistory = getHistory()
@@ -201,6 +288,10 @@
             if (isPublic) void refreshGallery()
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
+            if (error instanceof UploadTokenError) {
+                tokenLimits = null
+                tokenError = error.message
+            }
             spawnAlert('error', `Upload failed: ${uploadError}`)
         } finally {
             isUploading = false
@@ -266,7 +357,9 @@
             <h1>New upload</h1>
             {#if mode === 'files'}
                 <p>Add details and choose one or more files</p>
-                {#if uploadLimits}
+                {#if tokenLimits?.token}
+                    <p class="limit-note token-note">{tokenSummary(tokenLimits.token)}</p>
+                {:else if uploadLimits}
                     <p class="limit-note">
                         Up to {uploadLimits.maxcount} files, {formatFileSize(uploadLimits.maxsizeperfile - 1024 * 1024)} each.
                     </p>
@@ -286,7 +379,7 @@
                     type="text"
                     name="title"
                     placeholder="Upload title"
-                    maxlength={uploadLimits?.max_title_length}
+                    maxlength={effectiveLimits?.max_title_length}
                 />
                 {#if uploadLimits && title.length > 0}
                     <span class="char-counter" class:near-limit={title.length >= uploadLimits.max_title_length * 0.85}>
@@ -403,6 +496,33 @@
         </p>
     {/if}
 
+    {#if mode === 'files' && tokenOpen}
+        <div transition:slide class="token-field">
+            <div class="token-row">
+                <label class="form-field">
+                    <input
+                        bind:this={tokenInput}
+                        bind:value={tokenValue}
+                        type="text"
+                        name="upload-token"
+                        placeholder="Upload token"
+                        autocomplete="off"
+                        spellcheck="false"
+                        disabled={isUploading}
+                    />
+                </label>
+                <button class="fb-button token-close" type="button" onclick={tokenClose} disabled={isUploading} aria-label="Remove token">
+                    Remove
+                </button>
+            </div>
+            {#if tokenChecking}
+                <p class="token-status">Checking token...</p>
+            {:else if tokenError}
+                <p class="error-message">{tokenError}</p>
+            {/if}
+        </div>
+    {/if}
+
     <div class="finalize">
         {#if mode === 'files'}
             <label class="public-checkbox">
@@ -413,11 +533,18 @@
         {:else}
             <span></span>
         {/if}
+        <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
         <button
             class="upload-button fb-button"
             type="button"
-            onclick={mode === 'files' ? uploadFiles : uploadLink}
-            disabled={mode === 'files' ? (files.length === 0 || isUploading) : (linkUrl.trim() === '' || isUploading)}
+            title={mode === 'files' ? 'Hold to enter an upload token' : undefined}
+            aria-disabled={uploadDisabled}
+            onclick={uploadClick}
+            onpointerdown={tokenHoldStart}
+            onpointerup={tokenHoldCancel}
+            onpointerleave={tokenHoldCancel}
+            onpointercancel={tokenHoldCancel}
+            oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
         >
             {isUploading ? 'Uploading...' : 'Upload!'}
         </button>
@@ -641,6 +768,37 @@
     .upload-button {
         padding-left: 2rem;
         padding-right: 2rem;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        touch-action: manipulation;
+    }
+
+    .token-field {
+        display: grid;
+        gap: 0.35rem;
+    }
+
+    .token-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.5rem;
+        align-items: stretch;
+    }
+
+    .token-row input {
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+    }
+
+    .token-status {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #6a6468;
+    }
+
+    .token-note {
+        color: #b7f0ce;
     }
 
 
@@ -745,7 +903,7 @@
     }
 
     .file-list button:disabled,
-    .upload-button:disabled {
+    .upload-button[aria-disabled='true'] {
         cursor: not-allowed;
         opacity: 0.6;
     }

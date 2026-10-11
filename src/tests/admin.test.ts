@@ -85,7 +85,7 @@ test("admin pipeline escapes search and uses deterministic pagination sorts", ()
         }))
         const items = pipeline[1]!.$facet.items
         expect(items[0].$match.type).toBe("files")
-        expect(items[0].$match.$or).toHaveLength(5)
+        expect(items[0].$match.$or).toHaveLength(6)
         expect(items[0].$match.$or[0]["issuer.ip"].$regex).toBe("a\\+b")
         expect(items[1].$sort).toEqual(expectedSort[sort])
         expect(items[2]).toEqual({ $skip: 20 })

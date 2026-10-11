@@ -8,7 +8,7 @@ Canonical protocol specification for uploading single or multi-file payloads via
 | :--- | :--- |
 | **Method** | `POST` |
 | **Path** | `/api/v2/udstream` |
-| **Authentication** | None |
+| **Authentication** | None (optional `X-Upload-Token` raises limits, see [frontend_upload_token.md](./frontend_upload_token.md)) |
 | **Content-Type** | `application/octet-stream` |
 
 ## Architecture & Request Format
@@ -35,6 +35,7 @@ X-Meta: eyJ0eXBlIjoiZmlsZXMiLCJpc19wdWJsaWMiOnRydWUsIm1ldGEiOnsidGl0bGUiOiJNeSBV
 | `Content-Type` | String | Yes | Must be literal `application/octet-stream`. |
 | `Content-Length` | Integer | Yes | Total byte count of the concatenated request body. Must be `>= MIN_FILE_SIZE` and within remaining storage headroom. |
 | `X-Meta` | String | Yes | Base64-encoded UTF-8 string of the `XMetaFiles` JSON payload. |
+| `X-Upload-Token` | String | No | Admin-issued upload token. Uses one of its uses and replaces the default count/size limits for this upload. |
 
 ## `X-Meta` Payload Specification
 
@@ -71,7 +72,7 @@ X-Meta: eyJ0eXBlIjoiZmlsZXMiLCJpc19wdWJsaWMiOnRydWUsIm1ldGEiOnsidGl0bGUiOiJNeSBV
 | `is_public` | `boolean` | Yes | — | `true` to display in public feed `/api/v2/feed`; `false` for unlisted direct-link access. |
 | `meta.title` | `string` | Yes | — | Max length: `MAX_TITLE_LENGTH_PER_UPLOAD` (default: 255). |
 | `meta.desc` | `string` | Yes | — | Max length: `MAX_DESC_LENGTH_PER_UPLOAD` (default: 1024). |
-| `files` | `Array` | Yes | — | Array of 1 to `MAX_FILE_COUNT_PER_UPLOAD` file objects (default max: 6). |
+| `files` | `Array` | Yes | — | 1 or more file objects. The count is checked against the effective limits: `MAX_FILE_COUNT_PER_UPLOAD` (default 6), or the token's `max_files`. |
 | `files[].filename` | `string` | Yes | — | Max length: 255 characters, non-empty. |
 | `files[].sha256` | `string` | Yes | — | Exactly 64-character lowercase hex SHA-256 digest of that file's bytes. |
 | `files[].bytes` | `number` | Yes | — | Non-negative integer `>= MIN_FILE_SIZE`. Exact byte length of this file chunk in the body stream. |
@@ -106,6 +107,8 @@ await fetch("/api/v2/udstream", {
 
 1. **Storage Capacity Pre-Check**: Checks `Content-Length` against remaining disk headroom; rejects with `507` if insufficient.
 2. **Header Parse & Validation**: Base64 decodes `X-Meta` and validates against `XMetaFilesSchema` (Zod); rejects with `400` on failure.
+2a. **Token Reservation** (only with `X-Upload-Token`): atomically spends one token use; rejects with `403 {"error": "Token <reason>"}` if unknown/revoked/expired/exhausted.
+2b. **Limit Check**: file count, each file's `bytes`, and the total are checked against the effective limits (env defaults or the token's limits, capped by free storage); rejects with `400`. If a token was reserved it is released.
 3. **Stream Chunking**: Iterates the incoming binary stream, slicing exact `bytes` count for each entry in `files`.
 4. **Integrity Hash Verification**: Computes SHA-256 incrementally on each chunk; rejects with `400` if calculated hash does not match `sha256`.
 5. **MIME Type Detection**: Inspects initial chunk bytes via `WASMagic` to reliably detect true MIME type.
@@ -114,7 +117,8 @@ await fetch("/api/v2/udstream", {
    - All `audio/*` $\to$ `"playlist"`
    - Mixed or other $\to$ `"files"`
 7. **Storage Deduplication**: Writes unique blob named by SHA-256 hash into storage directory. If blob exists, reuses existing blob on disk.
-8. **DB Persistence**: Generates unique `id_pub` and creates document in MongoDB.
+8. **DB Persistence**: Generates unique `id_pub` and creates document in MongoDB (`issuer.token` = `id_token` if a token was used).
+9. **Token Audit**: With a token, every outcome (`ok` / `failed` / `rejected`) is written to `token_uses`; a failed upload gives its use back.
 
 ## Successful Response (`HTTP 200`)
 

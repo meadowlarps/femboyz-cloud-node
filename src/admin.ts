@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import type { Document } from "mongodb"
 import * as z from "zod"
 import { envs } from "./config.js"
+import { authlimit_create } from "./authlimit.js"
 
 const AdminQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
@@ -22,62 +23,26 @@ export function adminAuthStatus(authorization: string | undefined, expectedKey: 
     return timingSafeEqual(suppliedHash, expectedHash) ? 200 : 401
 }
 
-type AuthFailures = { fails: number, lastFail: number, blockedUntil: number }
-
-const MAX_TRACKED_IPS = 10_000
-const authFailures = new Map<string, AuthFailures>()
-
-const blockMs = () => envs.AUTH_ADMIN_BLOCK_MINUTES * 60_000
+const adminAuthLimit = authlimit_create({
+    max_fails: () => envs.AUTH_ADMIN_MAX_FAILS,
+    block_ms: () => envs.AUTH_ADMIN_BLOCK_MINUTES * 60_000
+})
 
 export function authBlockRemainingMs(ip: string, now = Date.now()): number {
-    const entry = authFailures.get(ip)
-    if (!entry) return 0
-    return Math.max(0, entry.blockedUntil - now)
+    return adminAuthLimit.block_remaining_ms(ip, now)
 }
 
-// ponytail: state is per-process and lost on restart, and the size cap means a large
-// IPv6 pool could evict its own block — good enough for one API process, revisit with
-// a shared store before horizontal scaling.
 export function registerAuthFailure(ip: string, now = Date.now()): { blocked: boolean, blockedUntil: number } {
-    sweepAuthFailures(now)
-
-    const entry = authFailures.get(ip) ?? { fails: 0, lastFail: 0, blockedUntil: 0 }
-    if (!authFailures.has(ip)) {
-        if (authFailures.size >= MAX_TRACKED_IPS) evictOldestAuthFailure()
-        authFailures.set(ip, entry)
-    }
-
-    entry.fails++
-    entry.lastFail = now
-
-    if (entry.fails < envs.AUTH_ADMIN_MAX_FAILS) return { blocked: false, blockedUntil: entry.blockedUntil }
-
-    entry.fails = 0
-    entry.blockedUntil = now + blockMs()
-    return { blocked: true, blockedUntil: entry.blockedUntil }
+    return adminAuthLimit.register_failure(ip, now)
 }
 
 export function clearAuthFailures(ip: string) {
-    authFailures.delete(ip)
+    adminAuthLimit.clear(ip)
 }
 
 // test-only: drop all tracked IPs so cases start from a clean map
 export function _resetAuthFailures() {
-    authFailures.clear()
-}
-
-function sweepAuthFailures(now: number) {
-    for (const [ip, entry] of authFailures)
-        if (entry.blockedUntil <= now && entry.lastFail + blockMs() <= now)
-            authFailures.delete(ip)
-}
-
-function evictOldestAuthFailure() {
-    let oldestIp: string | undefined
-    let oldestFail = Infinity
-    for (const [ip, entry] of authFailures)
-        if (entry.lastFail < oldestFail) { oldestFail = entry.lastFail; oldestIp = ip }
-    if (oldestIp !== undefined) authFailures.delete(oldestIp)
+    adminAuthLimit._reset()
 }
 
 export function parseAdminQuery(value: unknown): AdminQuery {
@@ -100,6 +65,7 @@ export function buildAdminPipeline(query: AdminQuery): Document[] {
             { "issuer.ip": search },
             { "issuer.uuid": search },
             { "issuer.ua": search },
+            { "issuer.token": search },
             { id_pub: search },
             { "meta.title": search }
         ]

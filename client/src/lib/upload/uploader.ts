@@ -1,9 +1,28 @@
+export type UploadTokenInfo = {
+    label: string
+    max_files: number | null
+    max_bytes: number | null
+    uses_left: number | null
+    expires_at: string | null
+}
+
 export type UploadLimits = {
     maxsize?: number
     maxsizeperfile: number
     maxcount: number
     max_title_length: number
     max_desc_length: number
+    token?: UploadTokenInfo
+}
+
+export const UPLOAD_TOKEN_MIN_LENGTH = 8
+
+export class UploadTokenError extends Error {}
+
+function tokenBlockedMessage(retryAfter: string | null) {
+    const seconds = Number(retryAfter)
+    const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.max(1, Math.ceil(seconds / 60)) : 15
+    return `Too many wrong tokens. Try again in ~${minutes}m.`
 }
 
 export type UploadResult = {
@@ -45,11 +64,21 @@ type _XMetaFile = {
 export async function fetchUploadLimits(
     apiEndpoint: string,
     fetcher: typeof fetch = fetch,
-    forwarded: Record<string, string> = {}
+    forwarded: Record<string, string> = {},
+    token?: string
 ) {
     const response = await fetcher(`${apiEndpoint.replace(/\/$/, '')}/api/v2/maxfsize`, {
-        headers: forwarded
+        headers: token ? { ...forwarded, 'X-Upload-Token': token } : forwarded
     })
+
+    if (response.status === 429) {
+        throw new UploadTokenError(tokenBlockedMessage(response.headers.get('Retry-After')))
+    }
+
+    if (response.status === 403) {
+        const body = await response.json().catch(() => null) as { error?: string } | null
+        throw new UploadTokenError(body?.error ?? 'Token rejected')
+    }
 
     if (!response.ok) {
         throw new Error(`Request failed with ${response.status}`)
@@ -61,7 +90,8 @@ export async function fetchUploadLimits(
 export function formatFileSize(bytes: number) {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
 export async function sendUpload(
@@ -70,7 +100,8 @@ export async function sendUpload(
     title: string,
     desc: string,
     is_public = false,
-    onProgress?: UploadProgressHandler
+    onProgress?: UploadProgressHandler,
+    token?: string
 ) {
     if (files.length === 0) {
         throw new Error('Select at least one file')
@@ -87,7 +118,8 @@ export async function sendUpload(
         `${apiEndpoint.replace(/\/$/, '')}/api/v2/udstream`,
         files,
         xmeta,
-        onProgress
+        onProgress,
+        token
     )
 }
 
@@ -121,7 +153,8 @@ function uploadWithProgress(
     url: string,
     files: File[],
     xmeta: XMetaFiles,
-    onProgress?: UploadProgressHandler
+    onProgress?: UploadProgressHandler,
+    token?: string
 ) {
     return new Promise<UploadResult>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
@@ -130,6 +163,7 @@ function uploadWithProgress(
         xhr.open('POST', url)
         xhr.setRequestHeader('Content-Type', 'application/octet-stream')
         xhr.setRequestHeader('X-Meta', encodeBase64Json(xmeta))
+        if (token) xhr.setRequestHeader('X-Upload-Token', token)
 
         xhr.upload.onprogress = (event) => {
             const total = event.lengthComputable ? event.total : body.size
@@ -137,6 +171,14 @@ function uploadWithProgress(
         }
 
         xhr.onload = () => {
+            if (xhr.status === 429) {
+                reject(new UploadTokenError(tokenBlockedMessage(xhr.getResponseHeader('Retry-After'))))
+                return
+            }
+            if (xhr.status === 403) {
+                reject(new UploadTokenError(parseErrorMessage(xhr.responseText) ?? 'Token rejected'))
+                return
+            }
             if (xhr.status < 200 || xhr.status >= 300) {
                 reject(new Error(`Upload failed with ${xhr.status}`))
                 return
@@ -167,6 +209,15 @@ export async function sendLinkUpload(apiEndpoint: string, link: string): Promise
     }
 
     return await response.json() as UploadResult
+}
+
+function parseErrorMessage(text: string) {
+    try {
+        const body = JSON.parse(text) as { error?: unknown }
+        return typeof body.error === 'string' ? body.error : undefined
+    } catch {
+        return undefined
+    }
 }
 
 function createUploadProgress(files: File[], loaded: number, total: number): UploadProgress {

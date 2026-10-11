@@ -16,6 +16,8 @@ export const envs = {
     MDB_NAME:   												process.env.MDB_NAME!,
     MDB_COLLECTION_UPLOADS: 						process.env.MDB_COLLECTION_UPLOADS!,
 		MDB_COLLECTION_COMMENTS:						process.env.MDB_COLLECTION_COMMENTS!,
+    MDB_COLLECTION_TOKENS:              process.env.MDB_COLLECTION_TOKENS || "tokens",
+    MDB_COLLECTION_TOKEN_USES:          process.env.MDB_COLLECTION_TOKEN_USES || "token_uses",
     PORT:       												Number(process.env.WEBSRV_PORT!),
     MAX_FILE_SIZE:                      Number(process.env.MAX_FILE_SIZE),
     MIN_FILE_SIZE:                      Number(process.env.MIN_FILE_SIZE),
@@ -33,6 +35,8 @@ export const envs = {
     AUTH_ADMIN_KEY:                     process.env.AUTH_ADMIN_KEY,
     AUTH_ADMIN_MAX_FAILS:               Number(process.env.AUTH_ADMIN_MAX_FAILS) || 5,
     AUTH_ADMIN_BLOCK_MINUTES:           Number(process.env.AUTH_ADMIN_BLOCK_MINUTES) || 15,
+    UPLOAD_TOKEN_MAX_FAILS:             Number(process.env.UPLOAD_TOKEN_MAX_FAILS) || 20,
+    UPLOAD_TOKEN_BLOCK_MINUTES:         Number(process.env.UPLOAD_TOKEN_BLOCK_MINUTES) || 15,
 
 }
 

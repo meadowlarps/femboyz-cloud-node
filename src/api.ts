@@ -1,6 +1,6 @@
 import { ERROR_LOG_PATH, errorFileLogger, scope }       from "./logger.js"
 import { shutdownUnexpectedly }                         from "./utils.js"
-import { XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance } from "./schema.js"
+import { XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance, type UploadTokenDB } from "./schema.js"
 import { receiveUploadReturnID,
     receiveLinkReturnID,
     getUploadByID,
@@ -8,7 +8,7 @@ import { receiveUploadReturnID,
     deleteUploadByID,
     incrementFileDownload,
     incrementUploadView }                              from "./uploads.js"
-import { createFileReadStream, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
+import { createFileReadStream, getStorageFree, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
 import { parseUploadStream }                            from "./stream.js"
 import { adminAuthStatus,
     authBlockRemainingMs,
@@ -18,6 +18,23 @@ import { adminAuthStatus,
 import { buildErrorLogPage, parseErrorLogQuery, readErrorLogTail } from "./errorlog.js"
 import { feed_get_all_uploads, feed_query_parse }        from "./feed.js"
 import { createComment, getCommentByID, getCommentsByUploadID, updateCommentReaction } from "./comments.js"
+import { token_create,
+    token_delete,
+    token_find,
+    token_header_get,
+    token_is_usable,
+    token_issuer_get,
+    token_limits_effective,
+    token_limits_info,
+    token_list,
+    token_release,
+    token_reserve,
+    token_authlimit,
+    token_guess_register,
+    token_update,
+    token_use_log,
+    token_uses_list,
+    upload_limits_check }                               from "./tokens.js"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
@@ -34,6 +51,7 @@ import cors from "@fastify/cors"
 declare module "fastify" {
     interface FastifyRequest {
         xmeta?: XMetaFiles
+        upload_token?: UploadTokenDB
     }
 }
 
@@ -49,7 +67,7 @@ export async function startServer() {
 
     await server.register(cors, {
         origin: envs.CORS_ORIGIN === "*" ? true : (envs.CORS_ORIGIN ?? false),
-        methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
+        methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     })
 
     server.setErrorHandler(errorHandler)
@@ -64,6 +82,11 @@ export async function startServer() {
     server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
     server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
     server.get("/api/v2/admin/logs", { preHandler: adminAuthHandler }, adminLogsHandler)
+    server.get("/api/v2/admin/tokens", { preHandler: adminAuthHandler }, admin_tokens_list_handle)
+    server.post("/api/v2/admin/tokens", { preHandler: adminAuthHandler }, admin_tokens_create_handle)
+    server.patch("/api/v2/admin/tokens/:id", { preHandler: adminAuthHandler }, admin_tokens_update_handle)
+    server.delete("/api/v2/admin/tokens/:id", { preHandler: adminAuthHandler }, admin_tokens_delete_handle)
+    server.get("/api/v2/admin/tokens/:id/uses", { preHandler: adminAuthHandler }, admin_tokens_uses_handle)
     server.post("/api/v2/uploads/:uploadId/comments", createCommentHandler)
     server.get("/api/v2/uploads/:uploadId/comments", getUploadCommentsHandler)
     server.put("/api/v2/comments/:commentId/reactions", updateCommentReactionHandler)
@@ -218,6 +241,35 @@ async function adminLogsHandler(request: FastifyRequest, reply: FastifyReply) {
     reply.send(buildErrorLogPage(query, tail))
 }
 
+async function admin_tokens_list_handle(request: FastifyRequest, reply: FastifyReply) {
+    reply.send(await token_list())
+}
+
+async function admin_tokens_create_handle(request: FastifyRequest, reply: FastifyReply) {
+    const result = await token_create(request.body)
+    // sent directly: errorHandler would flatten 409 into a generic "Bad request"
+    if (!result.ok) return reply.status(409).send({ error: "Token value already exists" })
+    reply.status(201).send(result.token)
+}
+
+async function admin_tokens_update_handle(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string }
+    const token = await token_update(id, request.body)
+    if (!token) throw Object.assign(new Error("Token not found"), { statusCode: 404 })
+    reply.send(token)
+}
+
+async function admin_tokens_delete_handle(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string }
+    if (!await token_delete(id)) throw Object.assign(new Error("Token not found"), { statusCode: 404 })
+    reply.send({ deleted: true, id })
+}
+
+async function admin_tokens_uses_handle(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = request.params as { id: string }
+    reply.send(await token_uses_list(id, request.query))
+}
+
 async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
     const { id, fid } = request.params as { id: string; fid?: string }
 
@@ -339,26 +391,79 @@ async function ulinkHandler(request: FastifyRequest, reply: FastifyReply) {
 
 async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
     const xmeta = request.xmeta!
-    const { files_buffers, total_bytes } = await parseUploadStream(request.body as AsyncIterable<unknown>, xmeta)
-    const upl: { id: string, type: string } = await receiveUploadReturnID(request, xmeta, files_buffers)
+    const token = request.upload_token
+    const declared_bytes = xmeta.files.reduce((sum, file) => sum + file.bytes, 0)
+    let upl: { id: string, type: string }
+    let total_bytes: number
+    try {
+        const parsed = await parseUploadStream(request.body as AsyncIterable<unknown>, xmeta)
+        total_bytes = parsed.total_bytes
+        upl = await receiveUploadReturnID(request, xmeta, parsed.files_buffers, token?.id_token)
+    } catch (err) {
+        if (token) {
+            // the use was reserved in preHandler — give it back, the upload never landed
+            await token_release(token.id_token)
+            await token_use_log({
+                id_token: token.id_token, outcome: "failed", reason: err instanceof Error ? err.message : String(err),
+                files: xmeta.files.length, bytes: declared_bytes, issuer: token_issuer_get(request)
+            })
+        }
+        throw err
+    }
+    if (token)
+        await token_use_log({
+            id_token: token.id_token, outcome: "ok", id_upload_pub: upl.id,
+            files: xmeta.files.length, bytes: total_bytes, issuer: token_issuer_get(request)
+        })
     scopelog.info(
         `Received upload: '${xmeta.meta.title}' (${xmeta.files.length} files ` 
-        + `total ${filesize(total_bytes)}) from ${request.ip}`)
+        + `total ${filesize(total_bytes)}) from ${request.ip}${token ? ` with token ${token.id_token}` : ""}`)
     reply.status(200).send(upl)
 }
 
 async function askMaxFileUploadSizeHandler(request: FastifyRequest, reply: FastifyReply) {
-    const maxAcceptableSize = Math.min(
-        envs.MAX_FILE_SIZE * envs.MAX_FILE_COUNT_PER_UPLOAD, 
-        envs.STORAGE_LIMIT_BYTES - getStorageUsage()
-    )
+    const supplied = token_header_get(request)
+    let token: UploadTokenDB | null = null
+    if (supplied !== undefined) {
+        const blocked = token_reply_blocked(request, reply)
+        if (blocked) return blocked
+        token = await token_find(supplied)
+        const reason = token ? token_is_usable(token) : "unknown"
+        if (reason) {
+            token_guess_register(token_issuer_get(request), reason)
+            await token_use_log({
+                id_token: token?.id_token ?? "unknown", outcome: "rejected", reason: `prerequest: ${reason}`,
+                files: 0, bytes: 0, issuer: token_issuer_get(request)
+            })
+            return token_reply_rejected(reply, reason)
+        }
+    }
+
+    const limits = token_limits_effective(token, getStorageFree())
     reply.status(200).send({ 
-        maxsize: maxAcceptableSize, 
-        maxsizeperfile: envs.MAX_FILE_SIZE,
-        maxcount: envs.MAX_FILE_COUNT_PER_UPLOAD,
+        maxsize: limits.max_bytes_total, 
+        maxsizeperfile: limits.max_bytes_per_file,
+        maxcount: limits.max_files,
         max_title_length: envs.MAX_TITLE_LENGTH_PER_UPLOAD,
-        max_desc_length: envs.MAX_DESC_LENGTH_PER_UPLOAD
+        max_desc_length: envs.MAX_DESC_LENGTH_PER_UPLOAD,
+        ...(token ? { token: token_limits_info(token) } : {})
     })
+}
+
+// Checked before any token lookup, so a blocked IP learns nothing more about which tokens exist.
+function token_reply_blocked(request: FastifyRequest, reply: FastifyReply) {
+    const blocked_ms = token_authlimit.block_remaining_ms(request.ip)
+    if (blocked_ms <= 0) return null
+    return reply
+        .status(429)
+        .header("Retry-After", String(Math.ceil(blocked_ms / 1000)))
+        .header("Cache-Control", "no-store")
+        .send({ error: "Too many wrong tokens" })
+}
+
+// Token rejections skip errorHandler on purpose: the client needs the reason, and token_use_log already wrote it down.
+function token_reply_rejected(reply: FastifyReply, reason: string) {
+    return reply.status(403).header("Cache-Control", "no-store").send({ error: `Token ${reason}` })
 }
 
 // ---- UPLOAD PAGE ----
@@ -466,8 +571,38 @@ const udstreamVal: RouteShorthandOptions = {
         if (!result.success)
             throw Object.assign(
                 new Error(`Invalid x-meta header, validation failed: ${JSON.stringify(result.error.issues)}`), {statusCode: 400})
-        
-        request.xmeta = result.data
+        const xmeta = result.data
+        const declared_bytes = xmeta.files.reduce((sum, file) => sum + file.bytes, 0)
+
+        const supplied = token_header_get(request)
+        if (supplied !== undefined) {
+            const blocked = token_reply_blocked(request, reply)
+            if (blocked) return blocked
+            const reserved = await token_reserve(supplied)
+            if (!reserved.ok) {
+                token_guess_register(token_issuer_get(request), reserved.reason)
+                await token_use_log({
+                    id_token: reserved.id_token, outcome: "rejected", reason: reserved.reason,
+                    files: xmeta.files.length, bytes: declared_bytes, issuer: token_issuer_get(request)
+                })
+                return token_reply_rejected(reply, reserved.reason)
+            }
+            request.upload_token = reserved.token
+        }
+
+        const violation = upload_limits_check(xmeta.files, token_limits_effective(request.upload_token ?? null, getStorageFree()))
+        if (violation) {
+            if (request.upload_token) {
+                await token_release(request.upload_token.id_token)
+                await token_use_log({
+                    id_token: request.upload_token.id_token, outcome: "rejected", reason: violation,
+                    files: xmeta.files.length, bytes: declared_bytes, issuer: token_issuer_get(request)
+                })
+            }
+            throw Object.assign(new Error(`Upload limits exceeded: ${violation}`), { statusCode: 400 })
+        }
+
+        request.xmeta = xmeta
     }
 }
 

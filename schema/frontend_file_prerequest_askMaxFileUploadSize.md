@@ -9,6 +9,7 @@ Canonical protocol specification for fetching dynamic upload limits and validati
 | **Method** | `GET` |
 | **Path** | `/api/v2/maxfsize` |
 | **Authentication** | None |
+| **Optional Header** | `X-Upload-Token` — return the limits of that token instead of the defaults |
 | **Request Body** | None |
 | **Content-Type** | `application/json` |
 
@@ -36,6 +37,19 @@ $$\text{maxsize} = \min(\text{MAX\_FILE\_SIZE} \times \text{MAX\_FILE\_COUNT\_PE
 }
 ```
 
+With a valid `X-Upload-Token`, the numeric fields are the token's effective limits (unlimited = capped by free storage, and by 100 files), and a `token` object is added:
+
+```json
+{
+  "maxsize": 10737418240,
+  "maxsizeperfile": 10737418240,
+  "maxcount": 100,
+  "max_title_length": 255,
+  "max_desc_length": 1024,
+  "token": { "label": "friend", "max_files": null, "max_bytes": 10737418240, "uses_left": 2, "expires_at": null }
+}
+```
+
 ## Response Fields
 
 | Field | Type | Unit / Range | Server Source Env | Description |
@@ -45,11 +59,12 @@ $$\text{maxsize} = \min(\text{MAX\_FILE\_SIZE} \times \text{MAX\_FILE\_COUNT\_PE
 | `maxcount` | `number` | Integer | `MAX_FILE_COUNT_PER_UPLOAD` | Maximum number of files permitted in a single upload (default: 6). |
 | `max_title_length` | `number` | Characters | `MAX_TITLE_LENGTH_PER_UPLOAD` | Maximum character length for upload title (default: 255). |
 | `max_desc_length` | `number` | Characters | `MAX_DESC_LENGTH_PER_UPLOAD` | Maximum character length for upload description (default: 1024). |
+| `token` | `object?` | — | Token | Only with a valid token. Raw nullable limits (`null` = unlimited) used for display. |
 
 ## Error Responses
 
-This endpoint takes no parameters and has no authentication requirements. Errors indicate server-side configuration issues:
 
 | Status | Error Response Body | Description |
 | :--- | :--- | :--- |
+| `403 Forbidden` | `{"error": "Token unknown"}` (`revoked` / `expired` / `exhausted`) | The supplied `X-Upload-Token` can't be used. Logged to `token_uses`. |
 | `500 Internal Server Error` | `{"error": "Internal server error"}` | Unexpected server failure. |

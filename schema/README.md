@@ -12,6 +12,8 @@ Specifications for frontend API protocols, binary streaming interfaces, and inte
 | **[frontend_link_upload.md](./frontend_link_upload.md)** | Link Upload | `POST /api/v2/ulink` | URL redirect creation with ping verification. |
 | **[frontend_upload_receiveByID.md](./frontend_upload_receiveByID.md)** | Content Delivery | `GET /:id`, `GET /:id/:fid` | Landing page rendering, text unfurling, JSON metadata, and byte-range binary streaming. |
 | **[frontend_upload_viewed.md](./frontend_upload_viewed.md)** | Upload Views | `POST /api/v2/viewed/:id` | Atomic interactive view counting with in-memory public feed refresh. |
+| **[frontend_upload_token.md](./frontend_upload_token.md)** | Upload Tokens | `X-Upload-Token`, `/api/v2/admin/tokens` | Admin-issued tokens with custom per-upload limits, single-use-per-entry flow, and audit log. |
+| **[mongo_token.md](./mongo_token.md)** | Database Schema | MongoDB `tokens`, `token_uses` | Token documents and usage audit entries. |
 | **[mongo_upload.md](./mongo_upload.md)** | Database Schema | MongoDB `uploads` | Discriminated union document model, indexing, and MIME classification rules. |
 
 ---

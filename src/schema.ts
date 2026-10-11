@@ -1,7 +1,6 @@
 import * as z from "zod"
 import { envs } from "./config.js"
 
-const maxFiles     = envs.MAX_FILE_COUNT_PER_UPLOAD     || 6
 const minFileSize  = envs.MIN_FILE_SIZE                 || 0
 const maxTitle     = envs.MAX_TITLE_LENGTH_PER_UPLOAD   || 255
 const maxDesc      = envs.MAX_DESC_LENGTH_PER_UPLOAD    || 1024
@@ -35,7 +34,7 @@ export const XMetaFilesSchema = z.object({
         filename: z.string().max(255).nonempty(),
         sha256: z.string().length(64),
         bytes: z.number().int().nonnegative().min(minFileSize)
-    })).min(1).max(maxFiles)
+    })).min(1)                                                  // count is checked against effective (token) limits in api preHandler
 })
 
 export type XMetaFiles = z.infer<typeof XMetaFilesSchema>
@@ -50,7 +49,7 @@ const storageDBUploadInstanceSchemaCommon = z.object({
         views: z.number().int().nonnegative(), 
         up: z.number().int().nonnegative(), 
         down: z.number().int().nonnegative() }),
-    issuer: z.object({ ip: z.string(), ua: z.string(), uuid: z.string() }),
+    issuer: z.object({ ip: z.string(), ua: z.string(), uuid: z.string(), token: z.string().optional() }),
     when: z.iso.datetime()
 })
 
@@ -107,6 +106,52 @@ export const CommentPublicSchema = z.object({
     })
 })
 
+// schema/mongo_token.md
+export const UPLOAD_TOKEN_REGEX = /^[A-Za-z0-9_-]{8,64}$/          // header-safe; generated tokens are 32-char base64url
+
+export const UploadTokenLimitsSchema = z.object({
+    max_files: z.int().positive().nullable(),                   // null = unlimited
+    max_bytes: z.int().positive().nullable()                    // total bytes per upload, null = unlimited
+})
+
+export const UploadTokenSchemaDB = z.object({
+    id_token:   z.string(),
+    token:      z.string().regex(UPLOAD_TOKEN_REGEX),
+    label:      z.string().max(100),
+    limits:     UploadTokenLimitsSchema,
+    uses_max:   z.int().positive().nullable(),                  // null = unlimited
+    uses_count: z.int().nonnegative(),
+    expires_at: z.iso.datetime().nullable(),
+    revoked:    z.boolean(),
+    when:       z.iso.datetime()
+})
+
+export const UploadTokenCreateSchema = z.object({
+    token:      z.string().trim().regex(UPLOAD_TOKEN_REGEX).optional(),       // custom value, random when omitted
+    label:      z.string().trim().max(100).default(""),
+    limits:     UploadTokenLimitsSchema,
+    uses_max:   z.int().positive().nullable().default(null),
+    expires_at: z.iso.datetime().nullable().default(null)
+})
+
+export const UploadTokenUpdateSchema = z.object({
+    label:      z.string().trim().max(100),
+    limits:     UploadTokenLimitsSchema,
+    uses_max:   z.int().positive().nullable(),
+    expires_at: z.iso.datetime().nullable(),
+    revoked:    z.boolean()
+}).partial()
+
+export const TokenUseSchemaDB = z.object({
+    id_token:       z.string(),
+    outcome:        z.enum(["ok", "failed", "rejected"]),
+    reason:         z.string().optional(),
+    id_upload_pub:  z.string().optional(),
+    files:          z.int().nonnegative(),
+    bytes:          z.int().nonnegative(),
+    issuer:         z.object({ ip: z.string(), ua: z.string(), uuid: z.string() }),
+    when:           z.iso.datetime()
+})
 
 export type StorageDBUploadInstance = z.infer<typeof StorageDBUploadInstanceSchema>
 export type CommentInstanceDB = z.infer<typeof CommentInstanceSchemaDB>
@@ -114,3 +159,8 @@ export type CommentCreate = z.infer<typeof CommentCreateSchema>
 export type CommentPublic = z.infer<typeof CommentPublicSchema>
 export type CommentReactionState = z.infer<typeof CommentReactionStateSchema>
 export type CommentReactionUpdate = z.infer<typeof CommentReactionUpdateSchema>
+export type UploadTokenLimits = z.infer<typeof UploadTokenLimitsSchema>
+export type UploadTokenDB = z.infer<typeof UploadTokenSchemaDB>
+export type UploadTokenCreate = z.infer<typeof UploadTokenCreateSchema>
+export type UploadTokenUpdate = z.infer<typeof UploadTokenUpdateSchema>
+export type TokenUseDB = z.infer<typeof TokenUseSchemaDB>

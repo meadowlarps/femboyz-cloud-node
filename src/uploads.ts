@@ -204,11 +204,11 @@ export async function receiveLinkReturnID(request: FastifyRequest): Promise<stri
     return id_pub
 }
 
-export async function receiveUploadReturnID(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[]): Promise<{ id: string, type: string}> {
-    return withStorageMutationLock(() => receiveUploadUnlocked(request, _meta, _files))
+export async function receiveUploadReturnID(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[], id_token?: string): Promise<{ id: string, type: string}> {
+    return withStorageMutationLock(() => receiveUploadUnlocked(request, _meta, _files, id_token))
 }
 
-async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[]): Promise<{ id: string, type: string}> {
+async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[], id_token?: string): Promise<{ id: string, type: string}> {
     // DONE: check STORAGE_LIMIT_BYTES before writing -> done in API route handler to reject immediately on limit exceed
     // DONE: write each buffer to STORAGE_DIR/<sha256>
     // DONE: save document to MongoDB
@@ -225,7 +225,8 @@ async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles,
         issuer: {
             ip:     request.ip,
             ua:     request.headers["user-agent"] as string ?? "unknown",
-            uuid:   request.headers["x-client-uuid"] as string ?? "not-implemented"
+            uuid:   request.headers["x-client-uuid"] as string ?? "not-implemented",
+            ...(id_token === undefined ? {} : { token: id_token })
         },
         when: new Date().toISOString(),
         type: "files",

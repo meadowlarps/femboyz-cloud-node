@@ -33,6 +33,8 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | `src/database.ts` | MongoDB connect/disconnect,`getDB()`                                                    |
 | `src/storage.ts`  | Filesystem storage: write/read/delete files, usage tracking                             |
 | `src/feed.ts`     | Newest-first in-memory public feed, range validation, startup load, add/delete/update sync |
+| `src/authlimit.ts` | Per-IP failure counter + temporary block factory (admin login, upload tokens)  |
+| `src/tokens.ts`   | Upload tokens: effective limits, atomic use reservation/release, usage audit log, admin CRUD |
 | `src/uploads.ts`  | Business logic: receive file streams, receive links, ID generation, view/download counters, MIME classification |
 | `src/schema.ts`   | Zod schemas:`XMetaFilesSchema`, `StorageDBUploadInstanceSchema`                         |
 | `src/logger.ts`   | Pino logger,`scope(name)` factory, `errorFileLogger` → `./logs/errors.log`             |
@@ -49,9 +51,12 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | GET    | `/api/v2/admin/uploads` | `adminUploadsHandler`     | Authorized paginated/searchable upload inventory                 |
 | DELETE | `/api/v2/admin/uploads/:id` | `adminDeleteUploadHandler` | Authorized permanent upload deletion                          |
 | GET    | `/api/v2/admin/logs` | `adminLogsHandler`    | Authorized error log viewer and filtering                       |
+| GET/POST | `/api/v2/admin/tokens` | `admin_tokens_list_handle` / `admin_tokens_create_handle` | Authorized upload token list / create |
+| PATCH/DELETE | `/api/v2/admin/tokens/:id` | `admin_tokens_update_handle` / `admin_tokens_delete_handle` | Authorized token edit/revoke / delete |
+| GET    | `/api/v2/admin/tokens/:id/uses` | `admin_tokens_uses_handle` | Authorized token usage audit log                          |
 | GET    | `/:id`             | `getUploadHandler`            | Fetch upload by ID — link→302, files→HTML/JSON/text by Accept |
 | GET    | `/:id/:fid`        | `getUploadHandler`            | Serve raw file by index (Content-Type + Content-Disposition)     |
-| GET    | `/api/v2/maxfsize` | `askMaxFileUploadSizeHandler` | Max acceptable upload size given current storage                 |
+| GET    | `/api/v2/maxfsize` | `askMaxFileUploadSizeHandler` | Upload limits given current storage (or of the `X-Upload-Token`) |
 | POST   | `/api/v2/ulink`    | `ulinkHandler`                | Receive link upload (JSON body)                                  |
 | POST   | `/api/v2/udstream` | `udstreamHandler`             | Receive file stream upload                                       |
 | POST   | `/api/v2/viewed/:id` | `viewedUploadHandler` | Record an interactive view and refresh the in-memory public feed |
@@ -97,6 +102,10 @@ X-Meta schema (before base64):
 
 Server splits stream using `bytes` fields, verifies each chunk with SHA-256.
 
+### Upload tokens — `X-Upload-Token`
+
+Admin-issued tokens (created in `/admin` → Tokens) replace the default count/size limits for one upload. The user holds **Upload!** to open the token field. `GET /api/v2/maxfsize` with the header returns the token's limits, and `POST /api/v2/udstream` with it spends one use atomically (given back if the upload fails). Every use and rejection is logged to `token_uses`. Too many unknown tokens from one IP → `429` block. Full protocol: `schema/frontend_upload_token.md`.
+
 ### Link upload — `POST /api/v2/ulink`
 
 ```json
@@ -138,6 +147,8 @@ All images or video → `"album"`, all audio → `"playlist"`, mixed or other �
 | ----------------------------------- | ------------------------------------------------------------------------------ |
 | `MDB_URI` / `MDB_PORT` / `MDB_NAME` | MongoDB connection                                                             |
 | `MDB_COLLECTION_UPLOADS`            | Collection name                                                                |
+| `MDB_COLLECTION_TOKENS`             | Upload token collection (default `tokens`)                                     |
+| `MDB_COLLECTION_TOKEN_USES`         | Token usage audit collection (default `token_uses`)                            |
 | `WEBSRV_PORT`                       | HTTP port                                                                      |
 | `MAX_FILE_SIZE`                     | Max bytes per single file                                                      |
 | `MIN_FILE_SIZE`                     | Min bytes per file                                                             |
@@ -153,6 +164,8 @@ All images or video → `"album"`, all audio → `"playlist"`, mixed or other �
 | `AUTH_ADMIN_KEY`                    | Bearer key required by `/api/v2/admin/*`                                        |
 | `AUTH_ADMIN_MAX_FAILS`              | Failed admin auth attempts per IP before a block (default 5)                    |
 | `AUTH_ADMIN_BLOCK_MINUTES`          | Block duration, also the failure-counter window (default 15)                    |
+| `UPLOAD_TOKEN_MAX_FAILS`            | Unknown upload tokens per IP before a block (default 20)                        |
+| `UPLOAD_TOKEN_BLOCK_MINUTES`        | Upload token block duration and failure window (default 15)                     |
 
 ## Dependencies
 
@@ -200,7 +213,7 @@ npm test             # vitest (browser via Playwright)
 | Path                           | Role                                                                   |
 | ------------------------------ | ---------------------------------------------------------------------- |
 | `src/routes/+page.svelte`      | Home page (`/`) — upload UI                                           |
-| `src/routes/admin/+page.svelte`| Private admin upload inventory (`/admin`)                              |
+| `src/routes/admin/+page.svelte`| Private admin upload inventory (`/admin`), tabs: uploads / tokens / logs |
 | `src/routes/+layout.svelte`    | Global layout: favicon, nav                                            |
 | `src/routes/+layout.server.ts` | Server`load` — returns data available to all layouts/pages            |
 | `src/hooks.ts`                 | Client hooks —`reroute` (URL rewriting before navigation)             |

@@ -3,6 +3,7 @@
     import { spawnAlert } from '$lib/alerts'
     import { formatFileSize } from '$lib/upload/uploader'
     import LogsView from './LogsView.svelte'
+    import TokensView from './TokensView.svelte'
 
     type AdminFile = {
         index: number
@@ -19,7 +20,7 @@
         public: boolean
         status: 'processing' | 'ready' | 'error' | 'removed'
         meta: { title: string; desc: string }
-        issuer: { ip: string; ua: string; uuid: string }
+        issuer: { ip: string; ua: string; uuid: string; token?: string }
         when: string
         stats: { views: number; up: number; down: number }
         fileCount: number
@@ -60,7 +61,7 @@
 
     let adminKey = $state('')
     let authenticated = $state(false)
-    let tab = $state<'uploads' | 'logs'>('uploads')
+    let tab = $state<'uploads' | 'logs' | 'tokens'>('uploads')
     let signingIn = $state(false)
     let data = $state<AdminResponse | null>(null)
     let loading = $state(false)
@@ -236,11 +237,14 @@
 
         <div class="mode-switcher">
             <button class="mode-tab" class:active={tab === 'uploads'} type="button" onclick={() => (tab = 'uploads')}>Uploads</button>
+            <button class="mode-tab" class:active={tab === 'tokens'} type="button" onclick={() => (tab = 'tokens')}>Tokens</button>
             <button class="mode-tab" class:active={tab === 'logs'} type="button" onclick={() => (tab = 'logs')}>Error logs</button>
         </div>
 
         {#if tab === 'logs'}
             <LogsView {adminFetch} />
+        {:else if tab === 'tokens'}
+            <TokensView {adminFetch} />
         {:else}
             {#if data}
                 <section class="summary" aria-label="Storage overview">
@@ -328,6 +332,7 @@
                                 <div><dt>Activity</dt><dd>{upload.stats.views} views · {fileDownloads(upload)} file downloads</dd></div>
                                 <div><dt>IP</dt><dd>{upload.issuer.ip}</dd></div>
                                 <div><dt>UUID</dt><dd>{upload.issuer.uuid}</dd></div>
+                                {#if upload.issuer.token}<div><dt>Token</dt><dd>{upload.issuer.token}</dd></div>{/if}
                                 <div class="wide"><dt>User agent</dt><dd>{upload.issuer.ua}</dd></div>
                             </dl>
 

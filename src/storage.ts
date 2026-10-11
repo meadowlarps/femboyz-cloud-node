@@ -82,6 +82,10 @@ export function getStorageLimit(): number {
     return storageLimit
 }
 
+export function getStorageFree(): number {
+    return Math.max(0, storageLimit - storageUsage)
+}
+
 export function isThereEnoughStorageFor(bytes: number): boolean {
     return storageUsage + bytes <= storageLimit
 }
