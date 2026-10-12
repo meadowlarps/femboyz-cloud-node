@@ -1,6 +1,8 @@
 import type { UploadData } from './downloader.js'
 
 export function buildMiniUploadTypeLabel(upload: Pick<UploadData, 'type' | 'files'>): string {
+    if (upload.type === 'note') return 'NOTE'
+
     if (upload.files.length > 1) {
         return upload.type === 'album' ? 'ALBUM' : upload.type === 'playlist' ? 'PLAYLIST' : 'FILES'
     }

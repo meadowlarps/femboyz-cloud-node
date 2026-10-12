@@ -1,8 +1,10 @@
 import { ERROR_LOG_PATH, errorFileLogger, scope }       from "./logger.js"
 import { shutdownUnexpectedly }                         from "./utils.js"
-import { XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance, type UploadTokenDB } from "./schema.js"
+import { NoteUploadSchema, XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance, type UploadTokenDB } from "./schema.js"
 import { receiveUploadReturnID,
     receiveLinkReturnID,
+    receiveNoteReturnID,
+    notePreview,
     getUploadByID,
     getUploadsByIDs,
     parseUploadIDsQuery,
@@ -101,6 +103,7 @@ export async function startServer() {
     server.get("/:id/:fid", getUploadHandler)                       // Serve: Route to specific file of :id upload
     server.get("/api/v2/maxfsize", askMaxFileUploadSizeHandler)     // Serve: Route to check how large file the server can accept
     server.post("/api/v2/ulink", ulinkVal, ulinkHandler)            // Receive: Route to handle receiving a new upload link
+    server.post("/api/v2/unote", unoteVal, unoteHandler)            // Receive: Route to handle receiving a new text note
     server.post("/api/v2/udstream", udstreamVal, udstreamHandler)   // Receive: Route to handle receiving a new upload file stream
 
     try {
@@ -141,6 +144,8 @@ export async function feed_handle(request: FastifyRequest, reply: FastifyReply) 
 
         if (upload.type === "link")
             return { ...common, files: [], link: upload.link.redir }
+        if (upload.type === "note")
+            return { ...common, files: [], note_preview: notePreview(upload.note.text), note_length: upload.note.text.length }
 
         return {
             ...common,
@@ -164,8 +169,11 @@ export async function feed_handle(request: FastifyRequest, reply: FastifyReply) 
     })
 }
 
-/** Public JSON descriptor of an upload, as returned by `GET /:id` with `Accept: application/json`. */
-function uploadToJSON(upload: StorageDBUploadInstance, baseUrl: string) {
+/**
+ * Public JSON descriptor of an upload, as returned by `GET /:id` with `Accept: application/json`.
+ * Notes carry their full text only when `fullNote` is set; lists get the preview alone.
+ */
+function uploadToJSON(upload: StorageDBUploadInstance, baseUrl: string, fullNote = false) {
     const common = {
         id: upload.id_pub,
         type: upload.type,
@@ -177,6 +185,14 @@ function uploadToJSON(upload: StorageDBUploadInstance, baseUrl: string) {
 
     if (upload.type === "link")
         return { ...common, files: [], link: upload.link.redir }
+    if (upload.type === "note")
+        return {
+            ...common,
+            files: [],
+            note_preview: notePreview(upload.note.text),
+            note_length: upload.note.text.length,
+            ...(fullNote ? { note: upload.note.text } : {})
+        }
 
     return {
         ...common,
@@ -324,7 +340,7 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
     if (!upload) throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
 
     if (fid !== undefined) {
-        if (upload.type === "link") throw Object.assign(new Error("Not found"), { statusCode: 404 })
+        if (upload.type === "link" || upload.type === "note") throw Object.assign(new Error("Not found"), { statusCode: 404 })
         const fidNum = parseInt(fid, 10)
         if (isNaN(fidNum) || fidNum < 0) throw Object.assign(new Error("Invalid file index"), { statusCode: 400 })
         const file = upload.files[fidNum]
@@ -376,10 +392,16 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
     const accept = request.headers.accept ?? ""
 
     if (accept.includes("application/json"))
-        return reply.send(uploadToJSON(upload, baseUrl))
+        return reply.send(uploadToJSON(upload, baseUrl, true))
 
     if (upload.type === "link")
         return reply.redirect(upload.link.redir)
+
+    if (upload.type === "note") {
+        if (accept.includes("text/plain") && !accept.includes("text/html"))
+            return reply.type("text/plain; charset=utf-8").send(upload.note.text)
+        return reply.type("text/html").send(buildNotePage(upload, id, baseUrl, siteName))
+    }
 
     if (accept.includes("text/plain") && !accept.includes("text/html")) {
         const title = upload.meta.title || id
@@ -406,6 +428,15 @@ async function ulinkHandler(request: FastifyRequest, reply: FastifyReply) {
     const id = await receiveLinkReturnID(request)
 
     reply.send({ message: "Ulink successful", id: id })
+}
+
+async function unoteHandler(request: FastifyRequest, reply: FastifyReply) {
+    const result = NoteUploadSchema.safeParse(request.body)
+    if (!result.success)
+        throw Object.assign(new Error(`Invalid note: ${JSON.stringify(result.error.issues)}`), { statusCode: 400 })
+    const id = await receiveNoteReturnID(request, result.data)
+
+    reply.send({ message: "Unote successful", id: id })
 }
 
 async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -471,6 +502,7 @@ async function askMaxFileUploadSizeHandler(request: FastifyRequest, reply: Fasti
         maxcount: limits.max_files,
         max_title_length: envs.MAX_TITLE_LENGTH_PER_UPLOAD,
         max_desc_length: envs.MAX_DESC_LENGTH_PER_UPLOAD,
+        max_note_length: envs.MAX_NOTE_LENGTH,
         ...(token ? { token: token_limits_info(token) } : {})
     })
 }
@@ -545,6 +577,30 @@ ${items}
 </html>`
 }
 
+type NoteUploadDB = Extract<StorageDBUploadInstance, { type: "note" }>
+
+function buildNotePage(upload: NoteUploadDB, id: string, baseUrl: string, siteName: string): string {
+    const title = upload.meta.title || id
+    const excerpt = notePreview(upload.note.text).replace(/\s+/g, " ").trim()
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:url" content="${baseUrl}/${id}">
+  <meta property="og:type" content="article">
+  <meta property="og:description" content="${escapeHtml(excerpt || `Note via ${siteName}`)}">
+  <title>${escapeHtml(title)}</title>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <pre style="white-space: pre-wrap">${escapeHtml(upload.note.text)}</pre>
+</body>
+</html>`
+}
+
 function escapeHtml(str: string): string {
     return str
         .replace(/&/g, "&amp;")
@@ -563,6 +619,21 @@ const ulinkVal: RouteShorthandOptions = {
             properties: {
                 type: { type: "string", const: "link" },
                 link: { type: "string", format: "uri", pattern: "^(https?://|www\\.)" }
+            }
+        }
+    }
+}
+
+const unoteVal: RouteShorthandOptions = {
+    // 100k chars can reach ~600 KB of JSON once escaped; content is validated by NoteUploadSchema in the handler
+    bodyLimit: 2 * 1024 * 1024,
+    schema: {
+        body: {
+            type: "object",
+            required: ["type", "text"],
+            properties: {
+                type: { type: "string", const: "note" },
+                text: { type: "string" }
             }
         }
     }

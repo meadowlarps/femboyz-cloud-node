@@ -8,11 +8,13 @@
         type UploadProgress,
         type UploadTokenInfo,
         UPLOAD_TOKEN_MIN_LENGTH,
+        NOTE_MAX_LENGTH_DEFAULT,
         UploadTokenError,
         fetchUploadLimits,
         formatFileSize,
         sendUpload,
-        sendLinkUpload
+        sendLinkUpload,
+        sendNoteUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
     import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedItem, type FeedResponse } from '$lib/upload/feed'
@@ -41,11 +43,15 @@
 
     let { data }: { data: PageData } = $props()
 
-    let mode = $state<'files' | 'link'>('files')
+    const MODES = ['files', 'link', 'note'] as const
+    type Mode = typeof MODES[number]
+
+    let mode = $state<Mode>('files')
     let title = $state('')
     let description = $state('')
     let files = $state<File[]>([])
     let linkUrl = $state('')
+    let noteText = $state('')
     let uploadLimits = $derived(data.uploadLimits as UploadLimits | null)
     let limitsError = $derived(data.limitsError)
     let fileErrors = $state<string[]>([])
@@ -68,9 +74,12 @@
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
     let hideProgressTimer: ReturnType<typeof setTimeout> | undefined
+    let noteMaxLength = $derived(uploadLimits?.max_note_length ?? NOTE_MAX_LENGTH_DEFAULT)
     let uploadDisabled = $derived(mode === 'files'
         ? (files.length === 0 || isUploading || tokenPending)
-        : (linkUrl.trim() === '' || isUploading))
+        : mode === 'note'
+            ? (noteText.trim() === '' || noteText.length > noteMaxLength || isUploading)
+            : (linkUrl.trim() === '' || isUploading))
     let uploadHistory = $state<string[]>([])
     let visibleCount = $state(16)
     let visibleUploads = $derived(uploadHistory.slice(0, visibleCount))
@@ -222,7 +231,7 @@
             return
         }
         if (uploadDisabled) return
-        void (mode === 'files' ? uploadFiles() : uploadLink())
+        void (mode === 'files' ? uploadFiles() : mode === 'note' ? uploadNote() : uploadLink())
     }
 
     function processFiles(selectedFiles: File[]) {
@@ -359,7 +368,7 @@
         }
     }
 
-    function switchMode(next: 'files' | 'link') {
+    function switchMode(next: Mode) {
         mode = next
         uploadError = ''
         uploadResultId = ''
@@ -389,6 +398,26 @@
         }
     }
 
+    async function uploadNote() {
+        uploadError = ''
+        uploadResultId = ''
+
+        try {
+            isUploading = true
+            const result = await sendNoteUpload(apiEndpoint, noteText, title.trim(), isPublic)
+            uploadResultId = result.id
+            addToHistory(result.id)
+            uploadHistory = getHistory()
+            spawnAlert('success', `Note shared: ${result.id}`)
+            if (isPublic) void refreshGallery()
+        } catch (error) {
+            uploadError = error instanceof Error ? error.message : 'Upload failed'
+            spawnAlert('error', `Upload failed: ${uploadError}`)
+        } finally {
+            isUploading = false
+        }
+    }
+
     function fileProgress(index: number) {
         return uploadProgress?.files[index]
     }
@@ -408,10 +437,11 @@
 <div class="page-layout">
 <div class="upload-sidebar">
 <div class="upload-field">
-    <div class="mode-switcher" class:link={mode === 'link'}>
+    <div class="mode-switcher" style={`--mode-index: ${MODES.indexOf(mode)}`}>
         <span class="mode-indicator" aria-hidden="true"></span>
         <button class="mode-tab" class:active={mode === 'files'} type="button" onclick={() => switchMode('files')}>Files</button>
         <button class="mode-tab" class:active={mode === 'link'} type="button" onclick={() => switchMode('link')}>Link</button>
+        <button class="mode-tab" class:active={mode === 'note'} type="button" onclick={() => switchMode('note')}>Note</button>
     </div>
 
     <div class="field-header">
@@ -426,6 +456,9 @@
                         Up to {uploadLimits.maxcount} files, {displayedFileSizeLimit(uploadLimits)} each.
                     </p>
                 {/if}
+            {:else if mode === 'note'}
+                <p>Share a piece of text</p>
+                <p class="limit-note">Up to {noteMaxLength.toLocaleString()} characters.</p>
             {:else}
                 <p>Shorten a link</p>
                 <p>Automatically copied to clipboard</p>
@@ -540,6 +573,39 @@
                 {/each}
             </ul>
         {/if}
+    {:else if mode === 'note'}
+        <div in:slide out:slideOut>
+            <label class="form-field">
+                <input
+                    bind:value={title}
+                    type="text"
+                    name="title"
+                    placeholder="Note title (optional)"
+                    aria-label="Note title"
+                    maxlength={uploadLimits?.max_title_length}
+                    disabled={isUploading}
+                />
+            </label>
+        </div>
+
+        <div in:slide out:slideOut>
+            <label class="form-field">
+                <textarea
+                    class="note-input"
+                    bind:value={noteText}
+                    name="note"
+                    aria-label="Note text"
+                    rows="10"
+                    placeholder="Write or paste your note"
+                    maxlength={noteMaxLength}
+                    spellcheck="false"
+                    disabled={isUploading}
+                ></textarea>
+                <span class="char-counter" class:near-limit={noteText.length >= noteMaxLength * 0.85}>
+                    {noteText.length.toLocaleString()}/{noteMaxLength.toLocaleString()}
+                </span>
+            </label>
+        </div>
     {:else}
         <label in:slide out:slideOut class="form-field">
             <input bind:value={linkUrl} type="url" name="link" placeholder="https://example.com" />
@@ -552,7 +618,7 @@
 
     {#if uploadResultId}
         <p in:slide|global out:slideOut|global class="success-message">
-            {mode === 'link' ? 'Short link' : 'Uploaded'}: {uploadResultId}
+            {mode === 'link' ? 'Short link' : mode === 'note' ? 'Note shared' : 'Uploaded'}: <a href={`/${uploadResultId}`}>{uploadResultId}</a>
         </p>
     {/if}
 
@@ -584,7 +650,7 @@
     {/if}
 
     <div class="finalize">
-        {#if mode === 'files'}
+        {#if mode !== 'link'}
             <label class="public-checkbox">
                 <input type="checkbox" bind:checked={isPublic} disabled={isUploading} />
                 <span class="checkbox-box" aria-hidden="true"></span>
@@ -702,7 +768,7 @@
         --mode-gap: 0.75rem;
         position: relative;
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(3, 1fr);
         gap: var(--mode-gap);
         margin: 1.25rem 1.25rem 0;
     }
@@ -713,15 +779,12 @@
         top: 0;
         bottom: 0;
         left: 0;
-        width: calc(50% - var(--mode-gap) / 2);
+        width: calc((100% - 2 * var(--mode-gap)) / 3);
         box-sizing: border-box;
         border: 2px solid var(--color-accent);
         pointer-events: none;
+        transform: translateX(calc(var(--mode-index, 0) * (100% + var(--mode-gap))));
         transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-
-    .mode-switcher.link .mode-indicator {
-        transform: translateX(calc(100% + var(--mode-gap)));
     }
 
     .mode-tab {
@@ -824,6 +887,14 @@
     .form-field textarea {
         min-height: fit-content;
         resize: vertical;
+    }
+
+    .form-field .note-input {
+        min-height: 12rem;
+        max-height: 60vh;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+        line-height: 1.5;
     }
 
     .char-counter {

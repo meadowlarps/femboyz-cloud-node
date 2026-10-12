@@ -14,10 +14,13 @@ export type UploadLimits = {
     maxcount: number
     max_title_length: number
     max_desc_length: number
+    max_note_length?: number
     token?: UploadTokenInfo
 }
 
 export const UPLOAD_TOKEN_MIN_LENGTH = 8
+/** Fallback for servers that don't report `max_note_length`. */
+export const NOTE_MAX_LENGTH_DEFAULT = 100_000
 
 export class UploadTokenError extends Error {}
 
@@ -209,6 +212,25 @@ export async function sendLinkUpload(apiEndpoint: string, link: string): Promise
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'link', link })
+    })
+
+    if (!response.ok) {
+        throw new Error(`Upload failed with ${response.status}`)
+    }
+
+    return await response.json() as UploadResult
+}
+
+export async function sendNoteUpload(
+    apiEndpoint: string,
+    text: string,
+    title: string,
+    is_public = false
+): Promise<UploadResult> {
+    const response = await fetch(`${apiEndpoint.replace(/\/$/, '')}/api/v2/unote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'note', is_public, meta: { title }, text })
     })
 
     if (!response.ok) {

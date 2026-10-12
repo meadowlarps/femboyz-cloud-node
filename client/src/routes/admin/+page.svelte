@@ -16,7 +16,7 @@
 
     type AdminUpload = {
         id: string
-        type: 'files' | 'album' | 'playlist' | 'link'
+        type: 'files' | 'album' | 'playlist' | 'link' | 'note'
         public: boolean
         status: 'processing' | 'ready' | 'error' | 'removed'
         meta: { title: string; desc: string }
@@ -27,6 +27,8 @@
         totalSize: number
         files: AdminFile[]
         link?: string
+        note_preview?: string
+        note_length?: number
     }
 
     type AdminResponse = {
@@ -271,6 +273,7 @@
                         <option value="album">Albums</option>
                         <option value="playlist">Playlists</option>
                         <option value="link">Links</option>
+                        <option value="note">Notes</option>
                     </select>
                 </label>
                 <label>
@@ -338,6 +341,8 @@
 
                             {#if upload.type === 'link' && upload.link}
                                 <a class="external-link" href={upload.link} target="_blank" rel="noopener noreferrer">{upload.link}</a>
+                            {:else if upload.type === 'note'}
+                                <pre class="note-excerpt">{upload.note_preview}{(upload.note_length ?? 0) > (upload.note_preview?.length ?? 0) ? '…' : ''}</pre>
                             {:else if upload.files.length > 0}
                                 <div class="file-grid">
                                     {#each upload.files as file (file.index)}
@@ -630,6 +635,18 @@
 
     dd {
         margin: 0.2rem 0 0;
+        overflow-wrap: anywhere;
+    }
+
+    .note-excerpt {
+        margin: 0;
+        padding: 0.75rem;
+        max-height: 10rem;
+        overflow: auto;
+        background: #171515;
+        border: 1px solid #3b3538;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
 

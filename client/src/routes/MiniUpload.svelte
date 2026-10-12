@@ -46,6 +46,7 @@
         data ? new Date(data.when).toLocaleDateString(undefined, { dateStyle: 'medium' }) : ''
     )
     const totalSize = $derived(files.reduce((sum, file) => sum + file.size, 0))
+    const noteLength = $derived(data?.note_length ?? 0)
     const carouselOptions = $derived<EmblaOptionsType>({
         loop: false,
         watchDrag: hasMultiple
@@ -249,6 +250,11 @@
                             </div>
                         {/if}
                     </div>
+                {:else if data.type === 'note'}
+                    <a class="note-stage" href={uploadUrl} aria-label={`Open ${label}`}>
+                        <span class="type-badge">{typeLabel}</span>
+                        <span class="note-excerpt" aria-hidden="true">{data.note_preview ?? ''}</span>
+                    </a>
                 {:else}
                     <a class="file-stage" href={uploadUrl} aria-label={`Open ${label}`}>
                         <span class="type-badge">{typeLabel}</span>
@@ -276,6 +282,8 @@
                                 <ViewIcon />
                                 <span aria-hidden="true">{data.views}</span>
                             </span>
+                        {:else if data.type === 'note'}
+                            <span>{noteLength.toLocaleString()} {noteLength === 1 ? 'char' : 'chars'}</span>
                         {:else}
                             <span>{files.length} {files.length === 1 ? 'file' : 'files'} &middot; {formatFileSize(totalSize)}</span>
                         {/if}
@@ -334,7 +342,8 @@
     }
 
     .preview-stage,
-    .file-stage {
+    .file-stage,
+    .note-stage {
         position: relative;
         display: block;
         width: 100%;
@@ -388,6 +397,7 @@
 
     .media-link:focus-visible,
     .file-stage:focus-visible,
+    .note-stage:focus-visible,
     .card-title:focus-visible {
         outline: 2px solid var(--color-accent);
         outline-offset: -3px;
@@ -439,6 +449,27 @@
         place-items: center;
         color: inherit;
         text-decoration: none;
+    }
+
+    .note-stage {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    /* fades out at the bottom instead of a hard cut, so a cropped excerpt still reads as "more inside" */
+    .note-excerpt {
+        display: block;
+        height: 100%;
+        padding: 2.6rem 0.8rem 0.75rem;
+        box-sizing: border-box;
+        overflow: hidden;
+        color: #c9c3c5;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.68rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        mask-image: linear-gradient(to bottom, #000 65%, transparent);
     }
 
     .file-icons {

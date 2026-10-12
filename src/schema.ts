@@ -5,6 +5,7 @@ const minFileSize  = envs.MIN_FILE_SIZE                 || 0
 const maxTitle     = envs.MAX_TITLE_LENGTH_PER_UPLOAD   || 255
 const maxDesc      = envs.MAX_DESC_LENGTH_PER_UPLOAD    || 1024
 const maxComLen	   = envs.MAX_COMMENT_LENGTH						|| 500
+const maxNote      = envs.MAX_NOTE_LENGTH               || 100_000
 
 const COMMENT_ID_REGEX = /^\d{8}$/
 const CLIENT_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -39,6 +40,18 @@ export const XMetaFilesSchema = z.object({
 
 export type XMetaFiles = z.infer<typeof XMetaFilesSchema>
 
+// schema/frontend_note_upload.md
+export const NoteUploadSchema = z.object({
+    type: z.literal("note"),
+    is_public: z.boolean().default(false),
+    meta: z.object({
+        title: z.string().trim().max(maxTitle).default("")
+    }).default({ title: "" }),
+    text: z.string().max(maxNote).refine(text => text.trim() !== "", "Note is empty")
+})
+
+export type NoteUpload = z.infer<typeof NoteUploadSchema>
+
 // schema/mongo_upload.md
 const storageDBUploadInstanceSchemaCommon = z.object({
     id_pub: z.string().min(8).max(10),
@@ -67,6 +80,10 @@ export const StorageDBUploadInstanceSchema = z.union([
     storageDBUploadInstanceSchemaCommon.extend({
         type: z.literal("link"),
         link: z.object({ redir: z.url().nonoptional() })
+    }),
+    storageDBUploadInstanceSchemaCommon.extend({
+        type: z.literal("note"),
+        note: z.object({ text: z.string() })
     })
 ])
 

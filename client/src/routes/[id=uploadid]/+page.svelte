@@ -3,6 +3,7 @@
     import FilesView from './FilesView.svelte'
     import AlbumView from './AlbumView.svelte'
     import PlaylistView from './PlaylistView.svelte'
+    import NoteView from './NoteView.svelte'
     import CommentsView from './CommentsView.svelte'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
     import ViewIcon from '$lib/ViewIcon.svelte'
@@ -47,7 +48,8 @@
     const typeLabel: Record<string, string> = {
         files: 'Files',
         album: 'Album',
-        playlist: 'Playlist'
+        playlist: 'Playlist',
+        note: 'Note'
     }
 </script>
 
@@ -111,7 +113,7 @@
     </AlbumView>
 {:else}
     <div class="panel-wrap">
-    <div class="upload-panel">
+    <div class="upload-panel" class:note={upload.type === 'note'}>
         <header class="upload-header">
             <div class="upload-title-row">
                 <div class="upload-title-group">
@@ -128,7 +130,9 @@
             <div class="upload-meta-row">
                 <div class="upload-meta-details">
                     <span class="meta-item">{formatDate(upload.when)}</span>
-                    <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+                    {#if upload.type !== 'note'}
+                        <span class="meta-item">{upload.files.length} {upload.files.length === 1 ? 'file' : 'files'}</span>
+                    {/if}
                 </div>
                 <span class="view-count" aria-label={`${viewCount} ${viewCount === 1 ? 'view' : 'views'}`}>
                     <ViewIcon />
@@ -145,6 +149,8 @@
                 <FilesView files={upload.files} />
             {:else if upload.type === 'playlist'}
                 <PlaylistView files={upload.files} />
+            {:else if upload.type === 'note'}
+                <NoteView text={upload.note ?? ''} />
             {/if}
         </div>
     </div>
@@ -177,6 +183,11 @@
         background: #221f20;
         border: 1px solid #2e2b2c;
         overflow: hidden;
+    }
+
+    /* notes read better at a steady width than shrink-wrapped to their longest line */
+    .upload-panel.note {
+        display: grid;
     }
 
     .upload-header {

@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify"
-import { StorageDBUploadInstanceSchema, type StorageDBUploadInstance, type XMetaFiles } from "./schema.js"
+import { StorageDBUploadInstanceSchema, type NoteUpload, type StorageDBUploadInstance, type XMetaFiles } from "./schema.js"
 import { commitFile, deleteFile } from "./storage.js"
 import type { ReceivedFile } from "./stream.js"
 import { WASMagic } from "wasmagic"
@@ -121,11 +121,12 @@ export async function getAdminUploadPage(query: AdminQuery, baseUrl: string) {
             issuer: upload.issuer,
             when: upload.when,
             stats: upload.stat,
-            fileCount: upload.type === "link" ? 0 : upload.files.length,
-            totalSize: upload.type === "link" ? 0 : upload.files.reduce((sum, file) => sum + file.size, 0)
+            fileCount: upload.type === "link" || upload.type === "note" ? 0 : upload.files.length,
+            totalSize: upload.type === "link" || upload.type === "note" ? 0 : upload.files.reduce((sum, file) => sum + file.size, 0)
         }
 
         if (upload.type === "link") return { ...common, files: [], link: upload.link.redir }
+        if (upload.type === "note") return { ...common, files: [], note_preview: notePreview(upload.note.text), note_length: upload.note.text.length }
         return {
             ...common,
             files: upload.files.map((file, index) => ({
@@ -218,25 +219,36 @@ export async function receiveLinkReturnID(request: FastifyRequest): Promise<stri
         link: { redir: body.link }
     }
 
-    let insertAttempts = 1
-    while (true) {
-        try {
-            await getDB().collection(envs.MDB_COLLECTION_UPLOADS).insertOne(mongoDocument)
-            break
-        } catch (err: any) {
-            if (err?.code === 11000 && insertAttempts++ <= 3) {
-                scopelog.warn(`ID collision: ${id_pub}`)
-                mongoDocument.id_pub = idGen()
-                continue
-            }
-            errorFileLogger.error({ err })
-            throw Object.assign(new Error("Database error"), { statusCode: 500 })
-        }
+    await insertUploadDocument(mongoDocument)
+
+    scopelog.info(`Upload ${mongoDocument.id_pub} saved to database as redirect link: ${body.link}`)
+
+    return mongoDocument.id_pub
+}
+
+export async function receiveNoteReturnID(request: FastifyRequest, note: NoteUpload): Promise<string> {
+    const mongoDocument: StorageDBUploadInstance = {
+        id_pub: await genSafeID(),
+        public: note.is_public,
+        status: "ready",
+        meta:   { title: note.meta.title, desc: "" },
+        stat:   { views: 0, up: 0, down: 0 },
+        issuer: {
+            ip:     request.ip,
+            ua:     request.headers["user-agent"] as string ?? "unknown",
+            uuid:   request.headers["x-client-uuid"] as string ?? "not-implemented"
+        },
+        when: new Date().toISOString(),
+        type: "note",
+        note: { text: note.text }
     }
 
-    scopelog.info(`Upload ${id_pub} saved to database as redirect link: ${body.link}`)
+    await insertUploadDocument(mongoDocument)
+    feed_upload_add(mongoDocument)
 
-    return id_pub
+    scopelog.info(`Upload ${mongoDocument.id_pub} saved to database as note (${note.text.length} chars)`)
+
+    return mongoDocument.id_pub
 }
 
 export async function receiveUploadReturnID(request: FastifyRequest, _meta: XMetaFiles, _files: ReceivedFile[], id_token?: string): Promise<{ id: string, type: string}> {
@@ -286,11 +298,21 @@ async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles,
     mongoDocument.type = typeClassify(mongoDocument.files.map(f => f.mime))
     scopelog.debug(`Classified upload type as: ${mongoDocument.type}`)
 
+    await insertUploadDocument(mongoDocument)
+    feed_upload_add(mongoDocument)
+
+    scopelog.info(`Upload ${mongoDocument.id_pub} saved to database with ${mongoDocument.files.length} file(s)`)
+
+    return { id: mongoDocument.id_pub, type: mongoDocument.type}
+}
+
+/** Inserts a new upload, regenerating `id_pub` on the rare unique-index collision. */
+async function insertUploadDocument(mongoDocument: StorageDBUploadInstance): Promise<void> {
     let insertAttempts = 1
     while (true) {
         try {
             await getDB().collection(envs.MDB_COLLECTION_UPLOADS).insertOne(mongoDocument)
-            break
+            return
         } catch (err: any) {
             if (err?.code === 11000 && insertAttempts++ <= 3) {
                 scopelog.warn(`ID collision: ${mongoDocument.id_pub}`)
@@ -301,11 +323,16 @@ async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles,
             throw Object.assign(new Error("Database error"), { statusCode: 500 })
         }
     }
-    feed_upload_add(mongoDocument)
+}
 
-    scopelog.info(`Upload ${mongoDocument.id_pub} saved to database with ${mongoDocument.files.length} file(s)`)
+export const NOTE_PREVIEW_LENGTH = 280
 
-    return { id: mongoDocument.id_pub, type: mongoDocument.type}
+/** Card-sized excerpt of a note, so lists never carry the full (up to 100k char) text. */
+export function notePreview(text: string): string {
+    if (text.length <= NOTE_PREVIEW_LENGTH) return text
+    // don't split a surrogate pair at the cut
+    const end = /[\uD800-\uDBFF]/.test(text[NOTE_PREVIEW_LENGTH - 1] ?? "") ? NOTE_PREVIEW_LENGTH - 1 : NOTE_PREVIEW_LENGTH
+    return text.slice(0, end)
 }
 
 async function genSafeID(): Promise<string> {

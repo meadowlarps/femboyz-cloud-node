@@ -103,7 +103,7 @@ The upload document collection uses a discriminated union pattern on the `type` 
 | :--- | :--- | :---: | :--- | :--- |
 | `_id` | `ObjectId` | Auto | Generated | MongoDB primary key. Excluded from client API responses. |
 | `id_pub` | `string` | Yes | — | Unique 8–10 character alphanumeric public identifier (e.g. `123XABCD`). |
-| `type` | `string` | Yes | — | Discriminated union key: `"files" \| "album" \| "playlist" \| "link"`. |
+| `type` | `string` | Yes | — | Discriminated union key: `"files" \| "album" \| "playlist" \| "link" \| "note"`. |
 | `public` | `boolean` | Yes | `false` | When `true`, visible on public feed. When `false`, unlisted. |
 | `status` | `string` | Yes | `"processing"` | Upload lifecycle status: `"processing" \| "ready" \| "error" \| "removed"`. |
 | `meta.title` | `string` | Yes | `""` | Upload title. Max `MAX_TITLE_LENGTH_PER_UPLOAD` characters. |
@@ -153,3 +153,4 @@ graph TD
 | All files are `audio/*` | `"playlist"` | Rendered as sequential audio tracks with playback controls. |
 | Mixed MIME types or non-media (e.g. `application/*`, `text/*`) | `"files"` | Rendered as generic downloadable file list. |
 | Direct URL redirect upload | `"link"` | Fast redirect or link preview card. |
+| Plain-text note (`POST /api/v2/unote`) | `"note"` | Text stored inline as `note: { text }`, no files; see `frontend_note_upload.md`. |

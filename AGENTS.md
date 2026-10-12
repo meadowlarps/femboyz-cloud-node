@@ -59,6 +59,7 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | GET    | `/:id/:fid`        | `getUploadHandler`            | Serve raw file by index (Content-Type + Content-Disposition)     |
 | GET    | `/api/v2/maxfsize` | `askMaxFileUploadSizeHandler` | Upload limits given current storage (or of the `X-Upload-Token`) |
 | POST   | `/api/v2/ulink`    | `ulinkHandler`                | Receive link upload (JSON body)                                  |
+| POST   | `/api/v2/unote`    | `unoteHandler`                | Receive text note (JSON body, up to `MAX_NOTE_LENGTH` chars)     |
 | POST   | `/api/v2/udstream` | `udstreamHandler`             | Receive file stream upload                                       |
 | POST   | `/api/v2/viewed/:id` | `viewedUploadHandler` | Record an interactive view and refresh the in-memory public feed |
 
@@ -115,6 +116,14 @@ Admin-issued tokens (created in `/admin` → Tokens) replace the default count/s
 
 Server pings the URL (HEAD) before saving.
 
+### Note upload — `POST /api/v2/unote`
+
+```json
+{ "type": "note", "is_public": false, "meta": { "title": "" }, "text": "..." }
+```
+
+Text is stored inline in MongoDB (`note.text`), not in `STORAGE_DIR`. `GET /:id` JSON carries the full `note`; feed/batch/admin lists carry only `note_preview` + `note_length`. Full protocol: `schema/frontend_note_upload.md`.
+
 ### View tracking — `POST /api/v2/viewed/:id`
 
 No body required. The client triggers this request after an upload detail page has remained open for 2 seconds (cancelled if the user leaves earlier). Returns `204 No Content`, atomically increments MongoDB `stat.views`, and synchronizes the in-memory public feed. Full protocol schema: `schema/frontend_upload_viewed.md`.
@@ -133,7 +142,7 @@ No body required. The client triggers this request after an upload detail page h
 
 - Collection: `MDB_COLLECTION_UPLOADS`
 - Unique index on `id_pub`
-- Document union type: `StorageDBUploadInstance` (files/album/playlist | link)
+- Document union type: `StorageDBUploadInstance` (files/album/playlist | link | note)
 
 ### ID format
 
@@ -158,6 +167,7 @@ All images or video → `"album"`, all audio → `"playlist"`, mixed or other �
 | `MAX_FILE_COUNT_PER_UPLOAD`         | Max files per upload (default 6)                                               |
 | `MAX_TITLE_LENGTH_PER_UPLOAD`       | Max title chars (default 255)                                                  |
 | `MAX_DESC_LENGTH_PER_UPLOAD`        | Max desc chars (default 1024)                                                  |
+| `MAX_NOTE_LENGTH`                   | Max note chars (default 100000)                                                |
 | `STORAGE_DIR`                       | Storage directory path                                                         |
 | `STORAGE_LIMIT_BYTES`               | Hard storage cap                                                               |
 | `STORAGE_USAGE_WARNING_PERCENTAGE`  | Warning threshold % (default 80)                                               |

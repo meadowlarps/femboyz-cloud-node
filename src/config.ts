@@ -24,6 +24,7 @@ export const envs = {
     MAX_FILE_COUNT_PER_UPLOAD:          Number(process.env.MAX_FILE_COUNT_PER_UPLOAD),
     MAX_TITLE_LENGTH_PER_UPLOAD:        Number(process.env.MAX_TITLE_LENGTH_PER_UPLOAD),
     MAX_DESC_LENGTH_PER_UPLOAD:         Number(process.env.MAX_DESC_LENGTH_PER_UPLOAD),
+    MAX_NOTE_LENGTH:                    Number(process.env.MAX_NOTE_LENGTH) || 100_000,
 		MAX_COMMENT_LENGTH:									Number(process.env.MAX_COMMENT_LENGTH) || 600,
     STORAGE_DIR:                        process.env.STORAGE_DIR,
     STORAGE_LIMIT_BYTES:                Number(process.env.STORAGE_LIMIT_BYTES),

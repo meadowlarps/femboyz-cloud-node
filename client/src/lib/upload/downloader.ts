@@ -1,11 +1,15 @@
 export type UploadData = {
     id: string
-    type: 'files' | 'album' | 'playlist' | 'link'
+    type: 'files' | 'album' | 'playlist' | 'link' | 'note'
     public: boolean
     meta: { title: string; desc: string }
     views: number
     files: FileData[]
     link?: string
+    /** Full note text — only on `GET /:id`; lists (feed, batch) carry just the preview. */
+    note?: string
+    note_preview?: string
+    note_length?: number
     when: string
 }
 

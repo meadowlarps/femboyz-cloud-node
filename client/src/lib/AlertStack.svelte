@@ -1,7 +1,7 @@
 <script lang="ts">
     import { fade, fly } from 'svelte/transition'
     import { prefersReducedMotion } from 'svelte/motion'
-    import { alerts, dismissAlert } from '$lib/alerts'
+    import { alerts } from '$lib/alerts'
 </script>
 
 <section class="alert-stack" aria-label="Notifications">
@@ -17,9 +17,6 @@
             out:fade={{ duration: prefersReducedMotion.current ? 0 : 250 }}
         >
             <span class="message">{alert.text}</span>
-            <button type="button" style="margin: 0; " onclick={() => dismissAlert(alert.id)} aria-label="Dismiss notification">
-                &times;
-            </button>
         </div>
     {/each}
 </section>
@@ -42,11 +39,9 @@
         --alert-background: #202a329a;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 0.65rem;
         width: fit-content;
         max-width: 100%;
-        padding: 0.65rem 0.75rem 0.65rem 1.2rem;
+        padding: 0.65rem 1.2rem;
         color: #f4f4f4;
         background: var(--alert-background);
         backdrop-filter: blur(12px);
@@ -74,32 +69,6 @@
         font-size: 0.875rem;
         line-height: 1.35;
         overflow-wrap: anywhere;
-    }
-
-    button {
-        position: relative;
-        top: -0.06em;
-        display: grid;
-        place-items: center;
-        width: 1.5rem;
-        height: 1.5rem;
-        padding: 0;
-        color: #8a8385;
-        background: transparent;
-        border: 0;
-        font: inherit;
-        font-size: 1.15rem;
-        line-height: 1;
-        cursor: pointer;
-    }
-
-    button:hover {
-        color: #fff;
-    }
-
-    button:focus-visible {
-        outline: 2px solid var(--alert-color);
-        outline-offset: 2px;
     }
 
     @media (max-width: 36rem) {

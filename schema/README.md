@@ -10,6 +10,7 @@ Specifications for frontend API protocols, binary streaming interfaces, and inte
 | **[frontend_file_prerequest_askMaxFileUploadSize.md](./frontend_file_prerequest_askMaxFileUploadSize.md)** | Upload Limits | `GET /api/v2/maxfsize` | Dynamic server capacity check and form constraint boundaries. |
 | **[frontend_file_upload.md](./frontend_file_upload.md)** | Binary File Stream | `POST /api/v2/udstream` | Single-request streaming upload with Base64 `X-Meta` header and binary chunk validation. |
 | **[frontend_link_upload.md](./frontend_link_upload.md)** | Link Upload | `POST /api/v2/ulink` | URL redirect creation with ping verification. |
+| **[frontend_note_upload.md](./frontend_note_upload.md)** | Note Upload | `POST /api/v2/unote` | Plain-text note sharing (up to 100k chars), stored inline in MongoDB. |
 | **[frontend_upload_receiveByID.md](./frontend_upload_receiveByID.md)** | Content Delivery | `GET /:id`, `GET /:id/:fid` | Landing page rendering, text unfurling, JSON metadata, and byte-range binary streaming. |
 | **[frontend_uploads_batch.md](./frontend_uploads_batch.md)** | Upload Batch | `GET /api/v2/uploads?ids=` | Several upload JSON descriptors in one request (home page history grid). |
 | **[frontend_upload_viewed.md](./frontend_upload_viewed.md)** | Upload Views | `POST /api/v2/viewed/:id` | Atomic interactive view counting with in-memory public feed refresh. |

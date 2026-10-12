@@ -19,6 +19,10 @@ export function isPreviewCrawler(userAgent: string | null): boolean {
 }
 
 export function buildUploadCountLabel(upload: UploadData): string {
+    if (upload.type === 'note') {
+        const length = upload.note_length ?? upload.note?.length ?? 0
+        return `${length.toLocaleString('en-US')} ${length === 1 ? 'character' : 'characters'}`
+    }
     return upload.type === 'playlist'
         ? `${upload.files.length} ${upload.files.length === 1 ? 'track' : 'tracks'}`
         : upload.type === 'album'
@@ -45,7 +49,9 @@ export function buildUploadCardText(upload: UploadData, siteName: string) {
 export function buildUploadPreviewText(upload: UploadData) {
     return {
         title: upload.meta.title.trim() || upload.id,
-        description: upload.meta.desc.trim()
+        description: upload.type === 'note'
+            ? (upload.note_preview ?? '').replace(/\s+/g, ' ').trim()
+            : upload.meta.desc.trim()
     }
 }
 
