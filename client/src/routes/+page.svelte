@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { fade, slide } from 'svelte/transition';
+    import { cubicInOut } from 'svelte/easing'
     import type { PageData } from './$types'
     import {
         type UploadLimits,
@@ -14,7 +15,8 @@
         sendLinkUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
-    import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedResponse } from '$lib/upload/feed'
+    import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedItem, type FeedResponse } from '$lib/upload/feed'
+    import { fetchUploads } from '$lib/upload/downloader'
     import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
     import { spawnAlert } from '$lib/alerts'
 
@@ -22,6 +24,20 @@
     const TOKEN_HOLD_MS = 600
     const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
+
+    // exits: shorter than the intro and eased at both ends so the collapse settles instead of hard-stopping;
+    // content fades out ahead of the height (slide alone keeps it opaque until the last 5%)
+    const slideOut = (node: Element) => {
+        const config = slide(node, { duration: 300, easing: cubicInOut })
+        return {
+            ...config,
+            css: (t: number, u: number) => `${config.css?.(t, u) ?? ''};opacity: ${Math.max(0, (t - 0.25) / 0.75)}`
+        }
+    }
+
+    // stable {#each} keys — an index-based key re-creates every row after a removed one
+    const fileKeys = new WeakMap<File, number>()
+    let nextFileKey = 0
 
     let { data }: { data: PageData } = $props()
 
@@ -59,6 +75,10 @@
     let visibleCount = $state(16)
     let visibleUploads = $derived(uploadHistory.slice(0, visibleCount))
     let hasMore = $derived(uploadHistory.length > visibleCount)
+    // History card data, fetched in batches as cards become visible.
+    let historyData = $state.raw<Record<string, FeedItem>>({})
+    let historyErrors = $state.raw<Record<string, string>>({})
+    const historyRequested = new Set<string>()
     let galleryPages = $state<FeedResponse[]>([])
     let galleryLoading = $state(false)
     let galleryError = $state('')
@@ -71,7 +91,7 @@
     let galleryRevealed = $state(false)
 
     // Feed fetch fires immediately, but the section itself is revealed a
-    // second later so the one-by-one history card fetches get a head start.
+    // second later so the history cards' batch fetch gets a head start.
     onMount(() => {
         void loadGalleryPage(0)
         const revealTimer = setTimeout(() => { galleryRevealed = true }, 1000)
@@ -85,6 +105,37 @@
     $effect(() => {
         uploadHistory = getHistory()
     })
+
+    // Fetches every newly visible history card in a single request.
+    $effect(() => {
+        const pending = visibleUploads.filter((id) => !historyRequested.has(id))
+        if (pending.length === 0) return
+        for (const id of pending) historyRequested.add(id)
+        void loadHistoryBatch(pending)
+    })
+
+    async function loadHistoryBatch(ids: string[]) {
+        try {
+            const { items, missing } = await fetchUploads(ids, apiEndpoint)
+            const data = { ...historyData }
+            for (const item of items) data[item.id] = item
+            historyData = data
+            if (missing.length > 0) {
+                const errors = { ...historyErrors }
+                for (const id of missing) errors[id] = '404'
+                historyErrors = errors
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed'
+            const errors = { ...historyErrors }
+            for (const id of ids) {
+                errors[id] = message
+                // allow a retry the next time the visible set changes
+                historyRequested.delete(id)
+            }
+            historyErrors = errors
+        }
+    }
 
     function clearProgressTimers() {
         clearTimeout(hideProgressTimer)
@@ -129,6 +180,10 @@
 
     $effect(() => {
         if (tokenOpen) tokenInput?.focus()
+    })
+
+    $effect(() => {
+        if (title.length === 0) description = ''
     })
 
     function tokenHoldStart(event: PointerEvent) {
@@ -185,6 +240,7 @@
                 nextErrors.push(`${file.name} is larger than ${displayedFileSizeLimit(effectiveLimits)}.`)
                 continue
             }
+            fileKeys.set(file, nextFileKey++)
             nextFiles.push(file)
         }
 
@@ -352,7 +408,8 @@
 <div class="page-layout">
 <div class="upload-sidebar">
 <div class="upload-field">
-    <div class="mode-switcher">
+    <div class="mode-switcher" class:link={mode === 'link'}>
+        <span class="mode-indicator" aria-hidden="true"></span>
         <button class="mode-tab" class:active={mode === 'files'} type="button" onclick={() => switchMode('files')}>Files</button>
         <button class="mode-tab" class:active={mode === 'link'} type="button" onclick={() => switchMode('link')}>Link</button>
     </div>
@@ -377,7 +434,7 @@
     </div>
 
     {#if mode === 'files'}
-        <div transition:slide>
+        <div in:slide out:slideOut>
             <label class="form-field">
                 <input
                     bind:value={title}
@@ -394,11 +451,11 @@
             </label>
         </div>
 
-        <div transition:slide>
+        <div in:slide out:slideOut>
             <label class="form-field">
                 {#if title.length > 0}
                     <textarea
-                        transition:slide
+                        in:slide out:slideOut
                         bind:value={description}
                         name="description"
                         rows="3"
@@ -410,15 +467,13 @@
                             {description.length}/{uploadLimits.max_desc_length}
                         </span>
                     {/if}
-                {:else}
-                    {description = ""}
                 {/if}
             </label>
         </div>
 
-        <ul transition:slide class="file-list" aria-label="Selected files">
-            {#each files as file, index (file.name + file.size + index)}
-                <li transition:slide>
+        <ul in:slide out:slideOut class="file-list" aria-label="Selected files">
+            {#each files as file, index (fileKeys.get(file))}
+                <li in:slide out:slideOut>
                     {#if fileProgress(index) && !hiddenProgressIndexes.has(index)}
                         <div transition:fade class="upload-progressbar" aria-hidden="true">
                             <div
@@ -449,7 +504,7 @@
             {/each}
 
             {#if !isFileLimitReached}
-                <li>
+                <li in:slide out:slideOut>
                     <label
                         id="drop-area"
                         for="file_input"
@@ -475,34 +530,34 @@
         </ul>
 
         {#if limitsError}
-            <p transition:slide|global class="error-message">Something is wrong: {limitsError}</p>
+            <p in:slide|global out:slideOut|global class="error-message">Something is wrong: {limitsError}</p>
         {/if}
 
         {#if fileErrors.length > 0}
-            <ul transition:slide|global class="error-list" aria-label="File selection errors">
+            <ul in:slide|global out:slideOut|global class="error-list" aria-label="File selection errors">
                 {#each fileErrors as error}
                     <li>{error}</li>
                 {/each}
             </ul>
         {/if}
     {:else}
-        <label transition:slide class="form-field">
+        <label in:slide out:slideOut class="form-field">
             <input bind:value={linkUrl} type="url" name="link" placeholder="https://example.com" />
         </label>
     {/if}
 
     {#if uploadError}
-        <p transition:slide|global class="error-message">Upload failed: {uploadError}</p>
+        <p in:slide|global out:slideOut|global class="error-message">Upload failed: {uploadError}</p>
     {/if}
 
     {#if uploadResultId}
-        <p transition:slide|global class="success-message">
+        <p in:slide|global out:slideOut|global class="success-message">
             {mode === 'link' ? 'Short link' : 'Uploaded'}: {uploadResultId}
         </p>
     {/if}
 
     {#if mode === 'files' && tokenOpen}
-        <div transition:slide class="token-field">
+        <div in:slide out:slideOut class="token-field">
             <div class="token-row">
                 <label class="form-field">
                     <input
@@ -560,7 +615,7 @@
 <div class="uploads-grid-wrap">
     <div class="uploads-grid">
         {#each visibleUploads as id (id)}
-            <MiniUpload {id} onIgnore={ignoreUpload} />
+            <MiniUpload {id} initial={historyData[id]} error={historyErrors[id]} onIgnore={ignoreUpload} />
         {/each}
     </div>
     {#if hasMore}
@@ -635,7 +690,6 @@
 
     .upload-field {
         display: grid;
-        gap: 1rem;
         width: 25rem;
         min-height: 15rem;
         border: 2px solid var(--color-accent);
@@ -645,17 +699,35 @@
     }
 
     .mode-switcher {
-        display: flex;
-        border-bottom: 1px solid #3b3538;
+        --mode-gap: 0.75rem;
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--mode-gap);
+        margin: 1.25rem 1.25rem 0;
+    }
+
+    /* one accent frame that slides between the tabs, drawn over their grey borders */
+    .mode-indicator {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: calc(50% - var(--mode-gap) / 2);
+        box-sizing: border-box;
+        border: 2px solid var(--color-accent);
+        pointer-events: none;
+        transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .mode-switcher.link .mode-indicator {
+        transform: translateX(calc(100% + var(--mode-gap)));
     }
 
     .mode-tab {
-        flex: 1;
         padding: 0.55rem 1rem;
         background: none;
-        border: none;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
+        border: 2px solid #4b4246;
         color: #8a8385;
         cursor: pointer;
         font: inherit;
@@ -671,7 +743,17 @@
 
     .mode-tab.active {
         color: #f4f4f4;
-        border-bottom-color: var(--color-accent);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .mode-indicator {
+            transition: none;
+        }
+    }
+
+    /* spacing via margins, not gap: slide animates margins, a parent's gap snaps shut only once the node is removed */
+    .upload-field > * + * {
+        margin-top: 1rem;
     }
 
     .upload-field > :not(.mode-switcher) {
@@ -680,7 +762,7 @@
     }
 
     .upload-field > .field-header {
-        padding-top: 1.25rem;
+        padding-top: 0.5rem;
     }
 
     .upload-field > .finalize {
@@ -827,10 +909,13 @@
 
     .file-list {
         display: grid;
-        gap: 0.65rem;
         margin: 0;
         padding: 0;
         list-style: none;
+    }
+
+    .file-list > li + li {
+        margin-top: 0.65rem;
     }
 
     .file-list li {

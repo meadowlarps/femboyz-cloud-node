@@ -48,6 +48,7 @@ TypeScript Node.js server (v2) — rewrite of [femboyz-cloud-server](https://git
 | GET    | `/ping`            | `pongHandler`                 | Health check                                                     |
 | GET    | `/`                | `rootHandler`                 | Root                                                             |
 | GET    | `/api/v2/feed`     | `feed_handle`                  | Public uploads, newest-first, paginated with `s`/`e`              |
+| GET    | `/api/v2/uploads?ids=A,B` | `uploadsBatchHandler` | Up to 100 uploads' JSON in one request (`items` + `missing`) |
 | GET    | `/api/v2/admin/uploads` | `adminUploadsHandler`     | Authorized paginated/searchable upload inventory                 |
 | DELETE | `/api/v2/admin/uploads/:id` | `adminDeleteUploadHandler` | Authorized permanent upload deletion                          |
 | GET    | `/api/v2/admin/logs` | `adminLogsHandler`    | Authorized error log viewer and filtering                       |

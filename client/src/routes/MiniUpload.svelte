@@ -4,31 +4,31 @@
     import { onDestroy } from 'svelte'
     import { prefersReducedMotion } from 'svelte/motion'
     import { fade } from 'svelte/transition'
-    import { fetchUpload } from '$lib/upload/downloader'
     import type { FeedItem } from '$lib/upload/feed'
     import { buildMiniUploadTypeLabel } from '$lib/upload/miniUpload'
     import { formatFileSize } from '$lib/upload/uploader'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
     import ViewIcon from '$lib/ViewIcon.svelte'
 
-    const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
-
     type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'archive' | 'document' | 'binary'
 
+    // The parent fetches card data (in batches); while `initial` and `error` are
+    // both unset the card shows its loading state.
     let {
         id,
         initial,
+        error = '',
         onIgnore,
         showViews = false
     }: {
         id: string
         initial?: FeedItem
+        error?: string
         onIgnore?: (id: string) => void
         showViews?: boolean
     } = $props()
 
     let data = $state<FeedItem | null>(null)
-    let error = $state('')
     let ignored = $state(false)
     let carouselApi = $state<EmblaCarouselType>()
     let cardRoot = $state<HTMLElement>()
@@ -54,40 +54,19 @@
     $effect(() => {
         const uploadId = id
         const preloaded = initial
-        let cancelled = false
 
-        error = ''
         ignored = false
         selectedIndex = 0
         persistentSelection = false
         clearReturnTimer()
 
-        if (preloaded) {
-            if (preloaded.type === 'link') {
-                ignored = true
-                onIgnore?.(uploadId)
-                return
-            }
-            data = preloaded
+        if (preloaded?.type === 'link') {
+            ignored = true
+            onIgnore?.(uploadId)
+            data = null
             return
         }
-
-        data = null
-        fetchUpload(uploadId, apiEndpoint)
-            .then((result) => {
-                if (cancelled) return
-                if (result.type === 'link') {
-                    ignored = true
-                    onIgnore?.(uploadId)
-                    return
-                }
-                data = result
-            })
-            .catch((err) => {
-                if (!cancelled) error = err instanceof Error ? err.message : 'Failed'
-            })
-
-        return () => { cancelled = true }
+        data = preloaded ?? null
     })
 
     onDestroy(() => {

@@ -32,6 +32,40 @@ export async function getUploadByID(id: string): Promise<StorageDBUploadInstance
     return result.data
 }
 
+export const UPLOAD_BATCH_MAX_IDS = 100
+
+/** Parses `?ids=A,B,C` into unique IDs, keeping the requested order. */
+export function parseUploadIDsQuery(query: unknown): string[] {
+    const raw = (query as { ids?: unknown } | undefined)?.ids
+    const ids = typeof raw === "string"
+        ? [...new Set(raw.split(",").map(id => id.trim()).filter(id => id !== ""))]
+        : []
+    if (ids.length === 0 || ids.length > UPLOAD_BATCH_MAX_IDS || ids.some(id => id.length > 32))
+        throw Object.assign(new Error(`ids must list 1–${UPLOAD_BATCH_MAX_IDS} upload IDs`), { statusCode: 400 })
+    return ids
+}
+
+/** Fetches several uploads in one query. Unknown IDs are simply absent from the result. */
+export async function getUploadsByIDs(ids: string[]): Promise<StorageDBUploadInstance[]> {
+    const docs = await getDB()
+        .collection(envs.MDB_COLLECTION_UPLOADS)
+        .find({ id_pub: { $in: ids } }, { projection: { _id: 0 } })
+        .toArray()
+        .catch(err => {
+            const message = err instanceof Error ? err.message : String(err)
+            scopelog.error(`Failed to fetch uploads batch (${ids.length} IDs): ${message}`)
+            throw Object.assign(new Error("Database error"), { statusCode: 500 })
+        })
+    return docs.map(doc => {
+        const result = StorageDBUploadInstanceSchema.safeParse(doc)
+        if (!result.success) {
+            scopelog.error(`Invalid document in uploads batch: ${JSON.stringify(result.error.issues)}`)
+            throw Object.assign(new Error("Corrupt upload document"), { statusCode: 500 })
+        }
+        return result.data
+    })
+}
+
 export async function incrementUploadView(id: string): Promise<boolean> {
     const result = await getDB()
         .collection(envs.MDB_COLLECTION_UPLOADS)

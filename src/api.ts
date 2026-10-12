@@ -4,6 +4,8 @@ import { XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance, type U
 import { receiveUploadReturnID,
     receiveLinkReturnID,
     getUploadByID,
+    getUploadsByIDs,
+    parseUploadIDsQuery,
     getAdminUploadPage,
     deleteUploadByID,
     incrementFileDownload,
@@ -82,6 +84,7 @@ export async function startServer() {
     server.get("/", rootHandler)                                    // Serve: Home page route
     server.get("/api/v2/feed", feed_handle)                          // Serve: Paginated public upload feed
     server.post("/api/v2/viewed/:id", viewedUploadHandler)          // Count: Interactive upload view
+    server.get("/api/v2/uploads", uploadsBatchHandler)              // Serve: Several uploads' JSON in one request
     server.get("/api/v2/admin/uploads", { preHandler: adminAuthHandler }, adminUploadsHandler)
     server.delete("/api/v2/admin/uploads/:id", { preHandler: adminAuthHandler }, adminDeleteUploadHandler)
     server.get("/api/v2/admin/logs", { preHandler: adminAuthHandler }, adminLogsHandler)
@@ -159,6 +162,47 @@ export async function feed_handle(request: FastifyRequest, reply: FastifyReply) 
         total: all_uploads.length,
         has_more: range.end < all_uploads.length
     })
+}
+
+/** Public JSON descriptor of an upload, as returned by `GET /:id` with `Accept: application/json`. */
+function uploadToJSON(upload: StorageDBUploadInstance, baseUrl: string) {
+    const common = {
+        id: upload.id_pub,
+        type: upload.type,
+        public: upload.public,
+        meta: upload.meta,
+        views: upload.stat.views,
+        when: upload.when
+    }
+
+    if (upload.type === "link")
+        return { ...common, files: [], link: upload.link.redir }
+
+    return {
+        ...common,
+        files: upload.files.map((file, index) => ({
+            index,
+            filename: file.filename,
+            size: file.size,
+            mime: file.mime,
+            url: `${baseUrl.replace(/\/$/, "")}/${upload.id_pub}/${index}`,
+            stat_dl: file.stat_dl
+        }))
+    }
+}
+
+export async function uploadsBatchHandler(request: FastifyRequest, reply: FastifyReply) {
+    const ids = parseUploadIDsQuery(request.query)
+    const baseUrl = envs.BASE_URL ?? `${request.protocol}://${request.hostname}`
+    const byId = new Map((await getUploadsByIDs(ids)).map(upload => [upload.id_pub, upload]))
+    const items = []
+    const missing = []
+    for (const id of ids) {
+        const upload = byId.get(id)
+        if (upload) items.push(uploadToJSON(upload, baseUrl))
+        else missing.push(id)
+    }
+    reply.send({ items, missing })
 }
 
 export async function viewedUploadHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -327,43 +371,15 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
         return reply.send(createFileReadStream(file.hashkey256, range))
     }
 
-    if (upload.type === "link") {
-        if ((request.headers.accept ?? "").includes("application/json")) {
-            return reply.send({
-                id: upload.id_pub,
-                type: upload.type,
-                public: upload.public,
-                meta: upload.meta,
-                files: [],
-                link: upload.link.redir,
-                when: upload.when
-            })
-        }
-        return reply.redirect(upload.link.redir)
-    }
-
     const baseUrl = envs.BASE_URL ?? `${request.protocol}://${request.hostname}`
     const siteName = envs.SITE_NAME
     const accept = request.headers.accept ?? ""
 
-    if (accept.includes("application/json")) {
-        return reply.send({
-            id: upload.id_pub,
-            type: upload.type,
-            public: upload.public,
-            meta: upload.meta,
-            views: upload.stat.views,
-            files: upload.files.map((f, i) => ({
-                index: i,
-                filename: f.filename,
-                size: f.size,
-                mime: f.mime,
-                url: `${baseUrl}/${id}/${i}`,
-                stat_dl: f.stat_dl
-            })),
-            when: upload.when
-        })
-    }
+    if (accept.includes("application/json"))
+        return reply.send(uploadToJSON(upload, baseUrl))
+
+    if (upload.type === "link")
+        return reply.redirect(upload.link.redir)
 
     if (accept.includes("text/plain") && !accept.includes("text/html")) {
         const title = upload.meta.title || id
