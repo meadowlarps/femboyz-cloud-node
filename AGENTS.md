@@ -121,6 +121,8 @@ No body required. The client triggers this request after an upload detail page h
 ## Storage
 
 - Files stored flat in `STORAGE_DIR` (default `./storage`), named by SHA-256 hash
+- Uploads stream to `STORAGE_DIR/.incoming/<uuid>.part` while hashing (only a 64 KiB head is kept in RAM for MIME detection), then `commitFile` renames them into place; `.incoming` is wiped on startup
+- In-flight uploads reserve their `Content-Length` (`storage_reserve`/`storage_release`) so concurrent uploads can't overbook the limit
 - Deduplication: skip write if file already exists
 - In-memory usage counter (`storageUsage`) updated on write/delete, recalculated from disk on init
 - Hard limit: `STORAGE_LIMIT_BYTES`; warning threshold: `STORAGE_USAGE_WARNING_PERCENTAGE`%

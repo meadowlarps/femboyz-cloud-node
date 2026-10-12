@@ -791,11 +791,6 @@
         align-items: stretch;
     }
 
-    .token-row input {
-        font-family: ui-monospace, monospace;
-        font-size: 0.85rem;
-    }
-
     .token-status {
         margin: 0;
         font-size: 0.85rem;

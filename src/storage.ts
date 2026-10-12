@@ -10,14 +10,18 @@ const scopelog = scope("storage")
 const storageDir = envs.STORAGE_DIR || "./storage"
 const storageLimit = envs.STORAGE_LIMIT_BYTES || 10 * 1024 * 1024 * 1024 // default to 10GB
 const storageWarningBytes = (storageLimit * (envs.STORAGE_USAGE_WARNING_PERCENTAGE || 80)) / 100
+const incomingDir = path.join(storageDir, ".incoming")     // in-flight upload temp files; same fs → atomic rename
 
 let filesInStorage256: Set<string> = new Set()
 let storageUsage = 0
+let reservedBytes = 0       // claimed by uploads still streaming to incomingDir
 
 
 export async function initStorage() {
     try {
         await fs.mkdir(storageDir, { recursive: true })
+        await fs.rm(incomingDir, { recursive: true, force: true })     // partial uploads left by a crash
+        await fs.mkdir(incomingDir, { recursive: true })
         storageUsage = await calculateStorageUsage()
 
         scopelog.info(`Directory initialized at ${storageDir}`)
@@ -32,27 +36,44 @@ export async function initStorage() {
     }
 }
 
-export async function writeFile(filename: string, data: Buffer): Promise<void> {
+export function getIncomingDir(): string {
+    return incomingDir
+}
+
+/** Moves a verified temp file from incomingDir into storage as `filename`; drops it if that blob already exists. */
+export async function commitFile(tmpPath: string, filename: string, bytes: number): Promise<void> {
     const filepath = path.join(storageDir, filename)
     if (filesInStorage256.has(filename)) {
-        scopelog.debug(`Duplicate: (${filesize(data.length)}) ${filename}`)
+        scopelog.debug(`Duplicate: (${filesize(bytes)}) ${filename}`)
+        await fs.unlink(tmpPath)
         return
     }
-    if (storageUsage + data.length > storageLimit) {
-        const message = `Storage limit exceeded. Cannot write file '${filename}' of size ${filesize(data.length)}`
+    if (storageUsage + bytes > storageLimit) {
+        const message = `Storage limit exceeded. Cannot write file '${filename}' of size ${filesize(bytes)}`
         throw Object.assign(new Error(message), { statusCode: 507 })
     }
-    filesInStorage256.add(filename)     // add to set before writing to prevent race conditions
-    storageUsage += data.length
+    filesInStorage256.add(filename)     // add to set before renaming to prevent race conditions
+    storageUsage += bytes
     try {
-        await fs.writeFile(filepath, data)
+        await fs.rename(tmpPath, filepath)
     } catch (err) {
         filesInStorage256.delete(filename)
-        storageUsage -= data.length
+        storageUsage -= bytes
         throw err
     }
-    scopelog.debug(`Wrote file: Size: ${filesize(data.length)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
+    scopelog.debug(`Wrote file: Size: ${filesize(bytes)}. Updated storage usage: ${filesize(storageUsage)} of ${filesize(storageLimit)}.`)
     checkStorageUsageWarning()
+}
+
+/** Claims space for an upload before it streams to disk; false if it wouldn't fit. */
+export function storage_reserve(bytes: number): boolean {
+    if (!isThereEnoughStorageFor(bytes)) return false
+    reservedBytes += bytes
+    return true
+}
+
+export function storage_release(bytes: number) {
+    reservedBytes = Math.max(0, reservedBytes - bytes)
 }
 
 export function createFileReadStream(filename: string, range?: { start: number, end: number }) {
@@ -83,15 +104,15 @@ export function getStorageLimit(): number {
 }
 
 export function getStorageFree(): number {
-    return Math.max(0, storageLimit - storageUsage)
+    return Math.max(0, storageLimit - storageUsage - reservedBytes)
 }
 
 export function isThereEnoughStorageFor(bytes: number): boolean {
-    return storageUsage + bytes <= storageLimit
+    return storageUsage + reservedBytes + bytes <= storageLimit
 }
 
 async function calculateStorageUsage(): Promise<number> {
-    const files = await fs.readdir(storageDir)
+    const files = (await fs.readdir(storageDir)).filter(f => !f.startsWith("."))    // skips incomingDir, .DS_Store
     filesInStorage256 = new Set(files)
     const stats = await Promise.all(files.map(f => fs.stat(path.join(storageDir, f))))
     return stats.reduce((sum, s) => sum + s.size, 0)

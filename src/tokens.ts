@@ -2,12 +2,14 @@ import { randomBytes } from "node:crypto"
 import type { Document } from "mongodb"
 import type { FastifyRequest } from "fastify"
 import * as z from "zod"
+import { filesize } from "filesize"
 import { envs } from "./config.js"
 import { authlimit_create } from "./authlimit.js"
 import { getDB } from "./database.js"
 import { errorFileLogger, scope } from "./logger.js"
 import {
     TokenUseSchemaDB,
+    UPLOAD_TOKEN_REGEX,
     UploadTokenCreateSchema,
     UploadTokenSchemaDB,
     UploadTokenUpdateSchema,
@@ -178,6 +180,23 @@ export function token_issuer_get(request: FastifyRequest): TokenIssuer {
     }
 }
 
+// Enough to tell a typo or a bad paste (quotes, spaces, cut short) from a guess, without logging a usable secret.
+export function token_supplied_hint(value: string): string {
+    const shown = value.length >= 16 ? `${value.slice(0, 4)}…${value.slice(-2)}` : `${value.slice(0, 2)}…`
+    const shape = UPLOAD_TOKEN_REGEX.test(value) ? "" : ", malformed"
+    return `${shown} (${value.length} chars${shape})`
+}
+
+/** Who and where for token_use_log: issuer, route, and the supplied header's hint. */
+export function token_log_context(request: FastifyRequest): Pick<TokenUseDB, "issuer" | "route" | "supplied"> {
+    const supplied = token_header_get(request)
+    return {
+        issuer: token_issuer_get(request),
+        route: `${request.method} ${request.routeOptions.url ?? request.url}`,
+        ...(supplied === undefined ? {} : { supplied: token_supplied_hint(supplied) })
+    }
+}
+
 /**
  * Counts a wrong guess against the caller's IP. Only "unknown" counts — revoked/expired/exhausted
  * tokens were real, so they aren't guessing. Success never clears the counter: otherwise one valid
@@ -195,10 +214,19 @@ export function token_guess_register(issuer: TokenIssuer, reason: TokenRejectRea
 
 /** Best-effort audit trail — a logging failure never fails the upload it describes. */
 export async function token_use_log(entry: Omit<TokenUseDB, "when">): Promise<void> {
-    const document: TokenUseDB = { ...entry, when: new Date().toISOString() }
+    // the hint only helps for unknown tokens; for real ones id_token already says which token it was
+    const { supplied, ...rest } = entry
+    const document: TokenUseDB = {
+        ...rest,
+        ...(supplied !== undefined && entry.id_token === "unknown" ? { supplied } : {}),
+        when: new Date().toISOString()
+    }
     if (entry.outcome !== "ok") {
-        const summary = `Token ${entry.outcome} - id "${entry.id_token}" reason "${entry.reason ?? "none"}" `
-            + `- ip "${entry.issuer.ip}" - ua "${entry.issuer.ua}"`
+        const summary = `Token ${entry.outcome} - id "${entry.id_token}" reason "${entry.reason ?? "none"}"`
+            + (document.route ? ` - route "${document.route}"` : "")
+            + (document.supplied ? ` - supplied "${document.supplied}"` : "")
+            + (entry.files > 0 ? ` - ${entry.files} file(s), ${filesize(entry.bytes)}` : "")
+            + ` - ip "${entry.issuer.ip}" - uuid "${entry.issuer.uuid}" - ua "${entry.issuer.ua}"`
         scopelog.warn(summary)
         errorFileLogger.error(summary)
     } else {

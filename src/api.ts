@@ -8,8 +8,8 @@ import { receiveUploadReturnID,
     deleteUploadByID,
     incrementFileDownload,
     incrementUploadView }                              from "./uploads.js"
-import { createFileReadStream, getStorageFree, getStorageLimit, getStorageUsage, isThereEnoughStorageFor } from "./storage.js"
-import { parseUploadStream }                            from "./stream.js"
+import { createFileReadStream, getIncomingDir, getStorageFree, getStorageLimit, getStorageUsage, isThereEnoughStorageFor, storage_release, storage_reserve } from "./storage.js"
+import { parseUploadStream, type ReceivedFile }         from "./stream.js"
 import { adminAuthStatus,
     authBlockRemainingMs,
     clearAuthFailures,
@@ -24,6 +24,7 @@ import { token_create,
     token_header_get,
     token_is_usable,
     token_issuer_get,
+    token_log_context,
     token_limits_effective,
     token_limits_info,
     token_list,
@@ -36,6 +37,7 @@ import { token_create,
     token_uses_list,
     upload_limits_check }                               from "./tokens.js"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
+import      fs              from "node:fs/promises"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
 import      { envs }        from "./config.js"
@@ -52,6 +54,7 @@ declare module "fastify" {
     interface FastifyRequest {
         xmeta?: XMetaFiles
         upload_token?: UploadTokenDB
+        storage_reserved?: number
     }
 }
 
@@ -395,25 +398,31 @@ async function udstreamHandler(request: FastifyRequest, reply: FastifyReply) {
     const declared_bytes = xmeta.files.reduce((sum, file) => sum + file.bytes, 0)
     let upl: { id: string, type: string }
     let total_bytes: number
+    let files: ReceivedFile[] = []
     try {
-        const parsed = await parseUploadStream(request.body as AsyncIterable<unknown>, xmeta)
+        const parsed = await parseUploadStream(request.body as AsyncIterable<unknown>, xmeta, getIncomingDir())
+        files = parsed.files
         total_bytes = parsed.total_bytes
-        upl = await receiveUploadReturnID(request, xmeta, parsed.files_buffers, token?.id_token)
+        upl = await receiveUploadReturnID(request, xmeta, files, token?.id_token)
     } catch (err) {
         if (token) {
             // the use was reserved in preHandler — give it back, the upload never landed
             await token_release(token.id_token)
             await token_use_log({
                 id_token: token.id_token, outcome: "failed", reason: err instanceof Error ? err.message : String(err),
-                files: xmeta.files.length, bytes: declared_bytes, issuer: token_issuer_get(request)
+                files: xmeta.files.length, bytes: declared_bytes, ...token_log_context(request)
             })
         }
         throw err
+    } finally {
+        storage_release(request.storage_reserved ?? 0)
+        // committed files were already renamed away; this only catches leftovers from a failed commit
+        await Promise.all(files.map(f => fs.rm(f.tmp_path, { force: true }).catch(() => {})))
     }
     if (token)
         await token_use_log({
             id_token: token.id_token, outcome: "ok", id_upload_pub: upl.id,
-            files: xmeta.files.length, bytes: total_bytes, issuer: token_issuer_get(request)
+            files: xmeta.files.length, bytes: total_bytes, ...token_log_context(request)
         })
     scopelog.info(
         `Received upload: '${xmeta.meta.title}' (${xmeta.files.length} files ` 
@@ -433,7 +442,7 @@ async function askMaxFileUploadSizeHandler(request: FastifyRequest, reply: Fasti
             token_guess_register(token_issuer_get(request), reason)
             await token_use_log({
                 id_token: token?.id_token ?? "unknown", outcome: "rejected", reason: `prerequest: ${reason}`,
-                files: 0, bytes: 0, issuer: token_issuer_get(request)
+                files: 0, bytes: 0, ...token_log_context(request)
             })
             return token_reply_rejected(reply, reason)
         }
@@ -583,7 +592,7 @@ const udstreamVal: RouteShorthandOptions = {
                 token_guess_register(token_issuer_get(request), reserved.reason)
                 await token_use_log({
                     id_token: reserved.id_token, outcome: "rejected", reason: reserved.reason,
-                    files: xmeta.files.length, bytes: declared_bytes, issuer: token_issuer_get(request)
+                    files: xmeta.files.length, bytes: declared_bytes, ...token_log_context(request)
                 })
                 return token_reply_rejected(reply, reserved.reason)
             }
@@ -596,12 +605,19 @@ const udstreamVal: RouteShorthandOptions = {
                 await token_release(request.upload_token.id_token)
                 await token_use_log({
                     id_token: request.upload_token.id_token, outcome: "rejected", reason: violation,
-                    files: xmeta.files.length, bytes: declared_bytes, issuer: token_issuer_get(request)
+                    files: xmeta.files.length, bytes: declared_bytes, ...token_log_context(request)
                 })
             }
             throw Object.assign(new Error(`Upload limits exceeded: ${violation}`), { statusCode: 400 })
         }
 
+        // the check above is a cheap early reject; this claims the space so concurrent uploads can't overbook it
+        const reserve_bytes = parseInt(request.headers["content-length"] as string)
+        if (!storage_reserve(reserve_bytes)) {
+            if (request.upload_token) await token_release(request.upload_token.id_token)
+            throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
+        }
+        request.storage_reserved = reserve_bytes
         request.xmeta = xmeta
     }
 }

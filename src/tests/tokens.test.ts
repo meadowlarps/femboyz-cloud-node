@@ -11,6 +11,7 @@ const {
     token_is_usable,
     token_limits_effective,
     token_limits_info,
+    token_supplied_hint,
     upload_limits_check
 } = await import("../tokens.js")
 
@@ -113,4 +114,10 @@ test("real but unusable tokens never count as guesses", () => {
         token_guess_register(issuer, "exhausted", NOW)
     }
     expect(token_authlimit.block_remaining_ms("8.8.8.8", NOW)).toBe(0)
+})
+
+test("supplied token hint masks the value and flags bad pastes", () => {
+    expect(token_supplied_hint("abcdEFGHijklMNOPqrstUVWXyz012345")).toBe("abcd…45 (32 chars)")
+    expect(token_supplied_hint("short123")).toBe("sh… (8 chars)")
+    expect(token_supplied_hint('"abcdEFGHijklMNOP"')).toBe('"abc…P" (18 chars, malformed)')
 })

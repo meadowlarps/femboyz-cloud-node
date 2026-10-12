@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify"
 import { StorageDBUploadInstanceSchema, type StorageDBUploadInstance, type XMetaFiles } from "./schema.js"
-import { deleteFile, writeFile } from "./storage.js"
+import { commitFile, deleteFile } from "./storage.js"
+import type { ReceivedFile } from "./stream.js"
 import { WASMagic } from "wasmagic"
 import { errorFileLogger, scope } from "./logger.js"
 import { getDB } from "./database.js"
@@ -204,17 +205,17 @@ export async function receiveLinkReturnID(request: FastifyRequest): Promise<stri
     return id_pub
 }
 
-export async function receiveUploadReturnID(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[], id_token?: string): Promise<{ id: string, type: string}> {
+export async function receiveUploadReturnID(request: FastifyRequest, _meta: XMetaFiles, _files: ReceivedFile[], id_token?: string): Promise<{ id: string, type: string}> {
     return withStorageMutationLock(() => receiveUploadUnlocked(request, _meta, _files, id_token))
 }
 
-async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles, _files: Buffer[], id_token?: string): Promise<{ id: string, type: string}> {
+async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles, _files: ReceivedFile[], id_token?: string): Promise<{ id: string, type: string}> {
     // DONE: check STORAGE_LIMIT_BYTES before writing -> done in API route handler to reject immediately on limit exceed
-    // DONE: write each buffer to STORAGE_DIR/<sha256>
+    // DONE: move each verified temp file to STORAGE_DIR/<sha256>
     // DONE: save document to MongoDB
 
     // console.debug("Received upload metadata:", _meta)
-    scopelog.debug(`Received file sizes: ${_files.map(f => f.length)}`)
+    scopelog.debug(`Received file sizes: ${_meta.files.map(f => f.bytes)}`)
 
     const mongoDocument: StorageDBUploadInstance = {
         id_pub: idGen(),
@@ -235,19 +236,18 @@ async function receiveUploadUnlocked(request: FastifyRequest, _meta: XMetaFiles,
 
     scopelog.debug(`Generated unique public ID: ${mongoDocument.id_pub}`)
 
-    // process files
-    await Promise.all(
-        _files.map((_file, index) => {  
-            mongoDocument.files.push({
-                filename:       _meta.files[index]!.filename,
-                size:           _meta.files[index]!.bytes,
-                mime:           magic.detect(_file),
-                hashkey256:     _meta.files[index]!.sha256,
-                stat_dl:        0
-            })
-            return writeFile(_meta.files[index]!.sha256, _file)
+    // process files — sequential so duplicate hashes within one upload can't both pass commitFile's dedupe check
+    for (const [index, _file] of _files.entries()) {
+        const xfile = _meta.files[index]!
+        mongoDocument.files.push({
+            filename:       xfile.filename,
+            size:           xfile.bytes,
+            mime:           magic.detect(_file.head),
+            hashkey256:     xfile.sha256,
+            stat_dl:        0
         })
-    )
+        await commitFile(_file.tmp_path, xfile.sha256, xfile.bytes)
+    }
 
     mongoDocument.type = typeClassify(mongoDocument.files.map(f => f.mime))
     scopelog.debug(`Classified upload type as: ${mongoDocument.type}`)

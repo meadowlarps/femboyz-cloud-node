@@ -150,6 +150,8 @@ export const TokenUseSchemaDB = z.object({
     files:          z.int().nonnegative(),
     bytes:          z.int().nonnegative(),
     issuer:         z.object({ ip: z.string(), ua: z.string(), uuid: z.string() }),
+    route:          z.string().optional(),                      // "GET /api/v2/maxfsize" etc.
+    supplied:       z.string().optional(),                      // masked hint of an unknown token, see token_supplied_hint
     when:           z.iso.datetime()
 })
 
