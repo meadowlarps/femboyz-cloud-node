@@ -2,66 +2,9 @@
 	import '$lib/styles/global.css'
 	import favicon from '$lib/assets/favicon.webp'
 	import logo from '$lib/assets/logo.webp'
-	import { page } from '$app/stores'
 	import AlertStack from '$lib/AlertStack.svelte'
 
-	const GALLERY_LOGO_TRIGGER_RATIO = 0.55
-
 	let { children } = $props()
-	let galleryInView = $state(false)
-	const miniLogo = $derived($page.route.id === '/[id=uploadid]' || galleryInView)
-
-	$effect(() => {
-		const isHome = $page.route.id === '/'
-		galleryInView = false
-		if (!isHome) return
-
-		let gallery: Element | undefined
-		let mutationObserver: MutationObserver | undefined
-		let syncFrame: number | undefined
-
-		function syncLogo() {
-			syncFrame = undefined
-			if (!gallery) return
-
-			const triggerY = window.innerHeight * GALLERY_LOGO_TRIGGER_RATIO
-			galleryInView = gallery.getBoundingClientRect().top <= triggerY
-		}
-
-		function scheduleSync() {
-			if (syncFrame !== undefined) return
-			syncFrame = requestAnimationFrame(syncLogo)
-		}
-
-		function observeGallery() {
-			gallery = document.querySelector('.gallery-section') ?? undefined
-			if (!gallery) return false
-
-			window.addEventListener('scroll', scheduleSync, { passive: true })
-			window.addEventListener('resize', scheduleSync)
-			syncLogo()
-			return true
-		}
-
-		if (!observeGallery()) {
-			mutationObserver = new MutationObserver(() => {
-				if (observeGallery()) mutationObserver?.disconnect()
-			})
-			mutationObserver.observe(document.querySelector('.page-content') ?? document.body, {
-				childList: true,
-				subtree: true
-			})
-		}
-
-		return () => {
-			if (gallery) {
-				window.removeEventListener('scroll', scheduleSync)
-				window.removeEventListener('resize', scheduleSync)
-			}
-			if (syncFrame !== undefined) cancelAnimationFrame(syncFrame)
-			mutationObserver?.disconnect()
-		}
-	})
 </script>
 
 <svelte:head>
@@ -70,7 +13,7 @@
 
 <div class="app-shell">
 	<header class="site-header">
-		<a class="brand" class:mini={miniLogo} href="/" aria-label="Go to home">
+		<a class="brand" href="/" aria-label="Go to home">
 			<img class="logo-img" src={logo} alt="femboyz.cloud">
 		</a>
 
@@ -103,9 +46,6 @@
 	}
 
 	.site-header {
-		position: sticky;
-		top: 0;
-		z-index: 10;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -120,7 +60,6 @@
 	.brand {
 		display: block;
 		width: 17.91rem;
-		transition: width 0.5s ease;
 	}
 
 	.brand .logo-img {
@@ -130,14 +69,6 @@
 
 	.brand:hover .logo-img {
 		transform: scale(1.03);
-	}
-
-	:global(.brand.mini) {
-		width: 7.5rem;
-	}
-
-	:global(.brand.mini:hover) {
-		width: 17.91rem;
 	}
 
 	.logo-img {

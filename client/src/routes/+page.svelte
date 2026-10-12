@@ -484,11 +484,10 @@
             </label>
         </div>
 
-        <div in:slide out:slideOut>
-            <label class="form-field">
-                {#if title.length > 0}
+        {#if title.length > 0}
+            <div in:slide out:slideOut>
+                <label class="form-field">
                     <textarea
-                        in:slide out:slideOut
                         bind:value={description}
                         name="description"
                         rows="3"
@@ -500,9 +499,9 @@
                             {description.length}/{uploadLimits.max_desc_length}
                         </span>
                     {/if}
-                {/if}
-            </label>
-        </div>
+                </label>
+            </div>
+        {/if}
 
         <ul in:slide out:slideOut class="file-list" aria-label="Selected files">
             {#each files as file, index (fileKeys.get(file))}
@@ -815,7 +814,8 @@
     }
 
     /* spacing via margins, not gap: slide animates margins, a parent's gap snaps shut only once the node is removed */
-    .upload-field > * + * {
+    /* doubled class lifts specificity so `margin: 0` resets on .file-list / .error-message don't swallow the spacing */
+    .upload-field.upload-field > * + * {
         margin-top: 1rem;
     }
 
