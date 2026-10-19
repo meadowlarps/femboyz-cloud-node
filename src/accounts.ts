@@ -18,6 +18,8 @@ import {
     stalwart_account_destroy,
     stalwart_account_update,
     stalwart_account_usage,
+    stalwart_new_senders_change,
+    stalwart_new_senders_get,
     stalwart_redirect_apply
 } from "./stalwart.js"
 import {
@@ -477,6 +479,8 @@ export async function signup(input: SignupInput) {
     }
 
     scopelog.info(`Signup: ${username} (${user.id_user}) with invite ${invite.id}${external ? ", external email verified" : ""}`)
+    // Until the next periodic sync puts them on the list, the account only has the regular limits.
+    void new_senders_sync().catch(err => errorFileLogger.error({ err }, `New-sender sync after signup of ${username} failed`))
     return { username, email: user_mail_address(user) }
 }
 
@@ -626,7 +630,7 @@ async function redirect_bounce_register_locked(username: string, recipient_key: 
 
 function user_admin_view(user: UserDB) {
     const { password_hash: _, ...rest } = user
-    return { ...rest, email: user_mail_address(user) }
+    return { ...rest, email: user_mail_address(user), new_sender_until: new_sender_until(user) }
 }
 
 export async function user_list(search: string) {
@@ -692,6 +696,36 @@ export async function user_delete(id_user: string): Promise<boolean> {
         scopelog.warn(`Admin queued deletion of ${user.username} (${id_user}); authentication disabled`)
         return true
     })
+}
+
+// ---- NEW SENDERS ----
+
+/** When the stricter outbound throttles stop applying, or null once they have. */
+export function new_sender_until(user: Pick<UserDB, "created">, now = Date.now()): string | null {
+    const until = Date.parse(user.created) + envs.MAIL_NEW_SENDER_DAYS * 24 * 3600 * 1000
+    return until > now ? new Date(until).toISOString() : null
+}
+
+let new_senders_running: Promise<void> = Promise.resolve()
+
+/** Makes Stalwart's new-sender list match the accounts younger than MAIL_NEW_SENDER_DAYS.
+ * Runs at startup, every few minutes and after signups; calls are serialized. */
+export function new_senders_sync(now = Date.now()): Promise<void> {
+    const run = new_senders_running.then(() => new_senders_sync_now(now))
+    new_senders_running = run.catch(() => {})
+    return run
+}
+
+async function new_senders_sync_now(now: number) {
+    const cutoff = now_iso(now - envs.MAIL_NEW_SENDER_DAYS * 24 * 3600 * 1000)
+    const young = await users().find(
+        { created: { $gt: cutoff }, status: { $ne: "deleting" }, "services.mail.stalwart_id": { $ne: null } },
+        { projection: { _id: 0, username: 1 } }).toArray()
+    const wanted = new Set(young.map(user => user_mail_address(user as Pick<UserDB, "username">)))
+    const current = await stalwart_new_senders_get()
+    const add = [...wanted].filter(address => !current.has(address))
+    const remove = [...current].filter(([address]) => !wanted.has(address)).map(([, id]) => id)
+    await stalwart_new_senders_change(add, remove)
 }
 
 /** Called at startup and once a minute. Failures stay queued for the next attempt. */

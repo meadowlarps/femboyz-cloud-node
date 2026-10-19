@@ -26,7 +26,7 @@ The notification email links to `/admin?tab=requests&id=<id>`.
 
 | Route | |
 | :--- | :--- |
-| `GET /api/v2/admin/account/users?search=` | `{ "items": User[] }` (≤ 500, newest first). `search` matches username or external email. No password hashes. |
+| `GET /api/v2/admin/account/users?search=` | `{ "items": User[] }` (≤ 500, newest first). `search` matches username or external email. No password hashes. `new_sender_until` is when the stricter new-sender throttles end (ISO), or `null` once they have (DEPLOYMENT.md 16.1). |
 | `PATCH /api/v2/admin/account/users/:id` | `{ "status"?: "active" \| "disabled", "quota_bytes"? }`. Disabling withdraws Stalwart's `authenticate` permission, which refuses every login and token at once, and deletes the user's site and OIDC sessions. |
 | `DELETE /api/v2/admin/account/users/:id` | Immediately disables authentication, ends sessions and hides the user. After 11 minutes, destroys the mailbox and user. The delay prevents a valid old JWT from recreating the mailbox through Stalwart's automatic provisioning. Deletions survive API restarts and are retried once a minute. |
 

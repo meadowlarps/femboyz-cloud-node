@@ -11,6 +11,7 @@
         external_email: { address: string; verified_at: string } | null
         status: 'active' | 'disabled'
         created: string
+        new_sender_until: string | null
         invite_id: string | null
         services: {
             mail: {
@@ -140,6 +141,7 @@
                     <div><dt>Forwarding</dt><dd>{redirectText(user)}</dd></div>
                     <div><dt>Quota</dt><dd>{formatFileSize(user.services.mail.quota_bytes)}</dd></div>
                     <div><dt>Joined</dt><dd>{formatDate(user.created)}</dd></div>
+                    <div><dt>Sending limits</dt><dd>{user.new_sender_until ? `New until ${formatDate(user.new_sender_until)}` : 'Regular'}</dd></div>
                 </dl>
             </article>
         {/each}
