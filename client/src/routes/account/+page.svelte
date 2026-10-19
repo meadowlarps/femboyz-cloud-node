@@ -244,7 +244,7 @@
                     {#if emailError}<p class="acct-error" role="alert" transition:slide={reveal}>{emailError}</p>{/if}
                     <div class="acct-actions">
                         <button class="fb-button" type="submit" disabled={emailBusy || cooldown > 0 || !address.trim()}>
-                            {emailBusy ? 'Working…' : cooldown > 0 ? `Resend in ${cooldown}s` : codeSentTo === address.trim() ? 'Resend code' : 'Send code'}
+                            {emailBusy ? 'Working…' : cooldown > 0 ? `Resend in ${cooldown}s` : codeSentTo && codeSentTo === address.trim() ? 'Resend code' : 'Send code'}
                         </button>
                         <button class="acct-quiet" type="button" onclick={() => (editing = false)} disabled={emailBusy}>Cancel</button>
                     </div>
