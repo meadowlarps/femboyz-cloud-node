@@ -25,6 +25,7 @@ import {
     signup,
     signup_email_code,
     user_delete,
+    user_deletions_finish,
     user_list,
     user_login_verify,
     user_update,
@@ -146,6 +147,10 @@ function account_error_handler(err: FastifyError | AccountError, request: Fastif
 export async function account_routes_register(server: FastifyInstance, admin_auth: preHandlerHookHandler) {
     const provider = oidc_provider_create()
     oidc_mount(server, provider)
+    const deletions = setInterval(() => { void user_deletions_finish().catch(err => errorFileLogger.error({ err }, "Account deletion worker failed")) }, 60_000)
+    deletions.unref()
+    server.addHook("onClose", async () => { clearInterval(deletions) })
+    await user_deletions_finish()
 
     await server.register(async app => {
         app.setErrorHandler(account_error_handler)

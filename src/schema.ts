@@ -198,7 +198,8 @@ export const UserSchemaDB = z.object({
     username:       z.string(),                                 // lowercase, also the mail local part, immutable
     password_hash:  z.string(),                                 // argon2id PHC string
     external_email: ExternalEmailSchema.nullable(),
-    status:         z.enum(["active", "disabled"]),
+    status:         z.enum(["active", "disabled", "deleting"]),
+    delete_after:   z.iso.datetime().optional(),                // disabled until existing mail JWTs expire
     created:        z.iso.datetime(),
     invite_id:      z.string().nullable(),
     services: z.object({

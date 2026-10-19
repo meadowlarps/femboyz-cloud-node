@@ -1305,6 +1305,10 @@ The Bulwark client (`OIDC_CLIENT_BULWARK_*`) is added in phase 3.
 - `OIDC_JWKS_FILE` holds the provider's private signing key. The API creates
   it on first start (mode 600). It is ignored by Git; back it up with the other
   secrets.
+- Install the updated `deploy/mail/backup.sh` as `/usr/local/sbin/femboyz-mail-backup`.
+  Once the signing key exists, the nightly encrypted restic snapshot also includes
+  a MongoDB dump, `.env.prod`, and `oidc-jwks.json`. Run a backup after enabling
+  accounts and test restoring the dump and signing keys.
 - **Rotating the signing key:** `npm run oidc:keygen` prints a new key. Put it
   first in `keys`, restart, and remove the old entry a day later. Tokens signed
   with the old key stay valid until then.
@@ -1376,6 +1380,12 @@ refuses every internal account and alias name at signup
 there first.
 
 ### 14.7 Verification
+
+Account deletion disables login immediately and destroys the mailbox after 11
+minutes, once existing mail JWTs have expired. The API retries persisted deletion
+jobs at startup and once a minute. This delay prevents Stalwart from recreating a
+deleted mailbox from an old token. Run only one API process: account mutation and
+code-send locks, like `authlimit`, are process-local.
 
 1. `/admin` → Invites → create an invite with your external address, open the
    link, sign up.

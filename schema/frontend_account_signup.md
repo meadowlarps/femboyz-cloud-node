@@ -65,7 +65,7 @@ Usernames: `^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$`, no `..`, not reserved. The res
 
 `201 { "username": "alice", "email": "alice@femboyz.cloud" }`. The client then sends the user to `session/start` to sign in.
 
-Order: validate username and password → check the code → reserve the invite atomically for 2 minutes → insert the user → create the Stalwart mailbox (quota from the invite) → mark the invite used. A failed mailbox removes the user and releases the invite (`502 mailbox_failed`).
+Order: validate username and password → check and consume the code → reserve the invite atomically for 2 minutes → insert a disabled user → create the Stalwart mailbox (quota from the invite) → recheck revocation and mark the invite used → activate the user. Failures remove any created mailbox before releasing the username and invite (`502 mailbox_failed`). If mailbox cleanup fails, the disabled reservation is kept for admin repair. A consumed verification code must be resent after a failed signup.
 
 | Error | |
 | :--- | :--- |

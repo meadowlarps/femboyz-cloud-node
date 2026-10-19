@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type KoaContextWithOIDC } from "oidc-provider"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
-import { envs, site_origin } from "./config.js"
+import { envs, MAIL_ACCESS_TOKEN_TTL_SECONDS, site_origin } from "./config.js"
 import { getDB } from "./database.js"
 import { errorFileLogger, scope } from "./logger.js"
 import { user_find_by_id, user_mail_address } from "./accounts.js"
@@ -225,7 +225,7 @@ export function oidc_provider_create(): Provider {
                         scope: "openid email profile offline_access",
                         audience: "stalwart",
                         accessTokenFormat: "jwt",
-                        accessTokenTTL: 10 * 60,
+                        accessTokenTTL: MAIL_ACCESS_TOKEN_TTL_SECONDS,
                         jwt: { sign: { alg: "RS256" } }
                     }
                 }
@@ -235,7 +235,7 @@ export function oidc_provider_create(): Provider {
         async extraTokenClaims(_ctx, token) {
             if (!("accountId" in token) || typeof token.accountId !== "string") return undefined
             const user = await user_find_by_id(token.accountId)
-            if (!user) return undefined
+            if (!user || user.status !== "active") throw new errors.InvalidGrant("Account is inactive")
             const { sub: _, ...claims } = account_claims(user)
             return claims
         },
@@ -243,7 +243,7 @@ export function oidc_provider_create(): Provider {
         // that never asks. Refresh tokens still end with the provider session (expiresWithSession).
         issueRefreshToken: async (_ctx, client) => client.grantTypeAllowed("refresh_token"),
         ttl: {
-            AccessToken: 10 * 60,
+            AccessToken: MAIL_ACCESS_TOKEN_TTL_SECONDS,
             AuthorizationCode: 60,
             IdToken: 60 * 60,
             Interaction: 60 * 60,

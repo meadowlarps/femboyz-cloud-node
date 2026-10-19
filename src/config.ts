@@ -83,6 +83,7 @@ function list(value: string | undefined): string[] {
 }
 
 export const ACCOUNTS_ENABLED = envs.OIDC_ISSUER !== undefined && envs.OIDC_ISSUER !== ""
+export const MAIL_ACCESS_TOKEN_TTL_SECONDS = 10 * 60
 
 /** The site that hosts /login, /signup and /account: the issuer's origin. */
 export function site_origin(): string {

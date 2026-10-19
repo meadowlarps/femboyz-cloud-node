@@ -28,7 +28,7 @@ The notification email links to `/admin?tab=requests&id=<id>`.
 | :--- | :--- |
 | `GET /api/v2/admin/account/users?search=` | `{ "items": User[] }` (≤ 500, newest first). `search` matches username or external email. No password hashes. |
 | `PATCH /api/v2/admin/account/users/:id` | `{ "status"?: "active" \| "disabled", "quota_bytes"? }`. Disabling withdraws Stalwart's `authenticate` permission, which refuses every login and token at once, and deletes the user's site and OIDC sessions. |
-| `DELETE /api/v2/admin/account/users/:id` | Destroys the Stalwart account with all its mail, then the user. |
+| `DELETE /api/v2/admin/account/users/:id` | Immediately disables authentication, ends sessions and hides the user. After 11 minutes, destroys the mailbox and user. The delay prevents a valid old JWT from recreating the mailbox through Stalwart's automatic provisioning. Deletions survive API restarts and are retried once a minute. |
 
 `:id` is `id_user`.
 

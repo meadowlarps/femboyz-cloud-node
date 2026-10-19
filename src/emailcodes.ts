@@ -3,6 +3,7 @@ import { envs } from "./config.js"
 import { getDB } from "./database.js"
 import { scope } from "./logger.js"
 import { mail_email_code, mail_send } from "./mailer.js"
+import { account_lock } from "./accountLock.js"
 
 const scopelog = scope("emailcodes")
 
@@ -65,6 +66,10 @@ function retry_after(oldest: Date | undefined, window_ms: number, now: number): 
  * cooldown and the per-subject and per-address limits; per-IP limits live in the routes.
  */
 export async function code_send(subject: CodeSubject, address: string, address_key: string, now = Date.now()): Promise<CodeSendResult> {
+    return account_lock([`code-subject:${subject}`, `code-address:${address_key}`], () => code_send_locked(subject, address, address_key, now))
+}
+
+async function code_send_locked(subject: CodeSubject, address: string, address_key: string, now: number): Promise<CodeSendResult> {
     const collection = codes_collection()
     const recent = await collection
         .find({ subject, created: { $gt: new Date(now - DAY) } }, { projection: { created: 1 } })
@@ -107,9 +112,8 @@ export async function code_send(subject: CodeSubject, address: string, address_k
 }
 
 /**
- * Checks `code` against the live code for (subject, address). A wrong guess spends one of
- * EMAIL_CODE_MAX_ATTEMPTS; the last one burns the code. A match is not consumed here: call
- * code_consume once the change it guards has gone through.
+ * Atomically reserves an attempt before comparing, then consumes a matching code before
+ * returning success. Parallel guesses cannot bypass the budget or reuse a match.
  */
 export async function code_check(subject: CodeSubject, address_key: string, code: string, now = Date.now()): Promise<CodeCheckResult> {
     const collection = codes_collection()
@@ -118,23 +122,18 @@ export async function code_check(subject: CodeSubject, address_key: string, code
     if (live.expires.getTime() <= now) return { ok: false, reason: "expired" }
     if (live.attempts >= envs.EMAIL_CODE_MAX_ATTEMPTS) return { ok: false, reason: "burned" }
 
-    if (/^\d{4}$/.test(code) && hmac_equal(code_hmac(code, address_key, subject), live.code_hmac))
-        return { ok: true, id: live.id }
-
-    // Conditional increment, so parallel guesses can't share one attempt.
     const spent = await collection.findOneAndUpdate(
-        { id: live.id, used: false, attempts: { $lt: envs.EMAIL_CODE_MAX_ATTEMPTS } },
+        { id: live.id, used: false, expires: { $gt: new Date(now) }, attempts: { $lt: envs.EMAIL_CODE_MAX_ATTEMPTS } },
         { $inc: { attempts: 1 } },
         { returnDocument: "after" })
-    if (!spent || spent.attempts >= envs.EMAIL_CODE_MAX_ATTEMPTS) {
+    if (!spent) return { ok: false, reason: "burned" }
+    if (/^\d{4}$/.test(code) && hmac_equal(code_hmac(code, address_key, subject), spent.code_hmac)) {
+        const claimed = await collection.updateOne({ id: spent.id, used: false }, { $set: { used: true } })
+        return claimed.modifiedCount === 1 ? { ok: true, id: spent.id } : { ok: false, reason: "invalid" }
+    }
+    if (spent.attempts >= envs.EMAIL_CODE_MAX_ATTEMPTS) {
         await collection.updateOne({ id: live.id }, { $set: { used: true } })
         return { ok: false, reason: "burned" }
     }
     return { ok: false, reason: "invalid" }
-}
-
-/** Marks a checked code used. Returns false if something else consumed it first. */
-export async function code_consume(id: string): Promise<boolean> {
-    const result = await codes_collection().updateOne({ id, used: false }, { $set: { used: true } })
-    return result.modifiedCount === 1
 }

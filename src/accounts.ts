@@ -1,10 +1,10 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { hash as argon2_hash, verify as argon2_verify } from "@node-rs/argon2"
-import { envs, site_origin } from "./config.js"
+import { envs, MAIL_ACCESS_TOKEN_TTL_SECONDS, site_origin } from "./config.js"
 import { getDB } from "./database.js"
 import { errorFileLogger, scope } from "./logger.js"
-import { code_check, code_consume, code_send, type CodeSendResult, type CodeSubject } from "./emailcodes.js"
+import { code_check, code_send, type CodeSendResult, type CodeSubject } from "./emailcodes.js"
 import {
     mail_external_email_changed,
     mail_invite,
@@ -29,6 +29,8 @@ import {
     type InviteDB,
     type UserDB
 } from "./schema.js"
+
+import { account_lock } from "./accountLock.js"
 
 const scopelog = scope("accounts")
 
@@ -405,14 +407,12 @@ export async function signup(input: SignupInput) {
     if (await username_taken(username)) throw new AccountError(409, "username_taken")
 
     let external: ExternalEmail | null = null
-    let code_id: string | null = null
     if (input.external_email) {
         const { address, key } = email_normalize(input.external_email.address)
         if (!await external_email_free(key)) throw new AccountError(409, "email_taken")
         if (!invite_preverifies(preview, key)) {
             const checked = await code_check(`invite:${preview.id}`, key, input.external_email.code ?? "")
             if (!checked.ok) throw new AccountError(400, `code_${checked.reason}`)
-            code_id = checked.id
         }
         external = { address, key, verified_at: now_iso() }
     }
@@ -426,7 +426,7 @@ export async function signup(input: SignupInput) {
         username,
         password_hash: password_hash_value,
         external_email: external,
-        status: "active",
+        status: "disabled",
         created: now_iso(),
         invite_id: invite.id,
         services: {
@@ -452,9 +452,23 @@ export async function signup(input: SignupInput) {
         user.services.mail.stalwart_id = await stalwart_account_create({
             username, id_user: user.id_user, quota_bytes: user.services.mail.quota_bytes
         })
-        await users().updateOne({ id_user: user.id_user }, { $set: { "services.mail.stalwart_id": user.services.mail.stalwart_id } })
+        const finalized = await invites().updateOne(
+            { id: invite.id, used: false, revoked: false, reserved_until: invite.reserved_until },
+            { $set: { used: true, used_by: user.id_user, used_at: now_iso(), reserved_until: null } })
+        if (finalized.modifiedCount !== 1) throw new AccountError(409, "invite_invalid")
+        await users().updateOne({ id_user: user.id_user }, { $set: { status: "active", "services.mail.stalwart_id": user.services.mail.stalwart_id } })
     } catch (err) {
-        // roll back: the username and invite become available again
+        // Remove an already-created mailbox before releasing its username and invite.
+        if (user.services.mail.stalwart_id) {
+            try { await stalwart_account_destroy(user.services.mail.stalwart_id) }
+            catch (cleanup) {
+                errorFileLogger.error({ err: cleanup }, `Signup mailbox rollback failed for ${username}; keeping the disabled reservation`)
+                throw new AccountError(502, "mailbox_failed")
+            }
+        }
+        await invites().updateOne({ id: invite.id, used_by: user.id_user }, {
+            $set: { used: false, used_by: null, used_at: null }
+        })
         await users().deleteOne({ id_user: user.id_user })
             .catch(cleanup => errorFileLogger.error({ err: cleanup }, `Signup rollback failed for ${username}`))
         await invite_release(invite.id)
@@ -462,8 +476,6 @@ export async function signup(input: SignupInput) {
         throw new AccountError(502, "mailbox_failed")
     }
 
-    await invites().updateOne({ id: invite.id }, { $set: { used: true, used_by: user.id_user, used_at: now_iso(), reserved_until: null } })
-    if (code_id) await code_consume(code_id)
     scopelog.info(`Signup: ${username} (${user.id_user}) with invite ${invite.id}${external ? ", external email verified" : ""}`)
     return { username, email: user_mail_address(user) }
 }
@@ -487,7 +499,20 @@ export async function me_view(user: UserDB) {
 
 const user_subject = (user: UserDB): CodeSubject => `user:${user.id_user}`
 
+async function with_current_user<T>(id_user: string, work: (user: UserDB) => Promise<T>, active = true): Promise<T> {
+    return account_lock([`account:${id_user}`], async () => {
+        const user = await user_find_by_id(id_user)
+        if (!user || user.status === "deleting") throw new AccountError(404, "not_found")
+        if (active && user.status !== "active") throw new AccountError(401, "not_signed_in")
+        return work(user)
+    })
+}
+
 export async function me_email_send(user: UserDB, address_input: string): Promise<CodeSendResult> {
+    return with_current_user(user.id_user, current => me_email_send_locked(current, address_input))
+}
+
+async function me_email_send_locked(user: UserDB, address_input: string): Promise<CodeSendResult> {
     const { address, key } = email_normalize(address_input)
     if (user.external_email?.key === key) throw new AccountError(409, "email_unchanged")
     if (!await external_email_free(key, user.id_user)) throw new AccountError(409, "email_taken")
@@ -503,6 +528,10 @@ async function redirect_sync(user: UserDB, redirect: UserDB["services"]["mail"][
 
 /** Verifies the code and makes the address the account's external email. */
 export async function me_email_verify(user: UserDB, address_input: string, code: string) {
+    return with_current_user(user.id_user, current => me_email_verify_locked(current, address_input, code))
+}
+
+async function me_email_verify_locked(user: UserDB, address_input: string, code: string) {
     const { address, key } = email_normalize(address_input)
     const checked = await code_check(user_subject(user), key, code)
     if (!checked.ok) throw new AccountError(400, `code_${checked.reason}`)
@@ -515,10 +544,10 @@ export async function me_email_verify(user: UserDB, address_input: string, code:
     try {
         await users().updateOne({ id_user: user.id_user }, { $set: { external_email: external, "services.mail.redirect": redirect } })
     } catch (err) {
+        if (redirect.enabled) await redirect_sync(user, user.services.mail.redirect, user.external_email)
         if (is_duplicate_key(err, "external_email.key")) throw new AccountError(409, "email_taken")
         throw err
     }
-    await code_consume(checked.id)
 
     const old = user.external_email
     if (old) await mail_send(mail_external_email_changed(old.address, user.username, address)).catch(() => {})
@@ -527,22 +556,40 @@ export async function me_email_verify(user: UserDB, address_input: string, code:
 }
 
 export async function me_email_remove(user: UserDB, password: string) {
+    return with_current_user(user.id_user, current => me_email_remove_locked(current, password))
+}
+
+async function me_email_remove_locked(user: UserDB, password: string) {
     if (!await password_verify(user.password_hash, password)) throw new AccountError(403, "password_wrong")
     const old = user.external_email
     if (!old) throw new AccountError(409, "no_external_email")
     const redirect = { ...user.services.mail.redirect, enabled: false, bounces: 0 }
     if (user.services.mail.redirect.enabled) await redirect_sync(user, redirect, null)
-    await users().updateOne({ id_user: user.id_user }, { $set: { external_email: null, "services.mail.redirect": redirect } })
+    try {
+        await users().updateOne({ id_user: user.id_user }, { $set: { external_email: null, "services.mail.redirect": redirect } })
+    } catch (err) {
+        await redirect_sync(user, user.services.mail.redirect, user.external_email)
+        throw err
+    }
     await mail_send(mail_external_email_changed(old.address, user.username, null)).catch(() => {})
     scopelog.info(`${user.username} removed their external email`)
     return me_view({ ...user, external_email: null, services: { mail: { ...user.services.mail, redirect } } })
 }
 
 export async function me_redirect_update(user: UserDB, change: { enabled: boolean, keep_copy: boolean }) {
+    return with_current_user(user.id_user, current => me_redirect_update_locked(current, change))
+}
+
+async function me_redirect_update_locked(user: UserDB, change: { enabled: boolean, keep_copy: boolean }) {
     if (change.enabled && !user.external_email) throw new AccountError(409, "no_external_email")
     const redirect = { enabled: change.enabled, keep_copy: change.keep_copy, bounces: 0 }
     await redirect_sync(user, redirect, user.external_email)
-    await users().updateOne({ id_user: user.id_user }, { $set: { "services.mail.redirect": redirect } })
+    try {
+        await users().updateOne({ id_user: user.id_user }, { $set: { "services.mail.redirect": redirect } })
+    } catch (err) {
+        await redirect_sync(user, user.services.mail.redirect, user.external_email)
+        throw err
+    }
     scopelog.info(`${user.username} turned redirect ${change.enabled ? `on (${change.keep_copy ? "keep copy" : "no copy"})` : "off"}`)
     return me_view({ ...user, services: { mail: { ...user.services.mail, redirect } } })
 }
@@ -552,6 +599,12 @@ export async function me_redirect_update(user: UserDB, change: { enabled: boolea
  * is turned off and the user is told in their femboyz mailbox, which now keeps everything.
  */
 export async function redirect_bounce_register(username: string, recipient_key: string): Promise<void> {
+    const user = await user_find_by_username(username)
+    if (!user || user.status !== "active") return
+    return with_current_user(user.id_user, () => redirect_bounce_register_locked(username, recipient_key))
+}
+
+async function redirect_bounce_register_locked(username: string, recipient_key: string): Promise<void> {
     const document = await users().findOneAndUpdate(
         { username, "external_email.key": recipient_key, "services.mail.redirect.enabled": true },
         { $inc: { "services.mail.redirect.bounces": 1 } },
@@ -583,7 +636,7 @@ export async function user_list(search: string) {
             { "external_email.key": { $regex: search.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") } }
         ] }
         : {}
-    const documents = await users().find(filter, { projection: { _id: 0 } }).sort({ created: -1 }).limit(500).toArray()
+    const documents = await users().find({ $and: [filter, { status: { $ne: "deleting" } }] }, { projection: { _id: 0 } }).sort({ created: -1 }).limit(500).toArray()
     return { items: documents.map(document => user_admin_view(user_parse(document))) }
 }
 
@@ -596,8 +649,11 @@ async function user_sessions_end(id_user: string) {
 }
 
 export async function user_update(id_user: string, change: { status?: "active" | "disabled" | undefined, quota_bytes?: number | undefined }) {
-    const user = await user_find_by_id(id_user)
-    if (!user) throw new AccountError(404, "not_found")
+    return with_current_user(id_user, user => user_update_locked(user, change), false)
+}
+
+async function user_update_locked(user: UserDB, change: { status?: "active" | "disabled" | undefined, quota_bytes?: number | undefined }) {
+    const id_user = user.id_user
     const stalwart_id = user.services.mail.stalwart_id
     if (stalwart_id) {
         const stalwart_change = {
@@ -616,14 +672,36 @@ export async function user_update(id_user: string, change: { status?: "active" |
     return user_admin_view(user_parse(document))
 }
 
-/** Deletes the account and its mailbox with all mail in it. */
+/** Disable immediately, then destroy after every previously issued mail JWT has expired.
+ * Stalwart otherwise provisions the deleted username again from an old, valid JWT.
+ * The deletion deadline is persistent so restarts cannot lose queued deletions.
+ */
 export async function user_delete(id_user: string): Promise<boolean> {
-    const user = await user_find_by_id(id_user)
-    if (!user) return false
-    if (user.services.mail.stalwart_id)
-        await stalwart_account_destroy(user.services.mail.stalwart_id).catch(() => { throw new AccountError(502, "mailbox_failed") })
-    await users().deleteOne({ id_user })
-    await user_sessions_end(id_user)
-    scopelog.warn(`Admin deleted user ${user.username} (${id_user})`)
-    return true
+    return account_lock([`account:${id_user}`], async () => {
+        const user = await user_find_by_id(id_user)
+        if (!user) return false
+        if (user.status === "deleting") return true
+        if (user.services.mail.stalwart_id)
+            await stalwart_account_update(user.services.mail.stalwart_id, { enabled: false })
+                .catch(() => { throw new AccountError(502, "mailbox_failed") })
+        await users().updateOne({ id_user }, { $set: {
+            status: "deleting",
+            delete_after: now_iso(Date.now() + (MAIL_ACCESS_TOKEN_TTL_SECONDS + 60) * 1000)
+        } })
+        await user_sessions_end(id_user)
+        scopelog.warn(`Admin queued deletion of ${user.username} (${id_user}); authentication disabled`)
+        return true
+    })
+}
+
+/** Called at startup and once a minute. Failures stay queued for the next attempt. */
+export async function user_deletions_finish(now = Date.now()): Promise<void> {
+    const due = await users().find({ status: "deleting", delete_after: { $lte: now_iso(now) } }).toArray()
+    for (const entry of due) await account_lock([`account:${entry.id_user}`], async () => {
+        const user = await user_find_by_id(entry.id_user)
+        if (!user || user.status !== "deleting") return
+        if (user.services.mail.stalwart_id) await stalwart_account_destroy(user.services.mail.stalwart_id)
+        await users().deleteOne({ id_user: user.id_user, status: "deleting" })
+        scopelog.warn(`Finished deletion of ${user.username} (${user.id_user})`)
+    }).catch(err => errorFileLogger.error({ err }, `Failed to finish deletion of ${entry.id_user}`))
 }

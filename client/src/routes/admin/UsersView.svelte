@@ -86,12 +86,12 @@
     }
 
     function remove(user: User) {
-        const typed = prompt(`This deletes ${user.email} and ALL its mail, for good. Type the username to confirm.`)
+        const typed = prompt(`This disables ${user.email} now and deletes ALL its mail in about 11 minutes, for good. Type the username to confirm.`)
         if (typed !== user.username) return
         return mutate(user, async () => {
             await adminFetch(`/api/v2/admin/account/users/${encodeURIComponent(user.id_user)}`, { method: 'DELETE' })
             items = items.filter((item) => item.id_user !== user.id_user)
-            spawnAlert('success', `Deleted ${user.username}`)
+            spawnAlert('success', `Deletion scheduled for ${user.username}`)
         })
     }
 

@@ -14,6 +14,8 @@ set -eu
 ENV_FILE=/etc/femboyz-mail/backup.env
 COMPOSE=/etc/femboyz-mail/docker-compose.yml
 VOLUMES=/var/lib/docker/volumes
+ACCOUNT_BACKUP=/var/backups/femboyz-cloud
+APP_DIR=/srv/femboyz-cloud
 
 if [ "${1:-}" = "set-secret" ]; then
     printf 'S3 secret key: ' >&2
@@ -41,6 +43,17 @@ esac
 
 # RocksDB must not be copied while it is written. Stop Stalwart for the
 # duration of the snapshot; sending servers retry, so no mail is lost.
+# Back up accounts and provider secrets with the mailboxes once accounts are enabled.
+set --
+if [ -f "$APP_DIR/oidc-jwks.json" ]; then
+    install -d -m 700 "$ACCOUNT_BACKUP"
+    docker exec femboyz-mongodb sh -c 'exec mongodump --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --archive --gzip' \
+        > "$ACCOUNT_BACKUP/mongo.archive.gz.tmp"
+    chmod 600 "$ACCOUNT_BACKUP/mongo.archive.gz.tmp"
+    mv "$ACCOUNT_BACKUP/mongo.archive.gz.tmp" "$ACCOUNT_BACKUP/mongo.archive.gz"
+    set -- "$ACCOUNT_BACKUP/mongo.archive.gz" "$APP_DIR/.env.prod" "$APP_DIR/oidc-jwks.json"
+fi
+
 restart() { docker compose -f "$COMPOSE" start stalwart >/dev/null; }
 docker compose -f "$COMPOSE" stop stalwart >/dev/null
 trap restart EXIT
@@ -50,7 +63,7 @@ restic backup --host femboyz-cloud-node-a --tag stalwart \
     --exclude /etc/femboyz-mail/restic-password \
     "$VOLUMES/femboyz-mail_stalwart_etc/_data" \
     "$VOLUMES/femboyz-mail_stalwart_data/_data" \
-    /etc/femboyz-mail
+    /etc/femboyz-mail "$@"
 
 restart
 trap - EXIT

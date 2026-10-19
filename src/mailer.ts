@@ -10,12 +10,18 @@ let transport: Transporter | null = null
 
 // Without SMTP_HOST (dev) messages are only logged, codes and links included.
 function transport_get(): Transporter | null {
-    if (!envs.SMTP_HOST) return null
+    if (!envs.SMTP_HOST) {
+        if (process.env.NODE_ENV === "prod") throw Object.assign(new Error("SMTP_HOST is required in production"), { statusCode: 503 })
+        return null
+    }
     transport ??= nodemailer.createTransport({
         host: envs.SMTP_HOST,
         port: envs.SMTP_PORT,
         secure: envs.SMTP_SECURE,
         requireTLS: true,
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 30_000,
         ...(envs.SMTP_USER ? { auth: { user: envs.SMTP_USER, pass: envs.SMTP_PASS ?? "" } } : {}),
         tls: {
             ...(envs.SMTP_TLS_SERVERNAME ? { servername: envs.SMTP_TLS_SERVERNAME } : {}),

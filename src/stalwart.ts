@@ -41,7 +41,7 @@ async function http(path: string, init: RequestInit): Promise<any> {
     catch { fail(`request ${path}`, `invalid JSON: ${text.slice(0, 300)}`) }
 }
 
-async function jmap(action: string, calls: MethodCall[]): Promise<MethodResponse[]> {
+async function jmap(action: string, calls: MethodCall[], missing_destroy_ok = false): Promise<MethodResponse[]> {
     const body = await http("/jmap/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -51,8 +51,11 @@ async function jmap(action: string, calls: MethodCall[]): Promise<MethodResponse
     if (!Array.isArray(responses)) fail(action, body)
     for (const [name, result] of responses) {
         if (name === "error") fail(action, result)
-        for (const key of ["notCreated", "notUpdated", "notDestroyed"])
-            if (result[key] && Object.keys(result[key]).length > 0) fail(action, result[key])
+        for (const key of ["notCreated", "notUpdated", "notDestroyed"]) {
+            const failures = Object.values(result[key] ?? {}) as { type?: string }[]
+            if (failures.some(error => !(missing_destroy_ok && key === "notDestroyed" && error.type === "notFound")))
+                fail(action, result[key])
+        }
     }
     return responses
 }
@@ -105,7 +108,7 @@ export async function stalwart_account_update(id: string, change: { enabled?: bo
 }
 
 export async function stalwart_account_destroy(id: string): Promise<void> {
-    await jmap(`destroy account ${id}`, [["x:Account/set", { destroy: [id] }, "d"]])
+    await jmap(`destroy account ${id}`, [["x:Account/set", { destroy: [id] }, "d"]], true)
     scopelog.info(`Destroyed mailbox ${id}`)
 }
 

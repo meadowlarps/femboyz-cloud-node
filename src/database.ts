@@ -47,6 +47,7 @@ export async function account_indexes_ensure(db: Db) {
     await Promise.all([
         users.createIndex({ id_user: 1 }, { unique: true }),
         users.createIndex({ username: 1 }, { unique: true }),
+        users.createIndex({ status: 1, delete_after: 1 }),
         // one verified address per account, and an address on one account only
         users.createIndex({ "external_email.key": 1 }, {
             unique: true, partialFilterExpression: { "external_email.key": { $type: "string" } }
