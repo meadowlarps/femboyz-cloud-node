@@ -199,7 +199,7 @@ index 0000000..a4dc525
 +  expect(screen.queryByRole('button')).toBeNull();
 +});
 diff --git a/app/(main)/[locale]/login/page.tsx b/app/(main)/[locale]/login/page.tsx
-index a4ee53e..744b3a1 100644
+index a4ee53e..cd89c31 100644
 --- a/app/(main)/[locale]/login/page.tsx
 +++ b/app/(main)/[locale]/login/page.tsx
 @@ -30,6 +30,8 @@ import {
@@ -298,11 +298,11 @@ index a4ee53e..744b3a1 100644
 -        </div>
 -      </div>
 -    );
-+    return <AutoSsoScreen appName="" logoUrl="" failed={false} onRetry={() => {}} />;
++    return <AutoSsoScreen failed={false} onRetry={() => {}} />;
    }
  
    if (configError) {
-@@ -597,6 +597,23 @@ function LoginPageContent() {
+@@ -597,6 +597,21 @@ function LoginPageContent() {
      );
    }
  
@@ -312,8 +312,6 @@ index a4ee53e..744b3a1 100644
 +    const failed = !oauthLoading && (Boolean(ssoError) || autoSsoStartFailed
 +      || autoSsoRetryBlocked || (oauthDiscoveryDone && !oauthMetadata));
 +    return <AutoSsoScreen
-+      appName={appName}
-+      logoUrl={withBasePath(resolvedTheme === 'dark' ? loginLogoDarkUrl : loginLogoLightUrl)}
 +      failed={failed}
 +      onRetry={() => {
 +        clearAutoSsoAttempt();
@@ -326,74 +324,496 @@ index a4ee53e..744b3a1 100644
    const saveUsername = (username: string) => {
      const saved = localStorage.getItem("webmail_usernames");
      let usernames: string[] = [];
-@@ -1680,7 +1697,7 @@ function LoginPageContent() {
+@@ -1680,7 +1695,7 @@ function LoginPageContent() {
  // prerender (the static Lite build); at runtime the boundary never suspends.
  export default function LoginPage() {
    return (
 -    <Suspense fallback={null}>
-+    <Suspense fallback={<AutoSsoScreen appName="" logoUrl="" failed={false} onRetry={() => {}} />}>
++    <Suspense fallback={<AutoSsoScreen failed={false} onRetry={() => {}} />}>
        <LoginPageContent />
      </Suspense>
    );
-diff --git a/components/auth/__tests__/auto-sso-screen.test.tsx b/components/auth/__tests__/auto-sso-screen.test.tsx
+diff --git a/app/(main)/layout.tsx b/app/(main)/layout.tsx
+index e42a250..8a93fb0 100644
+--- a/app/(main)/layout.tsx
++++ b/app/(main)/layout.tsx
+@@ -18,6 +18,7 @@ import { withBasePath } from "@/lib/browser-navigation";
+ import { locales, defaultLocale } from "@/i18n/routing";
+ import { IS_LITE, LITE_MOUNT_GLOBAL } from "@/lib/lite";
+ import "../globals.css";
++import "../femboyz.css";
+ 
+ // This layout renders <html> and sits ABOVE the [locale] segment, so
+ // next-intl's getLocale() returns the default locale here - emitting
+@@ -286,7 +287,7 @@ export default async function RootLayout({
+   const appName = await brandedAppName();
+ 
+   return (
+-    <html lang={locale} dir={getLocaleDirection(locale)} suppressHydrationWarning>
++    <html style={{ backgroundColor: "#1b1a1a", colorScheme: "dark" }} lang={locale} dir={getLocaleDirection(locale)} suppressHydrationWarning>
+       <head>
+         <meta name="mobile-web-app-capable" content="yes" />
+         <meta name="apple-mobile-web-app-capable" content="yes" />
+@@ -301,6 +302,8 @@ export default async function RootLayout({
+           dangerouslySetInnerHTML={{
+             __html: `
+               (function() {${IS_LITE ? liteLocaleBootstrap() : ""}
++                // Suppress browser install UI even before React hydrates.
++                window.addEventListener('beforeinstallprompt', function(event) { event.preventDefault(); });
+                 try {
+                   const stored = localStorage.getItem('theme-storage');
+                   const theme = stored ? JSON.parse(stored).state.theme : 'system';
+@@ -317,6 +320,7 @@ export default async function RootLayout({
+         />
+       </head>
+       <body
++        style={{ backgroundColor: "#1b1a1a" }}
+         className={`${geistSans.variable} ${geistMono.variable} ${hankenGrotesk.variable} antialiased`}
+       >
+         <ServiceWorkerRegistration />
+diff --git a/app/femboyz.css b/app/femboyz.css
 new file mode 100644
-index 0000000..ad2455b
+index 0000000..d0085de
 --- /dev/null
-+++ b/components/auth/__tests__/auto-sso-screen.test.tsx
-@@ -0,0 +1,20 @@
-+import React from 'react';
-+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-+import { afterEach, expect, it, vi } from 'vitest';
-+import { AutoSsoScreen } from '../auto-sso-screen';
++++ b/app/femboyz.css
+@@ -0,0 +1,46 @@
++/* Both Bulwark mode variants intentionally use the same dark palette. */
++:root, .dark {
++    color-scheme: dark !important;
++    --color-primary: #c30f45;
++    --color-primary-foreground: #ffffff;
++    --color-accent: #c30f45;
++    --color-accent-foreground: #fff0f3;
++    --color-ring: #c30f45;
++    --color-background: #1b1a1a;
++    --color-foreground: #fff0f3;
++    --color-secondary: #171515;
++    --color-secondary-foreground: #fff0f3;
++    --color-muted: #221f20;
++    --color-muted-foreground: #fff0f3bf;
++    --color-border: #4a4447;
++    --color-input: #4a4447;
++    --color-popover: #171515;
++    --color-popover-foreground: #fff0f3;
++    --color-card: #171515;
++    --color-card-foreground: #fff0f3;
++    --color-sidebar: #1b1a1a;
++    --color-sidebar-foreground: #fff0f3;
++    --color-sidebar-border: #4a4447;
++    --color-sidebar-accent: #221f20;
++    --color-sidebar-accent-foreground: #fff0f3;
++    --color-selection: #53132b;
++    --color-selection-foreground: #fff0f3;
++    --color-unread: #ef477a;
++    --color-success: #82cea0;
++    --color-success-foreground: #060606;
++    --color-warning: #f5c879;
++    --color-warning-foreground: #060606;
++    --color-info: #8cbaff;
++    --color-info-foreground: #060606;
++    --color-destructive: #ff829f;
++    --color-destructive-foreground: #060606;
++    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
++    --font-display: Inter, ui-sans-serif, system-ui, sans-serif;
++    --radius: 0;
++    --radius-sm: 0;
++    --radius-md: 0;
++    --radius-lg: 0;
++    --radius-xl: 0;
++}
++
++html, body { background-color: #1b1a1a; }
+diff --git a/components/__tests__/pwa-install-prompt.test.tsx b/components/__tests__/pwa-install-prompt.test.tsx
+index 96d57f4..48c8cf8 100644
+--- a/components/__tests__/pwa-install-prompt.test.tsx
++++ b/components/__tests__/pwa-install-prompt.test.tsx
+@@ -1,69 +1,30 @@
+-import { act, fireEvent, render, screen } from "@testing-library/react";
+-import { beforeEach, describe, expect, it, vi } from "vitest";
+-import {
+-  PWA_INSTALL_PROMPT_VISIBILITY_EVENT,
+-  PWAInstallPrompt,
+-} from "../pwa-install-prompt";
+-
+-vi.mock("@/hooks/use-config", () => ({
+-  useConfig: () => ({
+-    appName: "Bulwark",
+-    faviconUrl: "",
+-    appLogoLightUrl: "",
+-    appLogoDarkUrl: "",
+-  }),
+-}));
+-
+-describe("PWAInstallPrompt", () => {
+-  beforeEach(() => {
+-    localStorage.clear();
+-  });
+-
+-  it("closes after the browser install prompt is dismissed", async () => {
+-    const prompt = vi.fn().mockResolvedValue(undefined);
+-    const event = new Event("beforeinstallprompt");
+-    Object.assign(event, {
+-      prompt,
+-      userChoice: Promise.resolve({ outcome: "dismissed" }),
+-    });
+-
+-    render(<PWAInstallPrompt />);
+-    act(() => window.dispatchEvent(event));
+-    expect(screen.getByText("title")).toBeInTheDocument();
+-
+-    await act(async () => {
+-      fireEvent.click(screen.getByText("install"));
+-      await Promise.resolve();
+-    });
+-
+-    expect(prompt).toHaveBeenCalledOnce();
+-    expect(screen.queryByText("title")).not.toBeInTheDocument();
+-  });
+-
+-  it("announces that it is hidden after Not now", () => {
+-    const visibility: boolean[] = [];
+-    const listener = (event: Event) => {
+-      visibility.push(
+-        (event as CustomEvent<{ visible?: boolean }>).detail?.visible === true,
+-      );
+-    };
+-    window.addEventListener(PWA_INSTALL_PROMPT_VISIBILITY_EVENT, listener);
+-
+-    try {
+-      const event = new Event("beforeinstallprompt");
+-      Object.assign(event, {
+-        prompt: vi.fn(),
+-        userChoice: Promise.resolve({ outcome: "dismissed" }),
+-      });
+-
+-      render(<PWAInstallPrompt />);
+-      act(() => window.dispatchEvent(event));
+-      fireEvent.click(screen.getByText("not_now"));
+-
+-      expect(visibility).toContain(true);
+-      expect(visibility.at(-1)).toBe(false);
+-    } finally {
+-      window.removeEventListener(PWA_INSTALL_PROMPT_VISIBILITY_EVENT, listener);
+-    }
+-  });
++import React from "react";
++import { act, cleanup, render } from "@testing-library/react";
++import { afterEach, expect, it, vi } from "vitest";
++import { isPWAInstallPromptVisible, PWAInstallPrompt } from "../pwa-install-prompt";
 +
 +afterEach(cleanup);
-+it('shows an accessible checking message with no extra sign-in button', () => {
-+  render(<AutoSsoScreen appName="femboyz mail" logoUrl="/logo.png" failed={false} onRetry={vi.fn()} />);
-+  expect(screen.getByRole('status')).toHaveTextContent('Checking login…');
-+  expect(screen.queryByRole('button')).toBeNull();
-+  expect(screen.getByRole('img')).toHaveAttribute('src', '/logo.png');
++it("suppresses install prompts without rendering a toast or invoking browser UI", () => {
++  const { container, unmount } = render(<PWAInstallPrompt />);
++  const prompt = vi.fn();
++  const event = new Event("beforeinstallprompt", { cancelable: true });
++  Object.assign(event, { prompt });
++  act(() => { window.dispatchEvent(event); });
++  expect(event.defaultPrevented).toBe(true);
++  expect(prompt).not.toHaveBeenCalled();
++  expect(container).toBeEmptyDOMElement();
++  expect(isPWAInstallPromptVisible()).toBe(false);
++  unmount();
++  const afterUnmount = new Event("beforeinstallprompt", { cancelable: true });
++  window.dispatchEvent(afterUnmount);
++  expect(afterUnmount.defaultPrevented).toBe(false);
 +});
-+it('offers one retry only when checking failed', () => {
++it("also suppresses install UI for browsers with an old dismissal flag", () => {
++  localStorage.setItem("pwa-install-dismissed", "1");
++  const { container } = render(<PWAInstallPrompt />);
++  const event = new Event("beforeinstallprompt", { cancelable: true });
++  act(() => { window.dispatchEvent(event); });
++  expect(event.defaultPrevented).toBe(true);
++  expect(container).toBeEmptyDOMElement();
++  localStorage.clear();
+ });
+diff --git a/components/auth/__tests__/auto-sso-screen.test.tsx b/components/auth/__tests__/auto-sso-screen.test.tsx
+new file mode 100644
+index 0000000..9241fbc
+--- /dev/null
++++ b/components/auth/__tests__/auto-sso-screen.test.tsx
+@@ -0,0 +1,37 @@
++import React from 'react';
++import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
++import { afterEach, beforeEach, expect, it, vi } from 'vitest';
++import { AutoSsoScreen } from '../auto-sso-screen';
++
++beforeEach(() => vi.useFakeTimers());
++afterEach(() => { cleanup(); vi.useRealTimers(); });
++it('keeps fast redirects visually quiet, with no logo or extra button', () => {
++  const view = render(<AutoSsoScreen failed={false} onRetry={vi.fn()} />);
++  expect(screen.getByRole('status')).toHaveClass('sr-only');
++  act(() => vi.advanceTimersByTime(699));
++  expect(screen.getByRole('status')).toHaveClass('sr-only');
++  expect(screen.queryByRole('img')).toBeNull();
++  expect(screen.queryByRole('button')).toBeNull();
++  expect(view.container.querySelector('svg')).toBeNull();
++  view.unmount();
++  expect(vi.getTimerCount()).toBe(0);
++});
++it('reveals a single stable checking message only when a check takes longer', () => {
++  const view = render(<AutoSsoScreen failed={false} onRetry={vi.fn()} />);
++  act(() => vi.advanceTimersByTime(700));
++  expect(screen.getByRole('status')).not.toHaveClass('sr-only');
++  expect(screen.getByRole('status')).toHaveTextContent('Checking login…');
++  expect(view.container.querySelectorAll('svg')).toHaveLength(1);
++  view.rerender(<AutoSsoScreen failed={false} onRetry={vi.fn()} />);
++  expect(screen.getByRole('status')).not.toHaveClass('sr-only');
++  expect(screen.queryByRole('img')).toBeNull();
++});
++it('shows failure and a working retry immediately, without the progress delay', () => {
 +  const retry = vi.fn();
-+  render(<AutoSsoScreen appName="femboyz mail" logoUrl="/logo.png" failed onRetry={retry} />);
-+  expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t check your login.');
++  render(<AutoSsoScreen failed onRetry={retry} />);
++  expect(screen.getByRole('alert')).toBeVisible();
++  expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
 +  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 +  expect(retry).toHaveBeenCalledOnce();
 +  expect(screen.queryByRole('status')).toBeNull();
 +});
 diff --git a/components/auth/auto-sso-screen.tsx b/components/auth/auto-sso-screen.tsx
 new file mode 100644
-index 0000000..17e911c
+index 0000000..5dea9eb
 --- /dev/null
 +++ b/components/auth/auto-sso-screen.tsx
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,33 @@
 +"use client";
 +
++import { useEffect, useState } from 'react';
 +import { Loader2 } from '@/components/icons';
 +import { Button } from '@/components/ui/button';
 +
-+type Props = { appName: string; logoUrl: string; failed: boolean; onRetry: () => void };
++type Props = { failed: boolean; onRetry: () => void };
 +
-+export function AutoSsoScreen({ appName, logoUrl, failed, onRetry }: Props) {
++export function AutoSsoScreen({ failed, onRetry }: Props) {
++  const [showProgress, setShowProgress] = useState(false);
++  useEffect(() => {
++    // Fast redirects stay on the site's background. A slow check gets one
++    // stable status, without waiting for config or a logo image to load.
++    const timer = window.setTimeout(() => setShowProgress(true), 700);
++    return () => window.clearTimeout(timer);
++  }, []);
++
 +  return (
-+    <main className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
-+      <div className="w-full max-w-sm text-center space-y-6">
-+        {logoUrl && <img src={logoUrl} alt={appName} className="object-contain mx-auto" style={{ maxWidth: '160px', maxHeight: '160px' }} />}
-+        {failed ? (
-+          <div role="alert" className="space-y-4">
-+            <p>We couldn’t check your login.</p>
-+            <Button onClick={onRetry}>Try again</Button>
-+          </div>
-+        ) : (
-+          <div role="status" aria-live="polite" className="space-y-4">
-+            <Loader2 aria-hidden="true" className="w-7 h-7 animate-spin mx-auto" style={{ color: '#c30f45' }} />
-+            <p>Checking login…</p>
-+          </div>
-+        )}
-+      </div>
++    <main className="min-h-screen flex items-center justify-center bg-background text-foreground px-4" aria-busy={!failed}>
++      {failed ? (
++        <div role="alert" className="text-center space-y-4">
++          <p>We couldn’t check your login.</p>
++          <Button onClick={onRetry}>Try again</Button>
++        </div>
++      ) : (
++        <div role="status" aria-live="polite" className={showProgress ? 'text-center space-y-4' : 'sr-only'}>
++          {showProgress && <Loader2 aria-hidden="true" className="w-7 h-7 animate-spin mx-auto" style={{ color: '#c30f45' }} />}
++          <p>Checking login…</p>
++        </div>
++      )}
 +    </main>
 +  );
 +}
+diff --git a/components/mail/__tests__/mail-app-login-redirect.test.tsx b/components/mail/__tests__/mail-app-login-redirect.test.tsx
+index 90b9e26..3b770ac 100644
+--- a/components/mail/__tests__/mail-app-login-redirect.test.tsx
++++ b/components/mail/__tests__/mail-app-login-redirect.test.tsx
+@@ -1,5 +1,5 @@
+ import React from 'react';
+-import { act, render } from '@testing-library/react';
++import { act, render, screen } from '@testing-library/react';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { useAuthStore } from '@/stores/auth-store';
+ import { useEmailStore } from '@/stores/email-store';
+@@ -74,6 +74,8 @@ describe('mail view without a session', () => {
+     await act(async () => {});
+     expect(nav.replace).toHaveBeenCalledWith('/login');
+     expect(hardNav).not.toHaveBeenCalled();
++    expect(screen.getByRole('main', { name: 'Checking login' })).toBeEmptyDOMElement();
++    expect(screen.queryByText('common.loading')).toBeNull();
+   });
+ 
+   it('reloads into the login page once a session was used on this page', async () => {
+diff --git a/components/mail/mail-app.tsx b/components/mail/mail-app.tsx
+index d9b1b48..a23116e 100644
+--- a/components/mail/mail-app.tsx
++++ b/components/mail/mail-app.tsx
+@@ -3995,14 +3995,9 @@ export function MailApp({ linkSegments: routeSegments }: MailAppProps = {}) {
+   });
+ 
+   if (!initialCheckDone || authLoading || (!isAuthenticated || !client)) {
+-    return (
+-      <div className="flex h-screen items-center justify-center bg-background">
+-        <div className="text-center">
+-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-foreground mx-auto"></div>
+-          <p className="mt-4 text-sm text-muted-foreground">{t("common.loading")}</p>
+-        </div>
+-      </div>
+-    );
++    // Keep the initial session check visually quiet; /login owns the delayed
++    // progress message. This avoids a separate translated loader flashing first.
++    return <main className="min-h-screen bg-background" aria-busy="true" aria-label="Checking login" />;
+   }
+ 
+   // Get current mailbox name for mobile header
+diff --git a/components/pwa-install-prompt.tsx b/components/pwa-install-prompt.tsx
+index 20195bd..f880df7 100644
+--- a/components/pwa-install-prompt.tsx
++++ b/components/pwa-install-prompt.tsx
+@@ -1,151 +1,21 @@
+ "use client";
+ 
+-import { useEffect, useState } from "react";
+-import { useTranslations } from "next-intl";
+-import { X, Download } from "@/components/icons";
+-import { useConfig } from "@/hooks/use-config";
+-import { withBasePath } from "@/lib/browser-navigation";
++import { useEffect } from "react";
+ 
+-interface BeforeInstallPromptEvent extends Event {
+-  prompt: () => Promise<void>;
+-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+-}
+-
+-const DISMISSED_KEY = "pwa-install-dismissed";
++// Retain the onboarding integration used by PushNotificationPrompt.
+ export const PWA_INSTALL_PROMPT_VISIBILITY_EVENT =
+   "bulwark:pwa-install-prompt-visibility";
+ 
+-// Mirrors the last dispatched visibility so a listener that mounts after the
+-// event was fired can still read the current state instead of assuming hidden.
+-let promptVisible = false;
+-
+ export function isPWAInstallPromptVisible(): boolean {
+-  return promptVisible;
++  return false;
+ }
+ 
+ export function PWAInstallPrompt() {
+-  const [deferredPrompt, setDeferredPrompt] =
+-    useState<BeforeInstallPromptEvent | null>(null);
+-  const [showPrompt, setShowPrompt] = useState(false);
+-  const { appName, faviconUrl, appLogoLightUrl, appLogoDarkUrl } = useConfig();
+-  const t = useTranslations("pwa_install");
+-
+   useEffect(() => {
+-    if (localStorage.getItem(DISMISSED_KEY)) return;
+-
+-    const handler = (e: Event) => {
+-      e.preventDefault();
+-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+-      setShowPrompt(true);
+-    };
+-
+-    window.addEventListener("beforeinstallprompt", handler);
+-
+-    return () => {
+-      window.removeEventListener("beforeinstallprompt", handler);
+-    };
++    const suppress = (event: Event) => event.preventDefault();
++    window.addEventListener("beforeinstallprompt", suppress);
++    return () => window.removeEventListener("beforeinstallprompt", suppress);
+   }, []);
+-
+-  useEffect(() => {
+-    promptVisible = showPrompt;
+-    window.dispatchEvent(
+-      new CustomEvent(PWA_INSTALL_PROMPT_VISIBILITY_EVENT, {
+-        detail: { visible: showPrompt },
+-      }),
+-    );
+-    return () => {
+-      if (showPrompt) promptVisible = false;
+-    };
+-  }, [showPrompt]);
+-
+-  const handleInstall = async () => {
+-    if (!deferredPrompt) return;
+-
+-    deferredPrompt.prompt();
+-    await deferredPrompt.userChoice;
+-
+-    // A beforeinstallprompt event can only be consumed once. Close the card
+-    // whether the browser prompt was accepted or dismissed so the next
+-    // onboarding step can continue in the same session.
+-    setDeferredPrompt(null);
+-    setShowPrompt(false);
+-  };
+-
+-  const handleDismiss = () => {
+-    setShowPrompt(false);
+-  };
+-
+-  const handleDismissForever = () => {
+-    localStorage.setItem(DISMISSED_KEY, "1");
+-    setShowPrompt(false);
+-  };
+-
+-  if (!showPrompt || !deferredPrompt) {
+-    return null;
+-  }
+-
+-  const logoSrc = withBasePath(appLogoLightUrl || faviconUrl);
+-  const darkLogoSrc = withBasePath(appLogoDarkUrl || faviconUrl);
+-
+-  return (
+-    <div className="fixed bottom-4 right-4 z-50 bg-white dark:bg-neutral-900 rounded-lg shadow-lg border border-neutral-200 dark:border-neutral-800 p-4 max-w-sm animate-in slide-in-from-bottom-4">
+-      <div className="flex items-start justify-between mb-3">
+-        <div className="flex items-start gap-3">
+-          {logoSrc ? (
+-            <img
+-              src={logoSrc}
+-              alt={appName}
+-              className="w-8 h-8 shrink-0 object-contain dark:hidden"
+-            />
+-          ) : (
+-            <Download className="w-5 h-5 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+-          )}
+-          {logoSrc && (
+-            <img
+-              src={darkLogoSrc}
+-              alt={appName}
+-              className="w-8 h-8 shrink-0 object-contain hidden dark:block"
+-            />
+-          )}
+-          <div>
+-            <h3 className="font-semibold text-sm text-neutral-900 dark:text-white">
+-              {t("title", { appName })}
+-            </h3>
+-            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">
+-              {t("description")}
+-            </p>
+-          </div>
+-        </div>
+-        <button
+-          onClick={handleDismiss}
+-          className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+-          aria-label={t("dismiss_aria")}
+-        >
+-          <X className="w-4 h-4" />
+-        </button>
+-      </div>
+-      <div className="flex flex-col gap-2">
+-        <div className="flex gap-2">
+-          <button
+-            onClick={handleDismiss}
+-            className="flex-1 px-3 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+-          >
+-            {t("not_now")}
+-          </button>
+-          <button
+-            onClick={handleInstall}
+-            className="flex-1 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+-          >
+-            {t("install")}
+-          </button>
+-        </div>
+-        <button
+-          onClick={handleDismissForever}
+-          className="w-full text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors text-center"
+-        >
+-          {t("dont_remind")}
+-        </button>
+-      </div>
+-    </div>
+-  );
++  // Installation remains available through the browser's own menu.
++  return null;
+ }
 diff --git a/lib/auth/__tests__/auto-sso.test.ts b/lib/auth/__tests__/auto-sso.test.ts
 new file mode 100644
 index 0000000..c115884
