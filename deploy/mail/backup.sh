@@ -44,6 +44,22 @@ esac
 # RocksDB must not be copied while it is written. Stop Stalwart for the
 # duration of the snapshot; sending servers retry, so no mail is lost.
 # Back up accounts and provider secrets with the mailboxes once accounts are enabled.
+restart_accounts=false
+if [ -f "$APP_DIR/oidc-jwks.json" ] && systemctl is-active --quiet femboyz-api.service; then
+    restart_accounts=true
+fi
+restart() {
+    restart_status=0
+    docker compose -f "$COMPOSE" start stalwart >/dev/null || restart_status=1
+    if [ "$restart_accounts" = true ]; then systemctl start femboyz-api.service || restart_status=1; fi
+    return "$restart_status"
+}
+trap restart EXIT
+if [ "$restart_accounts" = true ]; then systemctl stop femboyz-api.service; fi
+docker compose -f "$COMPOSE" stop stalwart >/dev/null
+
+# Pause both writers before dumping MongoDB so account provisioning/deletion cannot
+# leave a snapshot whose Mongo records and mailboxes come from different states.
 set --
 if [ -f "$APP_DIR/oidc-jwks.json" ]; then
     install -d -m 700 "$ACCOUNT_BACKUP"
@@ -53,10 +69,6 @@ if [ -f "$APP_DIR/oidc-jwks.json" ]; then
     mv "$ACCOUNT_BACKUP/mongo.archive.gz.tmp" "$ACCOUNT_BACKUP/mongo.archive.gz"
     set -- "$ACCOUNT_BACKUP/mongo.archive.gz" "$APP_DIR/.env.prod" "$APP_DIR/oidc-jwks.json"
 fi
-
-restart() { docker compose -f "$COMPOSE" start stalwart >/dev/null; }
-docker compose -f "$COMPOSE" stop stalwart >/dev/null
-trap restart EXIT
 
 restic backup --host femboyz-cloud-node-a --tag stalwart \
     --exclude /etc/femboyz-mail/backup.env \

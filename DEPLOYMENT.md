@@ -1154,14 +1154,17 @@ Backups run nightly to S3. See 13.13.
 
 A systemd timer runs `femboyz-mail-backup` nightly at 03:30 UTC. The script:
 
-1. stops Stalwart (RocksDB must not be copied while it is written);
-2. backs up the two volumes and `/etc/femboyz-mail` with restic to
+1. pauses the API when accounts are enabled, then stops Stalwart (RocksDB must
+   not be copied while it is written);
+2. dumps MongoDB, then backs up the two mail volumes, `/etc/femboyz-mail`, the
+   dump, `.env.prod` and `oidc-jwks.json` with restic to
    `s3:https://fsn1.your-objectstorage.com/femboyz-cloud-bucket/femboyz-mail`;
-3. starts Stalwart again;
+3. starts Stalwart and the API again, including on failure;
 4. keeps 7 daily, 4 weekly and 6 monthly snapshots;
 5. on Sundays, also re-reads 10% of the stored data to check it.
 
-Stalwart is down for about 5 seconds. Sending servers retry, so no mail is lost.
+Mail and account operations pause during the dump and snapshot. Sending servers
+retry. Stopping both writers keeps account records and mailboxes consistent.
 
 restic encrypts the data before it uploads, so the bucket only ever holds
 ciphertext. The repository password is in `/etc/femboyz-mail/restic-password`
@@ -1419,3 +1422,62 @@ SMTP on `10025`, and submission on `10465` with a self-signed certificate
 
 - **Mailer.** Without `SMTP_HOST` the API only logs outgoing mail, codes
   included.
+
+
+### 14.9 Production rollout record — 2026-10-19
+
+Phase 2 was deployed from [PR #2](https://github.com/meadowlarps/femboyz-cloud-node/pull/2),
+merge commit `9c2fa8577e3e60360d4affa925ed3fbc77f10236`.
+[CI and deployment passed](https://github.com/meadowlarps/femboyz-cloud-node/actions/runs/39269416039).
+The security review resolved six defects: parallel code guesses and sends, stale
+forwarding updates, deletion with live JWTs, premature signup activation, and
+incomplete mailbox rollback. Validation passed: 122 backend tests, 29 client
+preview tests, Svelte check with no errors/warnings, and a production client build. Five follow-up backup regression cases verify
+writer ordering, recovery after dump/snapshot/restart failures, and preservation
+of an intentionally stopped API. The latest suite passes 127 backend tests and
+29 client preview tests.
+
+Production now has the service API key, noreply app password, administrator API
+key, account environment, `/oidc/` nginx route, restricted signed bounce webhook,
+and Stalwart OIDC directory. The admin API key is in the root-only
+`/etc/femboyz-mail/credentials.txt`; the application secrets and signing key have
+mode 600. The temporary Bulwark verification client was removed after testing;
+configure the real client in phase 3.
+
+Sixteen checks passed against production with disposable accounts and controlled
+external inboxes (DropMail):
+
+- Request, admin notification (accepted by the existing Gmail redirect), approval
+  and invite delivery; signup with the preverified address and with a mailed code.
+- OIDC discovery/public JWKS, a real authorization-code JWT accepted by Stalwart,
+  refresh, site-session SSO, quota, foreign-Origin rejection and site logout.
+- Outbound JMAP submission received externally with DKIM; inbound delivery via
+  unauthenticated STARTTLS on the public SMTP listener. The inbound probe ran on
+  the VPS because the development machine cannot reach outbound port 25; external
+  port-25 reachability was already verified in phase 1.
+- Add/change/remove external email, wrong-password rejection, forwarding with and
+  without a retained copy, and forwarding following the changed address.
+- Three actual SMTP delivery failures after deleting the controlled external
+  inbox disabled forwarding through Stalwart's signed webhook.
+- Disabling and deleting a user refused an already-issued JWT. Test users were
+  disabled and queued for the normal delayed deletion; the queue survives restart.
+
+The first temporary inbox provider (mail.tm) had an expired SMTP certificate.
+Certificate validation stayed enabled; testing moved to DropMail. The unused
+inboxes were removed, their unused invite was revoked, and no test messages
+remained queued for that provider.
+
+The updated backup script pauses the API and Stalwart before dumping MongoDB and
+snapshotting the mail volumes, environment and signing key to encrypted restic.
+Snapshot `9677f387` was restored on the VPS: environment/key contents matched and
+retained mode 600, and the Mongo archive was restored into an isolated, networkless
+MongoDB container. It contained both test accounts, three email-code records and
+OIDC storage. The drill container was then removed. The nightly 03:30 UTC timer
+remains enabled. This backup covers the account/mail system; file storage still
+needs the separate backup arrangement described in section 12.
+
+Detailed verification state and rollout credentials remain root-only under
+`/root/femboyz-phase2/`. Phase 3 adds Bulwark and its final SSO client. Stalwart
+WebUI sign-in through an external OIDC client and promotion of the owner's personal
+account remain separate follow-up work; the verified administrator API key is the
+management path for phase 2.
