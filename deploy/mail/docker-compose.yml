@@ -55,7 +55,9 @@ services:
         max-file: "5"
 
   webmail:
-    image: ghcr.io/bulwarkmail/webmail:1.15.0@sha256:1f37875af219890f2e6e176e0b7e4a27021c30126f63eebb4b8a7d5fe4ca0ac8
+    # Rebuilt from the exact upstream commit plus deploy/mail/bulwark/auto-sso.patch.
+    image: femboyz/bulwark:1.15.0-femboyz.1
+    pull_policy: never
     container_name: femboyz-webmail
     restart: unless-stopped
     environment:
