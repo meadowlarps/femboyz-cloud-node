@@ -26,7 +26,7 @@
     let items = $state<Invite[]>([])
     let loading = $state(false)
     let errorMessage = $state('')
-    let creating = $state(false)
+    let creating = $state<'link' | 'email' | null>(null)
     let busy = $state(new Set<string>())
     // the code exists only in the create response, so links are shown for this page view only
     let links = $state<Record<string, string>>({})
@@ -52,27 +52,35 @@
 
     async function create(event: SubmitEvent) {
         event.preventDefault()
-        creating = true
+        const send = (event.submitter as HTMLButtonElement | null)?.value === 'email'
+        if (send && !formEmail.trim()) {
+            spawnAlert('warning', 'Enter their email to send the invite')
+            return
+        }
+        creating = send ? 'email' : 'link'
         try {
-            const result = await adminFetch<{ invite: Invite; link: string }>('/api/v2/admin/account/invites', {
+            const result = await adminFetch<{ invite: Invite; link: string; mailed: boolean }>('/api/v2/admin/account/invites', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     label: formLabel,
                     email: formEmail.trim() || null,
                     ...(formQuotaGb ? { quota_bytes: Math.round(formQuotaGb * GB) } : {}),
-                    ...(formDays ? { ttl_days: Math.floor(formDays) } : {})
+                    ...(formDays ? { ttl_days: Math.floor(formDays) } : {}),
+                    send
                 })
             })
             items = [result.invite, ...items]
             links = { ...links, [result.invite.id]: result.link }
             formLabel = formEmail = ''
             formQuotaGb = formDays = null
-            await copy(result.link)
+            if (!send) await copy(result.link)
+            else if (result.mailed) spawnAlert('success', `Invite emailed to ${result.invite.email}`)
+            else spawnAlert('warning', 'Invite created but the email failed: copy the link below and send it yourself')
         } catch (error) {
             spawnAlert('error', `Invite not created: ${error instanceof Error ? error.message : 'request failed'}`)
         } finally {
-            creating = false
+            creating = null
         }
     }
 
@@ -109,8 +117,8 @@
         <input bind:value={formLabel} maxlength="100" placeholder="Who is it for" />
     </label>
     <label>
-        <span>Their email (optional, pre-verified)</span>
-        <input bind:value={formEmail} type="email" maxlength="254" placeholder="Only shown on the signup page" />
+        <span>Their email (pre-verified; needed to send)</span>
+        <input bind:value={formEmail} type="email" maxlength="254" placeholder="name@example.org" />
     </label>
     <label>
         <span>Quota (GB)</span>
@@ -120,9 +128,10 @@
         <span>Valid (days)</span>
         <input bind:value={formDays} type="number" min="1" max="90" step="1" placeholder="7" style="width: 7rem" />
     </label>
-    <button class="fb-button" type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create invite'}</button>
+    <button class="fb-button" type="submit" value="email" disabled={creating !== null}>{creating === 'email' ? 'Sending…' : 'Create & email'}</button>
+    <button class="fb-button" type="submit" value="link" disabled={creating !== null}>{creating === 'link' ? 'Creating…' : 'Create link only'}</button>
 </form>
-<p class="av-muted">Invites made here aren't emailed: copy the link and send it yourself. Only the person who receives a link can use it, once.</p>
+<p class="av-muted">"Create & email" mails the link to their address. "Create link only" copies it for you to send yourself. Only the person who receives a link can use it, once.</p>
 
 {#if errorMessage}<p class="av-error" role="alert">{errorMessage}</p>{/if}
 
