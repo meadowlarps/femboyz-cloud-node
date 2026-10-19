@@ -1501,7 +1501,7 @@ management path for phase 2.
 
 ## 15. Phase 3: Bulwark webmail
 
-Bulwark 1.15.0-femboyz.3 is deployed at https://mail.femboyz.cloud using our
+Bulwark 1.15.0-femboyz.4 is deployed at https://mail.femboyz.cloud using our
 locally built image from a pinned upstream commit plus a small SSO patch
 (`deploy/mail/bulwark/README.md`). It listens only
 on `127.0.0.1:3100`; nginx terminates TLS using a separate certbot certificate
@@ -1732,6 +1732,22 @@ lines in the installed `bulwark.env` now point at it, and webmail was recreated
 with `docker compose -f /etc/femboyz-mail/docker-compose.yml up -d webmail`. No
 image rebuild. `/api/config` returns the new URL and the file serves with 200.
 Rollback: `bulwark.env.before-app-logo-20261019` next to the installed env.
+
+### 15.9 Push error without a push service (2026-10-19)
+
+Chromium delivers Web Push only through Google's push service. Browsers built
+without it (ungoogled-chromium, Helium; Brave with Google push messaging off)
+reject `pushManager.subscribe()` with the bare `Registration failed - push service
+error`, which webmail showed as-is. `1.15.0-femboyz.4` replaces it with an
+explanation naming the affected browsers and the ones that work. Push cannot work
+in those browsers; the relay and its VAPID key are fine.
+
+Build/source distribution follows 15.5 using the `.4` suffix; the build also runs
+`lib/__tests__/web-push.test.ts` (88 focused tests passed). Rollback copies of
+compose, environment and image identity are under `/root/femboyz-push-error/`;
+restore them and restart only webmail to return to `.3`. Acceptance: webmail
+healthy on the `.4` image ID, the served bundle contains the new message, and the
+public source archive checksum matches the build.
 
 ## 16. Phase 4: outbound limits and abuse controls
 
