@@ -302,8 +302,20 @@
     .title-row {
         display: flex;
         align-items: flex-start;
+        flex-wrap: wrap;
         justify-content: space-between;
         gap: 1rem;
+    }
+
+    .title-row > div {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .title-row :global(a.acct-quiet) {
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
     }
 
     .title-row p {

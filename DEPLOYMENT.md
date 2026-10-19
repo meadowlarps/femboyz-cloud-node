@@ -1303,7 +1303,7 @@ SMTP_USER=noreply@femboyz.cloud
 SMTP_PASS=app...
 ```
 
-The Bulwark client (`OIDC_CLIENT_BULWARK_*`) is added in phase 3.
+The Bulwark client (`OIDC_CLIENT_BULWARK_*`) is configured in section 15.
 
 - `OIDC_JWKS_FILE` holds the provider's private signing key. The API creates
   it on first start (mode 600). It is ignored by Git; back it up with the other
@@ -1442,7 +1442,7 @@ key, account environment, `/oidc/` nginx route, restricted signed bounce webhook
 and Stalwart OIDC directory. The admin API key is in the root-only
 `/etc/femboyz-mail/credentials.txt`; the application secrets and signing key have
 mode 600. The temporary Bulwark verification client was removed after testing;
-configure the real client in phase 3.
+the real client is now configured in section 15.
 
 Sixteen checks passed against production with disposable accounts and controlled
 external inboxes (DropMail):
@@ -1477,7 +1477,7 @@ remains enabled. This backup covers the account/mail system; file storage still
 needs the separate backup arrangement described in section 12.
 
 Detailed verification state and rollout credentials remain root-only under
-`/root/femboyz-phase2/`. Phase 3 adds Bulwark and its final SSO client. Stalwart
+`/root/femboyz-phase2/`. Phase 3 adds Bulwark and its final SSO client (section 15). Stalwart
 WebUI sign-in through an external OIDC client and promotion of the owner's personal
 account remain separate follow-up work; the verified administrator API key is the
 management path for phase 2.
@@ -1572,3 +1572,33 @@ were saved under `/root/femboyz-phase3`. For rollback, stop webmail, disable its
 nginx vhost, restore the previous compose and API environment, and restart the
 API. Do not roll back Stalwart or MongoDB. Keep the encrypted backup and webmail
 state until the incident is resolved.
+
+### 15.4 Production acceptance (2026-10-19)
+
+The browser passed the complete logged-out webmail → site login → inbox flow
+using a disposable invited account. A controlled message sent from noreply was
+received and read. Computed theme colors were background `rgb(6, 6, 6)` and
+primary `#c30f45`, with zero-radius buttons. The native account iframe established
+the site session by SSO, displayed quota and email settings, and worked at mobile
+width. Its header now wraps to fit narrow screens.
+
+JMAP discovery initially exposed a missing CORS header. The mx nginx template now
+allows only `https://mail.femboyz.cloud`, including on discovery redirects/errors
+and OPTIONS responses, and hides upstream CORS headers to prevent duplicates.
+An unrelated Origin receives no Allow-Origin header. Authentication and TLS
+verification remain enforced.
+
+Webmail sign-out returned to the site home page; `/api/v2/account/me` then returned
+401. A fresh webmail tab redirected to the site's login. Regression tests also
+verify another browser remains signed in. The site's Mail link targets webmail.
+
+The post-rollout encrypted backup restarted Stalwart, the API and healthy webmail.
+A restore into `/root/femboyz-phase3/restore` verified 12 webmail files, config and
+secret hashes, numeric ownership and permissions. Restored encrypted user settings
+were decrypted successfully with the restored session secret; live settings may
+change after the snapshot. Root-only evidence is
+`/root/femboyz-phase3/verification-report.json`, `backup.after.log` and the restored
+tree. Local validation passed 130 backend tests, 29 client preview tests, backend
+build, Svelte check (zero errors/warnings), and client build. GitHub's main workflow
+was queued during rollout, so production was deployed directly with the same
+commit-pinned deployment script after those checks passed locally.

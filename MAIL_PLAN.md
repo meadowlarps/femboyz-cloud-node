@@ -1,6 +1,6 @@
 # femboyz accounts + mail — plan
 
-Status: v6 · 2026-10-19 · phases 1 and 2 deployed and verified in production · phase 3 next (DEPLOYMENT.md 14.9)
+Status: v7 · 2026-10-19 · phases 1–3 deployed and verified in production · phase 4 next (DEPLOYMENT.md 15)
 
 Invite-only **femboyz accounts** that come with an `@femboyz.cloud` mailbox, read at `https://mail.femboyz.cloud`. The same account will later log in to femboyz.cloud itself.
 
@@ -347,10 +347,10 @@ Run it the same way as Mongo: compose in `/etc/femboyz-mail/` (root-owned, mode 
 - [x] Security review before merging: fixed six findings covering verification races, stale forwarding, JWT-safe deletion, signup activation and rollback. Regression coverage: 127 backend tests + 29 client preview tests; Svelte check/build and production CI passed. Security fixes merged in PR #2.
 
 **Phase 3: webmail**
-- [ ] Bulwark container, theme, branding, nginx vhost, SSO env.
-- [ ] Mail button next to the logo on femboyz.cloud.
-- [ ] femboyz account plugin in Bulwark settings, or the nav-link fallback.
-- [ ] Test: logged-out visit to `mail.femboyz.cloud` → femboyz login → inbox. Logout clears both sessions.
+- [x] Bulwark 1.15.0 pinned container, theme, branding, nginx vhost, SSO env and webmail-only JMAP CORS (2026-10-19).
+- [x] Mail button next to the logo on femboyz.cloud links to webmail.
+- [x] Native managed femboyz account sidebar app embeds settings; Open account link provides the separate-tab fallback.
+- [x] Production browser: logged-out visit → femboyz login → inbox; controlled message read; account iframe SSO; mobile view; logout clears webmail/provider/site sessions, fresh visit requires login. Backup/restore validates config, secrets, ownership and decryptable user settings (DEPLOYMENT.md 15.4).
 
 **Phase 4: outbound for users + abuse controls**
 - [ ] Stalwart per-sender throttles: strict for the first 14 days (e.g. 20 messages/hour, 100/day), then relaxed.
