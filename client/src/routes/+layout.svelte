@@ -27,16 +27,17 @@
 
 		{#if home}
 			<div class="header-buttons">
-				<a class="header-button" href="/account" aria-label="Account" title="Account">
-					<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-						<circle cx="12" cy="8.5" r="3.5" />
-						<path d="M5 19.5c.8-3.3 3.6-5.5 7-5.5s6.2 2.2 7 5.5" />
-					</svg>
-				</a>
-				<a class="header-button" href={mailUrl} aria-label="Mail" title="Mail">
-					<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+				<a class="header-button" href={mailUrl}>
+					<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
 						<rect x="3" y="5" width="18" height="14" rx="1" />
 						<path d="m3.5 6 8.5 7 8.5-7" />
+					</svg>
+					<span>Mail</span>
+				</a>
+				<a class="header-button icon-only" href="/account" aria-label="Account" title="Account">
+					<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="12" cy="8.5" r="3.5" />
+						<path d="M5 19.5c.8-3.3 3.6-5.5 7-5.5s6.2 2.2 7 5.5" />
 					</svg>
 				</a>
 			</div>
@@ -83,7 +84,7 @@
 		background: none;
 	}
 
-	/* account and mail, at the right end of the header, top-aligned with the logo */
+	/* mail and account, at the right end of the header, top-aligned with the logo */
 	.header-buttons {
 		display: flex;
 		gap: 0.75rem;
@@ -92,18 +93,30 @@
 		margin-left: auto;
 	}
 
-	/* line icon: no fill, gray border; border and icon turn white on hover.
-	   Same height as the logo, square. */
+	/* line icon and label: no fill, gray border; border, icon and label turn white on hover */
 	.header-button {
-		display: grid;
-		place-items: center;
-		height: 7rem;
-		aspect-ratio: 1;
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		min-width: 10rem;
+		height: 3.25rem;
 		box-sizing: border-box;
 		color: #9e9699;
 		background: none;
 		border: 1px solid #5b5357;
+		font-size: 0.95rem;
+		letter-spacing: 0.02em;
+		text-decoration: none;
 		transition: color 0.2s ease-out, border-color 0.2s ease-out;
+	}
+
+	/* account is just the icon, in a square */
+	.header-button.icon-only {
+		flex: none;
+		min-width: 0;
+		aspect-ratio: 1;
 	}
 
 	.header-button:hover,
@@ -178,18 +191,34 @@
 			padding: 1.5rem 1rem 2rem;
 		}
 
-		/* away from home the logo is only a way back, so it gives the form the room */
-		.site-header:not(.home) {
+		/* a smaller logo gives the page the room */
+		.site-header {
 			min-height: 0;
 			padding-top: 1rem;
 		}
 
-		.site-header:not(.home) .brand {
+		.brand {
 			width: 11.5rem;
 		}
 
-		.site-header:not(.home) .logo-img {
+		.logo-img {
 			height: 4.5rem;
+		}
+
+		/* home stacks the logo over the buttons, which fill the column like the upload card */
+		.site-header.home {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.75rem;
+		}
+
+		.header-buttons {
+			align-self: stretch;
+			margin-left: 0;
+		}
+
+		.header-button {
+			min-width: 0;
 		}
 	}
 </style>
