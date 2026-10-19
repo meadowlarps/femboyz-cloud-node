@@ -19,6 +19,8 @@ git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
 test "$(git -C "$source_dir" rev-parse HEAD)" = "$upstream"
 git -C "$source_dir" apply --check "$here/auto-sso.patch"
 git -C "$source_dir" apply "$here/auto-sso.patch"
+# Fail if the initial bundled palette drifts from the managed theme.
+diff -u <(cat "$here/../../../mail/theme/theme.css"; printf '\nhtml, body { background-color: #1b1a1a; }\n') "$source_dir/app/femboyz.css"
 mkdir "$source_dir/.femboyz"
 cp "$here"/* "$source_dir/.femboyz/"
 cp "$source_dir/.dockerignore" "$source_dir/.femboyz/upstream.dockerignore"

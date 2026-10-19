@@ -12,7 +12,10 @@ hydration. Manual installation remains available in the browser menu.
 
 The managed palette is also bundled in `app/femboyz.css`, with the site's
 `#1b1a1a` background on the server-rendered html/body. Keep this bundled copy
-in sync with `mail/theme/theme.css` when changing the palette. Discovery/start requests time out after 15 seconds; actual errors show
+in sync with `mail/theme/theme.css` when changing the palette; the build verifies
+this. The transition background also survives older cached themes.
+
+Discovery/start requests time out after 15 seconds; actual errors show
 **Try again** instead of an indefinite spinner. Add-account, multi-server and
 local-only sign-out flows keep their existing controls.
 

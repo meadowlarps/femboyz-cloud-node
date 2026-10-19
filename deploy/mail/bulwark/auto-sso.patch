@@ -528,10 +528,10 @@ index 96d57f4..48c8cf8 100644
  });
 diff --git a/components/auth/__tests__/auto-sso-screen.test.tsx b/components/auth/__tests__/auto-sso-screen.test.tsx
 new file mode 100644
-index 0000000..9241fbc
+index 0000000..afef6ed
 --- /dev/null
 +++ b/components/auth/__tests__/auto-sso-screen.test.tsx
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,38 @@
 +import React from 'react';
 +import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 +import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -541,6 +541,7 @@ index 0000000..9241fbc
 +afterEach(() => { cleanup(); vi.useRealTimers(); });
 +it('keeps fast redirects visually quiet, with no logo or extra button', () => {
 +  const view = render(<AutoSsoScreen failed={false} onRetry={vi.fn()} />);
++  expect(screen.getByRole('main')).toHaveStyle({ backgroundColor: '#1b1a1a', color: '#f4f4f4' });
 +  expect(screen.getByRole('status')).toHaveClass('sr-only');
 +  act(() => vi.advanceTimersByTime(699));
 +  expect(screen.getByRole('status')).toHaveClass('sr-only');
@@ -571,7 +572,7 @@ index 0000000..9241fbc
 +});
 diff --git a/components/auth/auto-sso-screen.tsx b/components/auth/auto-sso-screen.tsx
 new file mode 100644
-index 0000000..5dea9eb
+index 0000000..57962d8
 --- /dev/null
 +++ b/components/auth/auto-sso-screen.tsx
 @@ -0,0 +1,33 @@
@@ -593,7 +594,7 @@ index 0000000..5dea9eb
 +  }, []);
 +
 +  return (
-+    <main className="min-h-screen flex items-center justify-center bg-background text-foreground px-4" aria-busy={!failed}>
++    <main className="min-h-screen flex items-center justify-center bg-background text-foreground px-4" style={{ backgroundColor: '#1b1a1a', color: '#f4f4f4' }} aria-busy={!failed}>
 +      {failed ? (
 +        <div role="alert" className="text-center space-y-4">
 +          <p>We couldn’t check your login.</p>
@@ -629,7 +630,7 @@ index 90b9e26..3b770ac 100644
  
    it('reloads into the login page once a session was used on this page', async () => {
 diff --git a/components/mail/mail-app.tsx b/components/mail/mail-app.tsx
-index d9b1b48..a23116e 100644
+index d9b1b48..f0439dc 100644
 --- a/components/mail/mail-app.tsx
 +++ b/components/mail/mail-app.tsx
 @@ -3995,14 +3995,9 @@ export function MailApp({ linkSegments: routeSegments }: MailAppProps = {}) {
@@ -646,7 +647,7 @@ index d9b1b48..a23116e 100644
 -    );
 +    // Keep the initial session check visually quiet; /login owns the delayed
 +    // progress message. This avoids a separate translated loader flashing first.
-+    return <main className="min-h-screen bg-background" aria-busy="true" aria-label="Checking login" />;
++    return <main className="min-h-screen bg-background" style={{ backgroundColor: '#1b1a1a' }} aria-busy="true" aria-label="Checking login" />;
    }
  
    // Get current mailbox name for mobile header
