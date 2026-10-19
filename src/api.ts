@@ -44,7 +44,7 @@ import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import      fs              from "node:fs/promises"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
 import      { filesize }    from "filesize"
-import      { envs }        from "./config.js"
+import      { ACCOUNTS_ENABLED, envs } from "./config.js"
 import      { attachmentContentDisposition, inlineContentDisposition, parseByteRange } from "./httpHeaders.js"
 import Fastify, {
     type FastifyError,
@@ -53,6 +53,7 @@ import Fastify, {
     type FastifyRequest,
     type FastifyReply }     from "fastify"
 import cors from "@fastify/cors"
+import { account_routes_register } from "./accountApi.js"
                 
 declare module "fastify" {
     interface FastifyRequest {
@@ -105,6 +106,8 @@ export async function startServer() {
     server.post("/api/v2/ulink", ulinkVal, ulinkHandler)            // Receive: Route to handle receiving a new upload link
     server.post("/api/v2/unote", unoteVal, unoteHandler)            // Receive: Route to handle receiving a new text note
     server.post("/api/v2/udstream", udstreamVal, udstreamHandler)   // Receive: Route to handle receiving a new upload file stream
+    if (ACCOUNTS_ENABLED)
+        await account_routes_register(server, adminAuthHandler)    // femboyz accounts: /oidc/*, /api/v2/account/*, admin account routes
 
     try {
         await server.listen({ port: PORT })
@@ -254,7 +257,7 @@ export async function updateCommentReactionHandler(request: FastifyRequest, repl
     reply.send(await updateCommentReaction(request, commentId))
 }
 
-async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {
+export async function adminAuthHandler(request: FastifyRequest, reply: FastifyReply) {
     reply.header("Cache-Control", "no-store")
 
     const blockedMs = authBlockRemainingMs(request.ip)

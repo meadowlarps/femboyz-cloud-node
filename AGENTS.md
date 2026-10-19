@@ -35,6 +35,12 @@ TypeScript Node.js server.
 | `src/uploads.ts`   | Upload handling, ID generation, counters, MIME classification |
 | `src/schema.ts`    | Zod schemas                                                   |
 | `src/logger.ts`    | Pino logger, `scope(name)` factory, error log file            |
+| `src/accounts.ts`  | femboyz accounts: username/password rules, requests, invites, signup, external email, redirect, admin |
+| `src/accountApi.ts` | Account routes, their rate limits, Origin check, Stalwart bounce webhook |
+| `src/oidc.ts`      | OIDC provider (oidc-provider) at `/oidc`, Mongo adapter, femboyz.cloud site session |
+| `src/emailcodes.ts` | 4-digit email codes: HMAC storage, attempts, send limits    |
+| `src/stalwart.ts`  | Stalwart JMAP management client: mailboxes, quota, redirect Sieve |
+| `src/mailer.ts`    | nodemailer to Stalwart as noreply@, mail templates            |
 | `src/utils.ts`     | Shared helpers                                                |
 
 ## API routes
@@ -54,7 +60,18 @@ TypeScript Node.js server.
 | GET          | `/api/v2/admin/logs`            | Admin error log viewer                               |
 | GET/POST/PATCH/DELETE | `/api/v2/admin/tokens[/:id]`, `/:id/uses` | Admin upload tokens and usage log |
 
-Admin routes require `AUTH_ADMIN_KEY` as a bearer key.
+Accounts (off unless `OIDC_ISSUER` is set; MAIL_PLAN.md, DEPLOYMENT.md section 14):
+
+| Method       | Path                            | Description                                          |
+| ------------ | ------------------------------- | ---------------------------------------------------- |
+| ALL          | `/oidc/*`                       | OIDC provider; `/oidc/interaction/:uid[/login\|/abort]` are ours |
+| GET/POST     | `/api/v2/account/session/*`     | Site session: `start`, `callback`, `logout`          |
+| POST/GET     | `/api/v2/account/request`, `/invite/:code`, `/available`, `/signup[/email-code]` | Request access, invites, signup |
+| GET/POST/DELETE/PATCH | `/api/v2/account/me[/email[/verify]\|/redirect]` | `/account` settings (session cookie) |
+| GET/POST/PATCH/DELETE | `/api/v2/admin/account/{requests,invites,users}[/:id[/approve\|/reject]]` | Admin |
+| POST         | `/api/v2/account/stalwart/webhook` | Stalwart bounce events (HMAC-signed)              |
+
+Admin routes require `AUTH_ADMIN_KEY` as a bearer key. Non-GET account routes require a same-site `Origin`.
 
 ## Frontend protocols
 
@@ -66,6 +83,7 @@ Full specs live in `schema/`. Don't duplicate them here.
 - Link upload (`POST /api/v2/ulink`): JSON `{ "type": "link", "link": "..." }`; the server HEAD-pings the URL first.
 - Note upload (`POST /api/v2/unote`): `schema/frontend_note_upload.md`. Text lives in MongoDB.
 - View tracking (`POST /api/v2/viewed/:id`): `schema/frontend_upload_viewed.md`.
+- Accounts: `schema/frontend_account_{login,signup,settings,admin}.md`, `schema/mongo_{user,account_request,invite}.md`.
 
 ## Storage
 
@@ -122,9 +140,10 @@ npm test             # vitest (browser via Playwright)
 | Path                            | Role                                        |
 | ------------------------------- | ------------------------------------------- |
 | `src/routes/+page.svelte`       | Home page (`/`), upload UI                  |
-| `src/routes/admin/+page.svelte` | Admin page (`/admin`): uploads / tokens / logs |
+| `src/routes/admin/+page.svelte` | Admin page (`/admin`): uploads / tokens / requests / invites / users / logs |
+| `src/routes/login/`, `signup/`, `account/` | femboyz accounts; `src/lib/account/` holds the API helper and the code input |
 | `src/routes/+layout.svelte`     | Global layout                               |
-| `src/hooks.ts`, `src/hooks.server.ts` | Client `reroute`, server `handle`     |
+| `src/hooks.server.ts`           | Server `handle`: `frame-ancestors` for the account pages |
 | `src/lib/`                      | Shared code (`$lib/...`)                    |
 | `static/`                       | Files served as-is                          |
 

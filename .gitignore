@@ -7,6 +7,7 @@ node_modules/
 dist/
 .env.dev
 .env.prod
+.env
 logs/*
 !logs/
 storage/*
@@ -17,3 +18,6 @@ storage/*
 .claude/
 
 dumpremotelogs/
+
+# OIDC provider signing keys (private)
+oidc-jwks.json

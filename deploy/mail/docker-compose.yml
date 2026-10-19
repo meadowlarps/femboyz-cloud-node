@@ -30,7 +30,9 @@ services:
       - "25:25"
       # HTTPS (JMAP, WebUI, OAuth) for nginx only. Never publish it publicly.
       - "127.0.0.1:8443:443"
-      # Later phases: 127.0.0.1:465 for Fastify (noreply@), 465/993 for apps.
+      # SMTP submission (implicit TLS) for Fastify's mailer as noreply@, loopback only.
+      # Mail apps (465/993 public) come in a later phase.
+      - "127.0.0.1:465:465"
     volumes:
       - stalwart_etc:/etc/stalwart
       - stalwart_data:/var/lib/stalwart

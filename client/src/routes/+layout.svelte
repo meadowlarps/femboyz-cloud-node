@@ -3,24 +3,42 @@
 	import favicon from '$lib/assets/favicon.webp'
 	import logo from '$lib/assets/logo.webp'
 	import AlertStack from '$lib/AlertStack.svelte'
+	import { page } from '$app/state'
+	import { env } from '$env/dynamic/public'
 
 	let { children } = $props()
+
+	// /account?embed=1 sits inside webmail settings, without the site header
+	const embed = $derived(page.url.pathname === '/account' && page.url.searchParams.get('embed') === '1')
+	const home = $derived(page.url.pathname === '/')
+	// webmail arrives in phase 3; until PUBLIC_MAIL_URL points at it, the button opens the account page
+	const mailUrl = env.PUBLIC_MAIL_URL || '/account'
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="app-shell">
+<div class="app-shell" class:embed>
+	{#if !embed}
 	<header class="site-header">
 		<a class="brand" href="/" aria-label="Go to home">
 			<img class="logo-img" src={logo} alt="femboyz.cloud">
 		</a>
 
+		{#if home}
+			<a class="mail-button" href={mailUrl} aria-label="Mail" title="Mail">
+				<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+					<rect x="3" y="5" width="18" height="14" rx="1" />
+					<path d="m3.5 6 8.5 7 8.5-7" />
+				</svg>
+			</a>
+		{/if}
 		<nav class="nav-links" aria-label="Main navigation">
 			<a href="/">Home</a>
 		</nav>
 	</header>
+	{/if}
 
 	<main class="page-content">
 		{@render children()}
@@ -55,6 +73,30 @@
 		padding-top: 1.2rem;
 		border: none;
 		background: none;
+	}
+
+	/* letter icon: no fill, gray border; border and icon turn white on hover */
+	.mail-button {
+		display: grid;
+		place-items: center;
+		flex: none;
+		/* right end of the header, top-aligned with the logo; same height, square */
+		align-self: flex-start;
+		margin-left: auto;
+		height: 7rem;
+		aspect-ratio: 1;
+		box-sizing: border-box;
+		color: #9e9699;
+		background: none;
+		border: 1px solid #5b5357;
+		transition: color 0.2s ease-out, border-color 0.2s ease-out;
+	}
+
+	.mail-button:hover,
+	.mail-button:focus-visible {
+		color: #fff;
+		border-color: #fff;
+		outline: none;
 	}
 
 	.brand {
@@ -103,6 +145,14 @@
 	.page-content {
 		margin: 0;
 		padding: 2rem 1.5rem 2rem;
+	}
+
+	.embed {
+		min-height: 0;
+	}
+
+	.embed .page-content {
+		padding: 1rem;
 	}
 
 	@media (max-width: 42rem) {

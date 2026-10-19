@@ -2,7 +2,9 @@
 """Tiny Stalwart JMAP client for the mail runbook (DEPLOYMENT.md section 13).
 
 Credentials never go on the command line: the user comes from STW_USER and
-the password is prompted for (or read from STW_PASS when scripting).
+the password is prompted for (or read from STW_PASS when scripting). With
+STW_TOKEN set (an API key, "API_..."), it is sent as a Bearer token instead;
+that is the only way in for internal accounts once the OIDC directory is on.
 
   # management call(s); JSON array of JMAP method calls on stdin
   echo '[["x:Domain/get", {}, "a"]]' | ./stwjmap.py call [URL]
@@ -30,6 +32,11 @@ USING = [
 
 
 def auth_header():
+    token = os.environ.get("STW_TOKEN")
+    if token == "-":
+        token = getpass.getpass("API key: ")
+    if token:
+        return "Bearer " + token
     user = os.environ.get("STW_USER") or input("Stalwart user: ")
     password = os.environ.get("STW_PASS") or getpass.getpass(f"Password for {user}: ")
     return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()

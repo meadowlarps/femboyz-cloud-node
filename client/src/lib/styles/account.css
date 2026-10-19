@@ -1,0 +1,225 @@
+/* Shared look of /login, /signup and /account. */
+
+.acct-page {
+    --acct-border: #4a4447;
+    --acct-ease: 0.2s ease-out;
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+    width: min(100%, 30rem);
+    /* a fixed drop towards the middle rather than true centring, so expanding a
+       section grows the page downwards instead of shifting everything up */
+    margin: 0 auto;
+    padding: clamp(1.5rem, 12vh, 8rem) 0 4rem;
+    box-sizing: border-box;
+}
+
+.acct-panel {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.acct-panel h1,
+.acct-panel h2,
+.acct-panel p {
+    margin: 0;
+}
+
+.acct-panel h1 {
+    font-size: 1.6rem;
+}
+
+.acct-panel h2 {
+    font-size: 1.1rem;
+}
+
+.acct-form {
+    display: grid;
+    gap: 1rem;
+}
+
+.acct-field {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.acct-field > span,
+.acct-muted {
+    color: #9e9699;
+    font-size: 0.85rem;
+}
+
+/* Inputs: focus shows as a border colour change, not an outline. */
+.acct-field input,
+.acct-field textarea,
+.acct-suffix {
+    width: 100%;
+    min-height: 2.75rem;
+    box-sizing: border-box;
+    color: #f4f4f4;
+    background: #171515;
+    border: 1px solid var(--acct-border);
+    font: inherit;
+    transition: border-color var(--acct-ease);
+}
+
+.acct-field input,
+.acct-field textarea {
+    padding: 0.65rem 0.75rem;
+}
+
+.acct-field textarea {
+    min-height: 6rem;
+    resize: vertical;
+}
+
+.acct-field input:hover,
+.acct-field textarea:hover,
+.acct-suffix:hover {
+    border-color: #6a6266;
+}
+
+.acct-field input:focus,
+.acct-field textarea:focus,
+.acct-suffix:focus-within {
+    border-color: var(--color-accent);
+    outline: none;
+}
+
+/* Username with the mail domain inside the field: "name | @femboyz.cloud". */
+.acct-suffix {
+    display: flex;
+    align-items: center;
+}
+
+.acct-field .acct-suffix input {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    border: none;
+    background: transparent;
+}
+
+.acct-suffix > span {
+    padding: 0 0.75rem;
+    color: #8a8385;
+    border-left: 1px solid var(--acct-border);
+    white-space: nowrap;
+    user-select: none;
+    transition: border-color var(--acct-ease);
+}
+
+.acct-suffix:focus-within > span {
+    border-left-color: #6a6266;
+}
+
+/* a status line under a field, indented to line up with the text inside the input */
+.acct-field > .acct-status {
+    padding: 0.3rem 0.75rem 0.1rem;
+}
+
+/* the 4 code boxes and the resend button on one line, all 3.5rem tall */
+.acct-code-row {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 1rem;
+}
+
+/* fixed width: the countdown must not make it jump */
+.acct-resend {
+    width: 10rem;
+    min-height: 3.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.acct-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Secondary buttons: gray border, text only. */
+.acct-quiet {
+    min-height: 2.75rem;
+    padding: 0.55rem 1rem;
+    color: #d8d2d4;
+    background: transparent;
+    border: 1px solid #5b5357;
+    font: inherit;
+    cursor: pointer;
+    transition: color var(--acct-ease), border-color var(--acct-ease);
+}
+
+.acct-quiet:hover:not(:disabled) {
+    color: #fff;
+    border-color: #8a8385;
+}
+
+.acct-page button:focus-visible,
+.acct-page a:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.acct-page button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* fb-button grows on hover; a disabled one shouldn't react at all */
+.acct-page .fb-button:disabled:hover {
+    color: #fff;
+    background-color: var(--color-accent);
+    transform: none;
+}
+
+.acct-page .acct-error {
+    color: #ffb3c7;
+}
+
+.acct-page .acct-ok {
+    color: #b8f0c8;
+}
+
+.acct-badge {
+    padding: 0.15rem 0.4rem;
+    color: #b8f0c8;
+    border: 1px solid #3f7a52;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+
+/* hidden from people, visible to form-filling bots */
+.acct-honeypot {
+    position: absolute;
+    left: -10000px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+/* Content that appears after a fetch fades in instead of popping. A CSS animation runs on
+   every insertion, including the first render after hydration. */
+.acct-fade-in {
+    animation: acct-fade-in 0.35s ease-out both;
+}
+
+@keyframes acct-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(0.4rem);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .acct-fade-in {
+        animation: none;
+    }
+}

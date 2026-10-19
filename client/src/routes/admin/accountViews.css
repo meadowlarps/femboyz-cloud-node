@@ -1,0 +1,173 @@
+/* Shared by RequestsView, InvitesView and UsersView. Global, so every class is av- prefixed. */
+
+.av-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+}
+
+.av-toolbar label {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.av-toolbar label > span,
+.av-muted,
+.av-meta dt {
+    color: #8a8385;
+    font-size: 0.82rem;
+}
+
+.av-toolbar input,
+.av-toolbar select {
+    min-height: 2.75rem;
+    box-sizing: border-box;
+    padding: 0.65rem 0.75rem;
+    color: #f4f4f4;
+    background: #171515;
+    border: 1px solid #4a4447;
+    font: inherit;
+}
+
+.av-toolbar input:focus-visible,
+.av-toolbar select:focus-visible,
+.av-list button:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.av-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.av-row {
+    padding: 1rem;
+    background: #221f20;
+    border: 1px solid #3b3538;
+}
+
+.av-row.av-highlight {
+    border-color: var(--color-accent);
+}
+
+.av-row.av-inactive {
+    opacity: 0.7;
+}
+
+.av-row-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.av-title,
+.av-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.av-badge {
+    padding: 0.15rem 0.4rem;
+    color: #ffb3c7;
+    border: 1px solid #9e3152;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+
+.av-badge.av-ok {
+    color: #b7f0ce;
+    border-color: #3f6b52;
+}
+
+.av-badge.av-dim {
+    color: #aaa2a5;
+    border-color: #5b5357;
+}
+
+.av-quiet {
+    min-height: 2.25rem;
+    padding: 0.4rem 0.7rem;
+    color: #f4f4f4;
+    background: transparent;
+    border: 1px solid #5b5357;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.av-quiet.av-danger {
+    color: #ffb3c7;
+    border-color: #9e3152;
+}
+
+.av-list button:disabled,
+.av-toolbar button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.av-note {
+    margin: 0.65rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.av-secret {
+    display: block;
+    margin-top: 0.65rem;
+    padding: 0.5rem 0.65rem;
+    background: #191718;
+    border: 1px solid #3b3538;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
+.av-meta {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0.65rem 0 0;
+}
+
+.av-meta dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+}
+
+.av-meta dd {
+    margin: 0.2rem 0 0;
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
+}
+
+.av-error {
+    color: #ffb3c7;
+}
+
+.av-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #9e9699;
+}
+
+@media (max-width: 60rem) {
+    .av-meta {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 38rem) {
+    .av-row-header {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}

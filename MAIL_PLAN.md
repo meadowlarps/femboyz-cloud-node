@@ -1,6 +1,6 @@
 # femboyz accounts + mail — plan
 
-Status: draft v4 · branch `feature/mail` · 2026-10-19 · phase 1 done
+Status: draft v5 · branch `feature/mail` · 2026-10-19 · phase 1 done · phase 2 built and tested on dev, prod rollout pending (DEPLOYMENT.md 14)
 
 Invite-only **femboyz accounts** that come with an `@femboyz.cloud` mailbox, read at `https://mail.femboyz.cloud`. The same account will later log in to femboyz.cloud itself.
 
@@ -35,7 +35,7 @@ Decisions so far:
  mail apps ──465/587/993─────────────────────► Stalwart (direct, later phase)            │
                     │                                                                     │
                     │  Fastify ── JMAP mgmt API (service key) ──► Stalwart: create/disable│
-                    │  Fastify ── SMTP 587 (noreply@) ──────────► Stalwart: system mail   │
+                    │  Fastify ── SMTP 465 (noreply@) ──────────► Stalwart: system mail   │
                     │  Bulwark / Stalwart ── OIDC ──────────────► Fastify (/oidc)         │
                     └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -133,7 +133,7 @@ A 4-digit code has only 10,000 values, so the limits do the security work:
 
 **How the redirect works in Stalwart** (verified against 0.16.27 in phase 1)
 - 0.16 has **no native per-account forwarding**: the Account object has no forwarding field, and masked emails only forward to local accounts. Redirect is a per-user **Sieve** script, managed by our backend through JMAP (`urn:ietf:params:jmap:sieve`: blob upload, then `SieveScript/set` with `onSuccessActivateScript`). With `keep_copy` it runs `redirect :copy "<external>";`, otherwise `redirect "<external>";`. `deploy/mail/admin-redirect.sieve` is the template, and `deploy/mail/stwjmap.py sieve` shows the calls.
-- The JMAP Sieve calls run **as the user's account**, so the backend needs a way to act for any account. Options: Stalwart's master-user impersonation (`Impersonate` permission) with the service credential, or `x:SieveUserScript` if it turns out to be account-scoped. Decide in phase 2.
+- The JMAP Sieve calls run **as the user's account**. Decided in phase 2: the service account holds the `impersonate` permission, which lets its API key address any `accountId` (Stalwart's `is_member` check). `x:SieveUserScript` is a global script library, not per account. This adds no real power: the API is the identity provider and can already sign tokens for any user.
 - Only mail that **passes the spam filter** is redirected. The script must test `header :matches "X-Spam-Score" "spam*"`. `X-Spam-Status` is only added at mailbox ingest, after Sieve has run, so a test on it never matches. This was found the hard way in phase 1, when a GTUBE test was forwarded.
 - **No SRS, and no ARC sealing:**
   - Stalwart does not implement SRS.
@@ -141,7 +141,7 @@ A 4-digit code has only 10,000 values, so the limits do the security work:
   - What it does do: a user-Sieve redirect is sent with the **mailbox's own address as envelope sender** (e.g. `admin@femboyz.cloud`). SPF is therefore checked against femboyz.cloud and passes once our SPF record exists.
   - The `From:` header stays the original sender's, so DMARC at the receiver passes only through the original sender's DKIM signature, which survives because we only prepend a `Received:` header. Gmail and Outlook senders sign, so this covers the common case.
   - We also DKIM-sign redirected mail as femboyz.cloud (`SieveUserInterpreter.dkimSignDomain`), for reputation.
-- Bounces: the phase-1 test redirect was rejected by Gmail, and Stalwart logged `delivery.dsn-perm-fail`, but no DSN appeared in admin's mailbox. The original sender gets nothing either. The "turn redirect off after 3 hard bounces" rule therefore can't read bounce mail. It should use a Stalwart **webhook** on `delivery.dsn-perm-fail` / `delivery.message-rejected` events, matched by account. Design that in phase 2.
+- Bounces: the phase-1 test redirect was rejected by Gmail, and Stalwart logged `delivery.dsn-perm-fail`, but no DSN appeared in admin's mailbox. The original sender gets nothing either. The "turn redirect off after 3 hard bounces" rule therefore can't read bounce mail. Built in phase 2: a Stalwart **webhook** on `delivery.dsn-perm-fail`, HMAC-signed, posts to `/api/v2/account/stalwart/webhook`. A bounce counts when `data.from` is the user's address and `data.to` their external one. Verified on dev with a null-MX destination (`schema/frontend_account_admin.md`).
 - Redirected mail counts toward the outbound volume we monitor.
 
 ### Data model (Mongo)
@@ -161,7 +161,7 @@ Mail services are optional per user, so non-mail accounts stay possible later.
 - `src/accounts.ts`: users, argon2id hashing, username rules, request/invite/signup logic, admin CRUD.
 - `src/oidc.ts`: oidc-provider setup and Mongo adapter. Clients are `bulwark` and later `femboyz-web`. Claims: `sub`, `preferred_username`, `email` (`username@femboyz.cloud`), `name`. JWT access tokens with audience `stalwart`, because Stalwart requires `aud=stalwart` and scopes `openid email` by default.
 - `src/stalwart.ts`: thin JMAP management client (`x:Account/set` create/update/destroy, quota usage) using `STALWART_API_KEY`.
-- `src/mailer.ts`: nodemailer over SMTP 587 to Stalwart as `noreply@femboyz.cloud`. Sends the admin notification, invite, rejection and (later) password reset emails.
+- `src/mailer.ts`: nodemailer over SMTP 465 (implicit TLS, `127.0.0.1:465`; Stalwart has no 587 listener by default) to Stalwart as `noreply@femboyz.cloud`. Sends the admin notification, invite, rejection and (later) password reset emails.
 
 ### Username rules
 
@@ -214,7 +214,7 @@ Each protocol gets a doc in `schema/` (`frontend_account_*.md`, `mongo_user.md`,
 
 ### Config additions (`src/config.ts`)
 
-`OIDC_ISSUER` (`https://femboyz.cloud/oidc`), `OIDC_JWKS_FILE`, `OIDC_COOKIE_KEYS`, `OIDC_CLIENT_BULWARK_SECRET`, `OIDC_CLIENT_WEB_SECRET`, `STALWART_URL`, `STALWART_API_KEY`, `MAIL_DOMAIN` (`femboyz.cloud`), `MAIL_DEFAULT_QUOTA_BYTES` (default `1073741824`), `INVITE_TTL_DAYS` (default 7), `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS`, `ADMIN_NOTIFY_EMAIL` (default `admin@femboyz.cloud`), `EMAIL_CODE_SECRET`, `EMAIL_CODE_TTL_MINUTES` (10), `EMAIL_CODE_MAX_ATTEMPTS` (5), `ACCOUNT_LOGIN_MAX_FAILS` / `ACCOUNT_LOGIN_BLOCK_MINUTES`, `MDB_COLLECTION_USERS` / `_ACCOUNT_REQUESTS` / `_INVITES` / `_EMAIL_CODES`.
+The full list with defaults is in `src/config.ts` and `.env.temp`; production values are in DEPLOYMENT.md 14.2. Accounts are off unless `OIDC_ISSUER` is set, so the code deploys before the rollout.
 
 ### Tests
 
@@ -268,15 +268,15 @@ nginx already runs certbot and owns ports 80/443, and Stalwart's own ACME stays 
 
 - `deploy/mail/docker-compose.yml`:
   - Image `stalwartlabs/stalwart:v0.16`.
-  - Publish 25 (and 465/587/993 later).
+  - Publish 25, and `127.0.0.1:465` for the mailer (public 465/993 later).
   - HTTPS bound to `127.0.0.1:8443` behind nginx.
   - Volumes `/etc/stalwart` and `/var/lib/stalwart` (RocksDB).
   - `STALWART_PUBLIC_URL=https://mx.femboyz.cloud`.
 - Bootstrap with `STALWART_RECOVERY_ADMIN`, run the wizard, save the permanent admin credential, remove the env var and close `:8080`. Done in phase 1, runbook in `DEPLOYMENT.md` section 13.
 - Stalwart resolves DNS through a host **unbound** on the mail bridge gateway. Hetzner's shared resolvers are refused by Spamhaus, DNSWL and the other blocklists, which turns those spam checks off.
-- **Directory:** user accounts for `femboyz.cloud` authenticate through an **OIDC directory** pointing at `https://femboyz.cloud/oidc`, with `claimUsername=preferred_username` and `usernameDomain=femboyz.cloud`. Stalwart doesn't auto-provision OIDC users, so we pre-create each mailbox on signup through the JMAP API. That matches our flow.
+- **Directory:** user accounts for `femboyz.cloud` authenticate through an **OIDC directory** pointing at `https://femboyz.cloud/oidc`, with `claimUsername=preferred_username` and `usernameDomain=femboyz.cloud`. We pre-create each mailbox on signup through the JMAP API, with its quota. Stalwart **does** provision just-in-time on the first OIDC login it hasn't seen (`synchronize_account`), so any username our provider would issue maps onto a Stalwart account of that name. That makes the reserved username list a security boundary: it must hold every internal account and alias (`admin`, `noreply`, `femboyz-api`, `postmaster`, …), or a token for `admin` would land in the admin mailbox.
 - System accounts `admin` (Stalwart admin role) and `noreply` are internal Stalwart accounts. `postmaster@`, `abuse@`, `dmarc@`, `hostmaster@` and `webmaster@` are aliases on `admin`. Once the OIDC directory is on, these accounts can't log in with a password (see below).
-- Service API key: a dedicated account with only `sysAccountCreate`, `sysAccountUpdate`, `sysAccountDestroy` and read permissions.
+- Service API key: a dedicated account `femboyz-api` with `impersonate`, `sysAccountCreate`, `sysAccountUpdate`, `sysAccountDestroy`, `sysAccountGet`, `sysAccountQuery` and `sysDomainGet`. It has no password; an admin creates the key with `x:ApiKey/set` on its `accountId`.
 - Backups: nightly snapshot of the Stalwart volumes next to the Mongo/storage backups. Do one restore drill.
 
 **OIDC directory + internal accounts** (verified in the 0.16.27 source, phase 1). They coexist, with one catch:
@@ -285,11 +285,12 @@ nginx already runs certbot and owns ports 80/443, and Stalwart's own ACME stays 
 - **Passwords stop working for internal accounts.** With an OIDC directory set, every username + password login is passed to that directory, which rejects it ("Unsupported credentials type for OIDC backend").
 - These are still checked locally, before the directory: **app passwords** (password-style secrets beginning `app`), **API keys** (`Bearer API_…`), Stalwart's own OAuth tokens (fallback after OIDC), and the recovery admin.
 - What this means for us:
-  - `noreply@` submits SMTP with an **app password**, not its account password. Create it in phase 2, before switching the directory.
+  - `noreply@` submits SMTP with an **app password**, not its account password. An admin can create app passwords and API keys on another account even after the switch (`x:AppPassword/set` with its `accountId`), but no longer set passwords.
+  - `admin@` gets an API key before the switch; the runbook (`stwjmap.py`, `STW_TOKEN`) uses it afterwards.
   - The backend's service credential is an **API key** on a dedicated account. That was already the plan.
   - The Stalwart WebUI admin becomes the admin's own **femboyz account**: signs in through our OIDC, then gets promoted with the admin role (the documented "external directory promotion"). `STALWART_RECOVERY_ADMIN` stays the break-glass login.
   - No femboyz accounts are needed for `noreply`/`postmaster`. `admin@` stays an internal mailbox, readable only through the WebUI as recovery admin, or through an app password if IMAP is ever enabled. It redirects to the admin's personal address anyway.
-- Still to test in phase 2: WebUI sign-in through the OIDC directory and promoting the admin's femboyz account; app-password SMTP for `noreply@` after the switch.
+- Verified on the dev Stalwart (phase 2): our JWT is accepted for JMAP with the directory on; API key and recovery admin still work; app-password SMTP submission for `noreply@` works; disabling (withdrawing `authenticate`) refuses an already-issued token at once. Still open: Stalwart WebUI sign-in through OIDC and promoting the admin's own femboyz account.
 
 ### Bulwark
 
@@ -354,12 +355,15 @@ Run it the same way as Mongo: compose in `/etc/femboyz-mail/` (root-owned, mode 
 - [x] Backups: nightly restic to Hetzner Object Storage (`femboyz-cloud-bucket/femboyz-mail`), encrypted, 7d/4w/6m retention; restore drill passed 2026-10-19 (`DEPLOYMENT.md` 13.13).
 
 **Phase 2: femboyz accounts (this repo)**
-- [ ] `accounts.ts`, `oidc.ts`, `stalwart.ts`, `mailer.ts`, plus schema docs and tests.
-- [ ] `/login`, `/signup` (with the external email step), request access, `/admin` tabs Requests / Invites / Users.
-- [ ] `/account` (external email + redirect) and the `femboyz-web` session.
-- [ ] Email codes and the redirect Sieve management.
-- [ ] Stalwart OIDC directory pointed at our issuer.
-- [ ] Test: request → admin mailbox (redirected) → approve → invite email → signup with the pre-verified address → Stalwart account exists → JMAP works with our token. Separately: signup with another address and a code, add/change/remove the address from `/account`, toggle redirect.
+- [x] `accounts.ts`, `oidc.ts`, `stalwart.ts`, `mailer.ts`, `emailcodes.ts`, `accountApi.ts`, plus schema docs and tests (vitest with an in-memory MongoDB, and a full OIDC code-flow test).
+- [x] `/login`, `/signup` (with the external email step), request access, `/admin` tabs Requests / Invites / Users.
+- [x] `/account` (external email + redirect) and the `femboyz-web` session.
+- [x] Email codes and the redirect Sieve management, plus the bounce webhook.
+- [x] Dev: Stalwart OIDC directory pointed at our issuer (`docker-compose.yml` `mail` profile, DEPLOYMENT.md 14.8).
+- [x] Dev test: invite → signup → OIDC login → Stalwart accepts our JWT for JMAP → refresh → site session SSO. Request → approve; signup with the pre-verified address and with a code; add/change/remove the address; toggle redirect; three bounces turn it off. (2026-10-19)
+- [ ] Prod rollout per DEPLOYMENT.md 14: credentials, env, nginx, deploy, webhook, directory switch.
+- [ ] Prod test: request → admin mailbox (redirected) → approve → invite email → signup → mail in and out of the new mailbox.
+- [ ] Security review before merging.
 
 **Phase 3: webmail**
 - [ ] Bulwark container, theme, branding, nginx vhost, SSO env.
@@ -395,10 +399,15 @@ deploy/mail/backup.sh + femboyz-mail-backup.{service,timer}  nightly restic back
 DEPLOYMENT.md                         + mail section: DNS, PTR, certs, bootstrap, backups
 mail/theme/  mail/branding/           Bulwark theme + logos
 mail/plugin-account/                  Bulwark settings plugin framing femboyz.cloud/account
-src/accounts.ts  src/oidc.ts  src/stalwart.ts  src/mailer.ts
-schema/frontend_account_*.md  schema/mongo_{user,account_request,invite}.md
+DEPLOYMENT.md section 14             accounts rollout: Stalwart credentials, env, nginx, directory switch
+src/accounts.ts  src/accountApi.ts  src/oidc.ts  src/oidckeygen.ts
+src/emailcodes.ts  src/stalwart.ts  src/mailer.ts
+data/common-passwords.txt             10k most common 12+ char passwords (SecLists, MIT)
+schema/frontend_account_{login,signup,settings,admin}.md  schema/mongo_{user,account_request,invite}.md
 client/src/routes/login/  client/src/routes/signup/  client/src/routes/account/  client/src/routes/admin/… (tabs)
-test/accounts.test.ts  test/oidc.test.ts
+client/src/lib/account/               API helper, 4-digit code input
+src/tests/accounts.test.ts  src/tests/oidc.test.ts
+docker-compose.yml (profile mail)     dev Stalwart
 ```
 
 Mail containers run from `/etc/femboyz-mail/` and are upgraded by hand with pinned tags. GitHub Actions `deploy.sh` does not touch them.

@@ -6,5 +6,28 @@ services:
     volumes:
       - mongo_data:/data/db
 
+  # Dev mail server for the account flow. Not started by default:
+  #   sudo docker compose --profile mail up -d
+  # Bootstrap and the tailnet relay are described in DEPLOYMENT.md section 14.
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16
+    profiles: [mail]
+    hostname: mx.dev.femboyz.cloud
+    environment:
+      STALWART_RECOVERY_ADMIN: ${STALWART_DEV_RECOVERY_ADMIN:-recovery:dev-recovery-only}
+      STALWART_PUBLIC_URL: http://127.0.0.1:18080
+    ports:
+      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:10025:25"
+      - "127.0.0.1:10465:465"
+    # The dev OIDC issuer is a tailnet URL; a socat relay on docker0 forwards it to tailscaled.
+    extra_hosts:
+      - "${DEV_ISSUER_HOST:-issuer.invalid}:host-gateway"
+    volumes:
+      - stalwart_etc:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+
 volumes:
   mongo_data:
+  stalwart_etc:
+  stalwart_data:

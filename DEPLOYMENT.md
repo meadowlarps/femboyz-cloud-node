@@ -1224,3 +1224,188 @@ Real restore after losing the server:
 3. `restic restore` the snapshot.
 4. Copy the two `_data` directories into the new volumes, `chown -R 2000:2000` them, and start Stalwart.
 5. `/etc/femboyz-mail` from the snapshot has the old compose file and TLS copy.
+
+## 14. femboyz accounts (OIDC provider)
+
+The API is also the account system: users, invites, the `/login` page and an
+OIDC provider at `https://femboyz.cloud/oidc`. Stalwart authenticates mailbox
+users against that provider. The plan and the reasoning are in `MAIL_PLAN.md`
+section 2. Everything is off until `OIDC_ISSUER` is set, so the code can ship
+before this runbook is done.
+
+Order matters. Once Stalwart's directory is switched to OIDC (14.6), it
+refuses **every** username + password login for internal accounts, including
+`admin@` and `noreply@`. API keys, app passwords and the recovery admin keep
+working, so create those first.
+
+### 14.1 Credentials in Stalwart (before the switch)
+
+Run as `admin@femboyz.cloud` against the normal URL, as in 13.6. Find the
+account and domain ids with `x:Account/get` and `x:Domain/get`.
+
+1. **Service account** for the API. It has no password: an admin gives it an
+   API key. `impersonate` lets it manage Sieve scripts on user accounts.
+
+   ```bash
+   cd /srv/femboyz-cloud/deploy/mail
+   export STW_USER=admin@femboyz.cloud
+   ./stwjmap.py call <<'EOF_JMAP'
+   [["x:Account/set", {"create": {"svc": {"@type": "User", "name": "femboyz-api",
+     "domainId": "<DOMAIN_ID>", "description": "femboyz-cloud-node account management (API key only)",
+     "roles": {"@type": "User"}, "encryptionAtRest": {"@type": "Disabled"},
+     "permissions": {"@type": "Merge", "disabledPermissions": {}, "enabledPermissions": {
+       "impersonate": true, "sysAccountCreate": true, "sysAccountUpdate": true,
+       "sysAccountDestroy": true, "sysAccountGet": true, "sysAccountQuery": true, "sysDomainGet": true}}}}}, "s"]]
+   EOF_JMAP
+   ```
+
+2. **Keys.** The response to each create holds the secret once. Write it
+   straight into the password manager.
+
+   ```bash
+   # API key for the service account -> STALWART_API_KEY
+   echo '[["x:ApiKey/set", {"accountId": "<SVC_ID>", "create": {"k": {"description": "femboyz-cloud-node", "permissions": {"@type": "Inherit"}}}}, "k"]]' | ./stwjmap.py call
+   # app password for noreply@ -> SMTP_PASS
+   echo '[["x:AppPassword/set", {"accountId": "<NOREPLY_ID>", "create": {"a": {"description": "femboyz-cloud-node SMTP", "permissions": {"@type": "Inherit"}}}}, "a"]]' | ./stwjmap.py call
+   # API key for admin@ itself: the runbook's login after the switch (STW_TOKEN=- prompts for it)
+   echo '[["x:ApiKey/set", {"accountId": "<ADMIN_ID>", "create": {"k": {"description": "runbook", "permissions": {"@type": "Inherit"}}}}, "k"]]' | ./stwjmap.py call
+   ```
+
+   API keys start with `API_`, app passwords with `app`. An admin can still
+   create both after the switch, so a lost key is replaceable.
+
+3. **Submission port.** `deploy/mail/docker-compose.yml` publishes
+   `127.0.0.1:465` for the mailer. Copy it to `/etc/femboyz-mail/` and run
+   `sudo docker compose -f /etc/femboyz-mail/docker-compose.yml up -d`.
+
+### 14.2 Application environment
+
+Add to `/srv/femboyz-cloud/.env.prod`. Generate each secret separately with
+`openssl rand -hex 32`.
+
+```env
+OIDC_ISSUER=https://femboyz.cloud/oidc
+OIDC_JWKS_FILE=/srv/femboyz-cloud/oidc-jwks.json
+OIDC_COOKIE_KEYS=REPLACE_WITH_RANDOM_HEX
+OIDC_CLIENT_WEB_SECRET=REPLACE_WITH_RANDOM_HEX
+EMAIL_CODE_SECRET=REPLACE_WITH_RANDOM_HEX
+STALWART_URL=https://mx.femboyz.cloud
+STALWART_RESOURCE=https://mx.femboyz.cloud
+STALWART_API_KEY=API_...
+STALWART_WEBHOOK_SECRET=REPLACE_WITH_RANDOM_HEX
+SMTP_HOST=127.0.0.1
+SMTP_PORT=465
+SMTP_TLS_SERVERNAME=mx.femboyz.cloud
+SMTP_USER=noreply@femboyz.cloud
+SMTP_PASS=app...
+```
+
+The Bulwark client (`OIDC_CLIENT_BULWARK_*`) is added in phase 3.
+
+- `OIDC_JWKS_FILE` holds the provider's private signing key. The API creates
+  it on first start (mode 600). It is ignored by Git; back it up with the other
+  secrets.
+- **Rotating the signing key:** `npm run oidc:keygen` prints a new key. Put it
+  first in `keys`, restart, and remove the old entry a day later. Tokens signed
+  with the old key stay valid until then.
+- **Rotating cookie keys:** put the new key first in `OIDC_COOKIE_KEYS`
+  (comma-separated) and keep the old one second for a month.
+
+### 14.3 Nginx
+
+Add the `/oidc/` and `/api/v2/account/stalwart/webhook` locations from
+`deploy/nginx.conf` to the HTTPS server in
+`/etc/nginx/sites-available/femboyz-cloud`. Certbot edited that file, so copy
+the two blocks rather than regenerating it. The webhook location only allows
+`172.30.25.0/24`, the mail bridge. Then:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 14.4 Deploy and smoke-test
+
+Merge to `main`; GitHub Actions deploys. Then:
+
+```bash
+curl -s https://femboyz.cloud/oidc/.well-known/openid-configuration | head -c 300
+sudo journalctl -u femboyz-api -n 50 --no-pager | grep -E 'Accounts enabled|account indexes|OIDC'
+```
+
+The issuer must read `https://femboyz.cloud/oidc` and every endpoint must start
+with it. If the endpoints lack `/oidc`, Nginx isn't passing `/oidc/` through.
+
+### 14.5 Bounce webhook
+
+Stalwart reports hard bounces of forwarded mail; after three, the API turns
+that user's forwarding off. Run with the admin API key (`STW_TOKEN=-`):
+
+```bash
+echo '[["x:WebHook/set", {"create": {"w": {
+  "url": "https://femboyz.cloud/api/v2/account/stalwart/webhook",
+  "signatureKey": {"@type": "Value", "secret": "<STALWART_WEBHOOK_SECRET>"},
+  "enable": true, "eventsPolicy": "include",
+  "events": {"delivery.dsn-perm-fail": true}}}}, "w"]]' | STW_TOKEN=- ./stwjmap.py call
+sudo docker compose -f /etc/femboyz-mail/docker-compose.yml restart stalwart
+```
+
+Webhook settings load on restart.
+
+### 14.6 Switch Stalwart to the OIDC directory
+
+```bash
+STW_TOKEN=- ./stwjmap.py call <<'EOF_JMAP'
+[["x:Directory/set", {"create": {"o": {"@type": "Oidc", "description": "femboyz accounts",
+   "issuerUrl": "https://femboyz.cloud/oidc", "requireAudience": "stalwart",
+   "claimUsername": "preferred_username", "usernameDomain": "femboyz.cloud", "claimName": "name"}}}, "d"],
+ ["x:Authentication/set", {"update": {"singleton": {"directoryId": "#o"}}}, "a"]]
+EOF_JMAP
+sudo docker compose -f /etc/femboyz-mail/docker-compose.yml restart stalwart
+```
+
+Stalwart fetches the discovery document and keys on start. Watch for
+`Issuer mismatch` or discovery errors in `sudo docker logs femboyz-stalwart`.
+
+Undo by setting `directoryId` back to `null` and restarting. Passwords then
+work again.
+
+Stalwart provisions an account on the first OIDC login it hasn't seen. A
+token for `admin` would therefore land in the internal admin mailbox. The API
+refuses every internal account and alias name at signup
+(`RESERVED_USERNAMES` in `src/accounts.ts`). Add any new internal account
+there first.
+
+### 14.7 Verification
+
+1. `/admin` → Invites → create an invite with your external address, open the
+   link, sign up.
+2. Sign in at `/login` and open `/account`. The quota shows the 1 GiB mailbox.
+3. Add an external address on `/account`. The code mail arrives (SMTP
+   submission works). Turn forwarding on, send a message to the new
+   `@femboyz.cloud` address from outside, and check it arrives at both places.
+4. Request access from a private window. The notification reaches
+   `admin@femboyz.cloud`, which forwards it.
+5. `sudo docker logs femboyz-stalwart 2>&1 | grep -i 'auth'` shows no
+   failures for `femboyz-api` or `noreply`.
+
+### 14.8 Development setup
+
+`docker-compose.yml` has a dev Stalwart under the `mail` profile
+(`sudo docker compose --profile mail up -d`): JMAP on `127.0.0.1:18080`,
+SMTP on `10025`, and submission on `10465` with a self-signed certificate
+(`SMTP_TLS_INSECURE=true`).
+
+- **Bootstrap.** Run 13.5 against `http://127.0.0.1:18080/jmap/` with the
+  `STALWART_DEV_RECOVERY_ADMIN` login, then follow 14.1 and 14.6.
+- **Issuer.** The dev issuer is the tailnet URL of the Vite server, which
+  proxies `/oidc` and `/api` to the API like Nginx does. Set it as
+  `DEV_ISSUER_HOST` in `.env`.
+- **Relay.** tailscaled only accepts connections on its own interface, so the
+  container reaches the issuer through a relay on `docker0`:
+
+  ```bash
+  socat TCP-LISTEN:8443,bind=172.17.0.1,reuseaddr,fork TCP:<tailnet-ip>:8443
+  ```
+
+- **Mailer.** Without `SMTP_HOST` the API only logs outgoing mail, codes
+  included.
