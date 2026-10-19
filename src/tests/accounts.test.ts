@@ -389,9 +389,11 @@ test("parallel guesses reserve attempts before comparison and a match works once
     await codes.code_send(subject, "race@example.org", "race@example.org")
     const code = last_code("race@example.org")
     const wrong = code === "0000" ? "1111" : "0000"
-    const attempts = await Promise.all([...Array.from({ length: 20 }, () => wrong), code].map(value => codes.code_check(subject, "race@example.org", value)))
+    // the right code goes after the race: inside it, it may legitimately win one of the 5 slots
+    const attempts = await Promise.all(Array.from({ length: 20 }, () => codes.code_check(subject, "race@example.org", wrong)))
     expect(attempts.filter(result => result.ok)).toHaveLength(0)
     expect((await db_holder.db!.collection(envs.MDB_COLLECTION_EMAIL_CODES).findOne({ subject }))?.attempts).toBe(5)
+    expect((await codes.code_check(subject, "race@example.org", code)).ok).toBe(false)
 
     await codes.code_send("user:one-use", "once@example.org", "once@example.org")
     const matches = await Promise.all(Array.from({ length: 5 }, () => codes.code_check("user:one-use", "once@example.org", last_code("once@example.org"))))
