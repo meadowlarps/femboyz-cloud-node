@@ -1484,7 +1484,7 @@ management path for phase 2.
 
 ## 15. Phase 3: Bulwark webmail
 
-Bulwark 1.15.0-femboyz.1 is deployed at https://mail.femboyz.cloud using our
+Bulwark 1.15.0-femboyz.2 is deployed at https://mail.femboyz.cloud using our
 locally built image from a pinned upstream commit plus a small SSO patch
 (`deploy/mail/bulwark/README.md`). It listens only
 on `127.0.0.1:3100`; nginx terminates TLS using a separate certbot certificate
@@ -1644,3 +1644,34 @@ Embedded account settings continued to work. The supplied PNG rendered at
 approximately 157×160px and fitted a 390px mobile viewport without horizontal
 overflow. The downloadable source archive matched its build checksum. The test
 account was disabled and queued for deletion after token expiry.
+
+### 15.6 Abandoned login and checking screen (2026-10-19)
+
+`1.15.0-femboyz.2` also covers Home → Mail → site login → Home logo → Mail
+within a few seconds. The first patch incorrectly treated that unfinished login
+as a failure. The current guard migrates both older pending-attempt flags and
+pauses only after an actual callback error. Its 30-second failure expiry remains,
+and explicit retry clears it.
+
+The automatic single-provider login screen now shows the 160px logo, spinner and
+**Checking login…**. It has no SSO/sign-in button during normal entry. Actual
+callback/discovery/start errors offer **Try again**. Discovery and start requests
+have a 15-second timeout, so network problems do not leave the spinner indefinitely.
+Multi-server, add-account and local-only logout flows retain their original UI.
+
+The image build runs 41 focused tests covering the guard, real callback errors,
+full provider/local logout, the actual login page across an abandoned flow, and
+the checking/error display. Source distribution and local image identity follow
+section 15.5 using the `.2` version suffix. Rollback copies are under
+`/root/femboyz-phase3-checking/`; restore its compose/env and restart only webmail
+to return to `.1`.
+
+Production acceptance for `.2`: the recorded Home → Mail → login → Home logo →
+Mail sequence was repeated five times, including four immediate returns within
+about ten seconds, without an SSO-button click. A recent old pending flag was
+migrated. Two additional returns through the Norwegian locale also forwarded.
+A delayed request in the test browser displayed **Checking login…**, its status
+role and the logo, with no button; it then forwarded automatically. A deliberate
+error displayed **Try again**, which resumed checking and forwarded. The public
+source archive checksum matched the generated build artifact. Root-only evidence
+and the backup log are under `/root/femboyz-phase3-checking/`.

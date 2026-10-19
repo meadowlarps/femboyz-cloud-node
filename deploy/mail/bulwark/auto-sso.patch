@@ -1,15 +1,86 @@
+diff --git a/app/(main)/[locale]/auth/callback/__tests__/auto-sso.test.tsx b/app/(main)/[locale]/auth/callback/__tests__/auto-sso.test.tsx
+new file mode 100644
+index 0000000..a75e78b
+--- /dev/null
++++ b/app/(main)/[locale]/auth/callback/__tests__/auto-sso.test.tsx
+@@ -0,0 +1,54 @@
++import React from 'react';
++import { cleanup, render, screen, waitFor } from '@testing-library/react';
++import { afterEach, beforeEach, expect, it, vi } from 'vitest';
++import { canStartAutoSso, recordAutoSsoFailure } from '@/lib/auth/auto-sso';
++import OAuthCallbackPage from '../page';
++
++const state = vi.hoisted(() => ({
++  query: 'code=one-time-code&state=paired-state',
++  login: vi.fn(), push: vi.fn(),
++}));
++vi.mock('next/navigation', () => ({
++  useRouter: () => ({ push: state.push }),
++  useParams: () => ({ locale: 'en' }),
++  useSearchParams: () => new URLSearchParams(state.query),
++}));
++vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
++vi.mock('@/stores/auth-store', () => ({
++  useAuthStore: () => ({ loginWithOAuth: state.login, loginWithServerSso: state.login }),
++}));
++vi.mock('@/lib/browser-navigation', () => ({
++  getPathPrefix: () => '', toRouterPath: (path: string) => path, apiFetch: vi.fn(),
++}));
++vi.mock('@/lib/auth/lite-oauth', () => ({ LITE_OAUTH_AVAILABLE: false, getLiteOAuthRedirectUri: () => '' }));
++
++beforeEach(() => {
++  sessionStorage.clear(); vi.clearAllMocks();
++  state.query = 'code=one-time-code&state=paired-state';
++});
++afterEach(cleanup);
++
++it('records an OAuth denial as a real failure and retains the error screen', async () => {
++  state.query = 'error=access_denied';
++  render(<OAuthCallbackPage />);
++  await screen.findByText('oauth_error.access_denied');
++  expect(canStartAutoSso()).toBe(false);
++  expect(state.login).not.toHaveBeenCalled();
++  expect(state.push).not.toHaveBeenCalled();
++});
++
++it('records an unsuccessful server-side exchange instead of starting another login', async () => {
++  state.login.mockResolvedValue(false);
++  render(<OAuthCallbackPage />);
++  await screen.findByText('oauth_error.token_exchange_failed');
++  expect(canStartAutoSso()).toBe(false);
++  expect(state.push).not.toHaveBeenCalled();
++});
++
++it('clears a previous failure only after the server-side login succeeds', async () => {
++  recordAutoSsoFailure();
++  state.login.mockResolvedValue(true);
++  render(<OAuthCallbackPage />);
++  await waitFor(() => expect(state.push).toHaveBeenCalledWith('/en'));
++  expect(canStartAutoSso()).toBe(true);
++});
 diff --git a/app/(main)/[locale]/auth/callback/page.tsx b/app/(main)/[locale]/auth/callback/page.tsx
-index 380ac32..95f82c0 100644
+index 380ac32..5dfd51c 100644
 --- a/app/(main)/[locale]/auth/callback/page.tsx
 +++ b/app/(main)/[locale]/auth/callback/page.tsx
 @@ -1,5 +1,6 @@
  "use client";
  
-+import { clearAutoSsoAttempt } from '@/lib/auth/auto-sso';
++import { clearAutoSsoAttempt, recordAutoSsoFailure } from '@/lib/auth/auto-sso';
  import { Suspense, useEffect, useRef, useState } from "react";
  import { useRouter, useSearchParams } from "next/navigation";
  import { useTranslations } from "next-intl";
-@@ -110,6 +111,7 @@ function OAuthCallbackInner() {
+@@ -23,6 +24,10 @@ function OAuthCallbackInner() {
+   // (the first had removed it) and spent the code on the login flow instead.
+   const handledRef = useRef(false);
+ 
++  useEffect(() => {
++    if (error) recordAutoSsoFailure();
++  }, [error]);
++
+   useEffect(() => {
+     if (handledRef.current) return;
+     handledRef.current = true;
+@@ -110,6 +115,7 @@ function OAuthCallbackInner() {
        loginWithOAuth(serverUrl, code, codeVerifier, redirectUri, serverId)
          .then((success) => {
            if (success) {
@@ -17,7 +88,7 @@ index 380ac32..95f82c0 100644
              sessionStorage.removeItem("oauth_state");
              sessionStorage.removeItem("oauth_code_verifier");
              sessionStorage.removeItem("oauth_server_url");
-@@ -187,6 +189,7 @@ function OAuthCallbackInner() {
+@@ -187,6 +193,7 @@ function OAuthCallbackInner() {
                sessionStorage.removeItem("mobile_redirect_uri");
                sessionStorage.removeItem("mobile_state");
              } catch { /* ignore */ }
@@ -25,7 +96,7 @@ index 380ac32..95f82c0 100644
              window.location.replace(`${mobileRedirectUri}#${fragment.toString()}`);
            } catch {
              setError("token_exchange_failed");
-@@ -199,6 +202,7 @@ function OAuthCallbackInner() {
+@@ -199,6 +206,7 @@ function OAuthCallbackInner() {
        loginWithServerSso(code, state)
          .then((success) => {
            if (success) {
@@ -33,19 +104,170 @@ index 380ac32..95f82c0 100644
              let redirectTo = `${ssoPrefix}/${params.locale}`;
              try {
                const saved = sessionStorage.getItem('redirect_after_login');
+diff --git a/app/(main)/[locale]/login/__tests__/auto-sso.test.tsx b/app/(main)/[locale]/login/__tests__/auto-sso.test.tsx
+new file mode 100644
+index 0000000..a4dc525
+--- /dev/null
++++ b/app/(main)/[locale]/login/__tests__/auto-sso.test.tsx
+@@ -0,0 +1,88 @@
++import React from 'react';
++import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
++import { afterEach, beforeEach, expect, it, vi } from 'vitest';
++import { recordAutoSsoFailure } from '@/lib/auth/auto-sso';
++import LoginPage from '../page';
++
++const fixture = vi.hoisted(() => ({
++  api: vi.fn(),
++  router: { push: vi.fn(), prefetch: vi.fn() },
++  auth: { isAuthenticated: false, isLoading: false, error: null, clearError: vi.fn() },
++  theme: { theme: 'dark', resolvedTheme: 'dark', setTheme: vi.fn(), initializeTheme: vi.fn() },
++  config: {
++    appName: 'femboyz mail', jmapServerUrl: 'https://mx.example.test', oauthEnabled: true,
++    oauthOnly: true, autoSsoEnabled: true, oauthClientId: 'bulwark',
++    oauthIssuerUrl: 'https://id.example.test', oauthScopes: 'openid email',
++    isLoading: false, error: null, jmapServers: [], loginLogoLightUrl: '/logo.png',
++    loginLogoDarkUrl: '/logo.png',
++  },
++}));
++vi.mock('next/navigation', () => ({
++  useParams: () => ({ locale: 'en' }), useSearchParams: () => new URLSearchParams(),
++}));
++vi.mock('@/hooks/use-config', () => ({ useConfig: () => fixture.config }));
++vi.mock('@/i18n/navigation', () => ({ useRouter: () => fixture.router }));
++vi.mock('@/stores/auth-store', () => ({ useAuthStore: () => fixture.auth, consumeSignedOut: () => false }));
++vi.mock('@/stores/theme-store', () => ({ useThemeStore: Object.assign(
++  (select: (value: typeof fixture.theme) => unknown) => select(fixture.theme),
++  { subscribe: () => () => {}, getState: () => fixture.theme },
++) }));
++vi.mock('@/lib/browser-navigation', () => ({
++  apiFetch: (...args: unknown[]) => fixture.api(...args), getPathPrefix: () => '',
++  toRouterPath: (path: string) => path, withBasePath: (path: string) => path,
++}));
++
++const ok = { ok: true, json: async () => ({ authorization_endpoint: 'https://id.example.test/auth', token_endpoint: 'https://id.example.test/token' }) };
++const starting = () => fixture.api.mock.calls.filter(([url]) => url === '/api/auth/sso/start').length;
++beforeEach(() => {
++  sessionStorage.clear(); vi.clearAllMocks();
++  fixture.api.mockReset(); fixture.config.isLoading = false;
++  fixture.api.mockImplementation((url: string) => url.startsWith('/api/auth/oauth/metadata') ? Promise.resolve(ok) : new Promise(() => {}));
++});
++afterEach(cleanup);
++
++it('shows checking without a button while automatic sign-in is starting', async () => {
++  render(<LoginPage />);
++  expect(screen.getByRole('status')).toHaveTextContent('Checking login…');
++  await waitFor(() => expect(starting()).toBe(1));
++  expect(screen.queryByRole('button')).toBeNull();
++});
++
++it('starts again immediately after abandoning the provider form and reopening Mail', async () => {
++  const first = render(<LoginPage />);
++  await waitFor(() => expect(starting()).toBe(1));
++  first.unmount(); // The browser left for the provider and returned through Home → Mail.
++  render(<LoginPage />);
++  await waitFor(() => expect(starting()).toBe(2));
++  expect(screen.getByRole('status')).toHaveTextContent('Checking login…');
++  expect(screen.queryByRole('button')).toBeNull();
++});
++
++it('shows a retry on discovery failure instead of spinning forever', async () => {
++  fixture.api.mockResolvedValue({ ok: false });
++  render(<LoginPage />);
++  expect(await screen.findByRole('button', { name: 'Try again' })).toBeVisible();
++  expect(starting()).toBe(0);
++});
++
++it('shows a retry when the start request times out, then resumes checking', async () => {
++  fixture.api.mockImplementation((url: string) => url.startsWith('/api/auth/oauth/metadata')
++    ? Promise.resolve(ok) : Promise.reject(new DOMException('timeout', 'TimeoutError')));
++  render(<LoginPage />);
++  const retry = await screen.findByRole('button', { name: 'Try again' });
++  fixture.api.mockImplementation((url: string) => url.startsWith('/api/auth/oauth/metadata') ? Promise.resolve(ok) : new Promise(() => {}));
++  fireEvent.click(retry);
++  await waitFor(() => expect(starting()).toBe(2));
++  expect(screen.getByRole('status')).toHaveTextContent('Checking login…');
++  expect(screen.queryByRole('button')).toBeNull();
++});
++
++it('keeps failed-callback protection but allows explicit retry to resume checking', async () => {
++  recordAutoSsoFailure();
++  render(<LoginPage />);
++  const retry = await screen.findByRole('button', { name: 'Try again' });
++  expect(starting()).toBe(0);
++  fireEvent.click(retry);
++  await waitFor(() => expect(starting()).toBe(1));
++  expect(screen.queryByRole('button')).toBeNull();
++});
 diff --git a/app/(main)/[locale]/login/page.tsx b/app/(main)/[locale]/login/page.tsx
-index a4ee53e..79c141c 100644
+index a4ee53e..744b3a1 100644
 --- a/app/(main)/[locale]/login/page.tsx
 +++ b/app/(main)/[locale]/login/page.tsx
-@@ -30,6 +30,7 @@ import {
+@@ -30,6 +30,8 @@ import {
    type LiteOAuthDiscovery,
  } from "@/lib/auth/lite-oauth";
  import { toAsciiDomain } from "@/lib/idn";
-+import { beginAutoSsoAttempt } from '@/lib/auth/auto-sso';
++import { canStartAutoSso, clearAutoSsoAttempt } from '@/lib/auth/auto-sso';
++import { AutoSsoScreen } from '@/components/auth/auto-sso-screen';
  import { usePrefetchMailView } from "@/hooks/use-prefetch-mail-view";
  
  /** The domain of a complete address (`user@example.com`), or '' while it is still being typed. */
-@@ -533,13 +534,8 @@ function LoginPageContent() {
+@@ -219,6 +221,8 @@ function LoginPageContent() {
+   const [oauthMetadata, setOauthMetadata] = useState<OAuthMetadata | null>(null);
+   const [oauthDiscoveryDone, setOauthDiscoveryDone] = useState(false);
+   const [oauthLoading, setOauthLoading] = useState(false);
++  const [autoSsoStartFailed, setAutoSsoStartFailed] = useState(false);
++  const [autoSsoRetryBlocked, setAutoSsoRetryBlocked] = useState(false);
+   const [demoLoading, setDemoLoading] = useState(false);
+ 
+   const suggestionsRef = useRef<HTMLDivElement>(null);
+@@ -446,7 +450,7 @@ function LoginPageContent() {
+     // response and login breaks (issue #382). The proxy runs discovery server
+     // side where CORS does not apply.
+     const query = selectedServer?.id ? `?server_id=${encodeURIComponent(selectedServer.id)}` : "";
+-    apiFetch(`/api/auth/oauth/metadata${query}`, { signal: controller.signal })
++    apiFetch(`/api/auth/oauth/metadata${query}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) })
+       .then(async (res) => (res.ok ? ((await res.json()) as OAuthMetadata) : null))
+       .then((metadata) => {
+         setOauthMetadata(metadata);
+@@ -467,6 +471,7 @@ function LoginPageContent() {
+   const signedOutOnPurpose = useRef<boolean | null>(null);
+ 
+   const startServerSideSso = useCallback(async () => {
++    setAutoSsoStartFailed(false);
+     setOauthLoading(true);
+     try {
+       const prefix = getPathPrefix(params.locale as string);
+@@ -482,6 +487,7 @@ function LoginPageContent() {
+         } catch { /* sessionStorage unavailable */ }
+       }
+       const res = await apiFetch('/api/auth/sso/start', {
++        signal: AbortSignal.timeout(15_000),
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         credentials: 'include',
+@@ -496,11 +502,13 @@ function LoginPageContent() {
+       });
+ 
+       if (!res.ok) {
++        setAutoSsoStartFailed(true);
+         setOauthLoading(false);
+         return;
+       }
+ 
+       const { authorize_url } = await res.json();
++      if (typeof authorize_url !== 'string' || !authorize_url) throw new Error('Missing authorization URL');
+ 
+       // Navigate to the authorize URL
+       const isIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+@@ -516,6 +524,7 @@ function LoginPageContent() {
+         window.location.href = authorize_url;
+       }
+     } catch {
++      setAutoSsoStartFailed(true);
+       setOauthLoading(false);
+     }
+   }, [params.locale, selectedServer?.id, isMobileHandoff, mobileRedirectUri, mobileState]);
+@@ -533,13 +542,11 @@ function LoginPageContent() {
      // unreachable. Let them choose and press the button instead (issue #799).
      if (jmapServers.length > 1) return;
  
@@ -56,72 +278,199 @@ index a4ee53e..79c141c 100644
 -      // Clear the flag after 30 seconds so retries are possible
 -      setTimeout(() => { try { sessionStorage.removeItem("sso_attempted"); } catch { /* ignore */ } }, 30000);
 -    } catch { /* sessionStorage unavailable */ }
-+    // Bound retries across navigation without leaving a permanent session flag.
-+    if (!beginAutoSsoAttempt()) return;
++    // Pause real callback failures; returning from an abandoned login is retryable.
++    if (!canStartAutoSso()) {
++      setAutoSsoRetryBlocked(true);
++      return;
++    }
  
      autoSsoTriggered.current = true;
      startServerSideSso();
+@@ -551,14 +558,7 @@ function LoginPageContent() {
+   }, [setTheme]);
+ 
+   if (configLoading) {
+-    return (
+-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/30">
+-        <div className="w-full max-w-sm mx-auto px-4 text-center" role="status">
+-          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
+-          <span className="sr-only">{t("loading")}</span>
+-        </div>
+-      </div>
+-    );
++    return <AutoSsoScreen appName="" logoUrl="" failed={false} onRetry={() => {}} />;
+   }
+ 
+   if (configError) {
+@@ -597,6 +597,23 @@ function LoginPageContent() {
+     );
+   }
+ 
++  // A single-provider automatic login is a transition, not a second login form.
++  if (autoSsoEnabled && oauthOnly && !isAddAccountMode && !demoMode
++      && jmapServers.length <= 1 && !signedOutOnPurpose.current) {
++    const failed = !oauthLoading && (Boolean(ssoError) || autoSsoStartFailed
++      || autoSsoRetryBlocked || (oauthDiscoveryDone && !oauthMetadata));
++    return <AutoSsoScreen
++      appName={appName}
++      logoUrl={withBasePath(resolvedTheme === 'dark' ? loginLogoDarkUrl : loginLogoLightUrl)}
++      failed={failed}
++      onRetry={() => {
++        clearAutoSsoAttempt();
++        setAutoSsoRetryBlocked(false);
++        void startServerSideSso();
++      }}
++    />;
++  }
++
+   const saveUsername = (username: string) => {
+     const saved = localStorage.getItem("webmail_usernames");
+     let usernames: string[] = [];
+@@ -1680,7 +1697,7 @@ function LoginPageContent() {
+ // prerender (the static Lite build); at runtime the boundary never suspends.
+ export default function LoginPage() {
+   return (
+-    <Suspense fallback={null}>
++    <Suspense fallback={<AutoSsoScreen appName="" logoUrl="" failed={false} onRetry={() => {}} />}>
+       <LoginPageContent />
+     </Suspense>
+   );
+diff --git a/components/auth/__tests__/auto-sso-screen.test.tsx b/components/auth/__tests__/auto-sso-screen.test.tsx
+new file mode 100644
+index 0000000..ad2455b
+--- /dev/null
++++ b/components/auth/__tests__/auto-sso-screen.test.tsx
+@@ -0,0 +1,20 @@
++import React from 'react';
++import { cleanup, fireEvent, render, screen } from '@testing-library/react';
++import { afterEach, expect, it, vi } from 'vitest';
++import { AutoSsoScreen } from '../auto-sso-screen';
++
++afterEach(cleanup);
++it('shows an accessible checking message with no extra sign-in button', () => {
++  render(<AutoSsoScreen appName="femboyz mail" logoUrl="/logo.png" failed={false} onRetry={vi.fn()} />);
++  expect(screen.getByRole('status')).toHaveTextContent('Checking login…');
++  expect(screen.queryByRole('button')).toBeNull();
++  expect(screen.getByRole('img')).toHaveAttribute('src', '/logo.png');
++});
++it('offers one retry only when checking failed', () => {
++  const retry = vi.fn();
++  render(<AutoSsoScreen appName="femboyz mail" logoUrl="/logo.png" failed onRetry={retry} />);
++  expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t check your login.');
++  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
++  expect(retry).toHaveBeenCalledOnce();
++  expect(screen.queryByRole('status')).toBeNull();
++});
+diff --git a/components/auth/auto-sso-screen.tsx b/components/auth/auto-sso-screen.tsx
+new file mode 100644
+index 0000000..17e911c
+--- /dev/null
++++ b/components/auth/auto-sso-screen.tsx
+@@ -0,0 +1,27 @@
++"use client";
++
++import { Loader2 } from '@/components/icons';
++import { Button } from '@/components/ui/button';
++
++type Props = { appName: string; logoUrl: string; failed: boolean; onRetry: () => void };
++
++export function AutoSsoScreen({ appName, logoUrl, failed, onRetry }: Props) {
++  return (
++    <main className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
++      <div className="w-full max-w-sm text-center space-y-6">
++        {logoUrl && <img src={logoUrl} alt={appName} className="object-contain mx-auto" style={{ maxWidth: '160px', maxHeight: '160px' }} />}
++        {failed ? (
++          <div role="alert" className="space-y-4">
++            <p>We couldn’t check your login.</p>
++            <Button onClick={onRetry}>Try again</Button>
++          </div>
++        ) : (
++          <div role="status" aria-live="polite" className="space-y-4">
++            <Loader2 aria-hidden="true" className="w-7 h-7 animate-spin mx-auto" style={{ color: '#c30f45' }} />
++            <p>Checking login…</p>
++          </div>
++        )}
++      </div>
++    </main>
++  );
++}
 diff --git a/lib/auth/__tests__/auto-sso.test.ts b/lib/auth/__tests__/auto-sso.test.ts
 new file mode 100644
-index 0000000..d09903f
+index 0000000..c115884
 --- /dev/null
 +++ b/lib/auth/__tests__/auto-sso.test.ts
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,40 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
-+import { beginAutoSsoAttempt, clearAutoSsoAttempt } from '../auto-sso';
++import { canStartAutoSso, clearAutoSsoAttempt, recordAutoSsoFailure } from '../auto-sso';
 +
 +beforeEach(() => { sessionStorage.clear(); vi.restoreAllMocks(); });
 +
 +describe('automatic SSO across document navigation', () => {
-+  it('migrates the permanent legacy flag and starts immediately', () => {
-+    sessionStorage.setItem('sso_attempted', '1');
-+    expect(beginAutoSsoAttempt(100_000)).toBe(true);
-+    expect(sessionStorage.getItem('sso_attempted')).toBeNull();
++  it('retries immediately after leaving the provider login through the home logo', () => {
++    expect(canStartAutoSso(100_000)).toBe(true);
++    // No callback: the user abandoned login and clicked Mail again seconds later.
++    expect(canStartAutoSso(103_000)).toBe(true);
++    expect(canStartAutoSso(105_000)).toBe(true);
 +  });
-+  it('expires a failed-attempt guard even when navigation destroyed its timer', () => {
-+    expect(beginAutoSsoAttempt(100_000)).toBe(true);
-+    expect(beginAutoSsoAttempt(129_999)).toBe(false);
-+    expect(beginAutoSsoAttempt(130_000)).toBe(true);
++  it('migrates both old pending-attempt guards even when they are recent', () => {
++    sessionStorage.setItem('sso_attempted', '1');
++    sessionStorage.setItem('sso_attempted_at', '100000');
++    expect(canStartAutoSso(100_001)).toBe(true);
++    expect(sessionStorage.getItem('sso_attempted')).toBeNull();
++    expect(sessionStorage.getItem('sso_attempted_at')).toBeNull();
++  });
++  it('pauses automatic retries only after an actual failed callback', () => {
++    recordAutoSsoFailure(100_000);
++    expect(canStartAutoSso(129_999)).toBe(false);
++    expect(canStartAutoSso(130_000)).toBe(true);
 +  });
 +  it('allows a fresh login immediately after successful authentication', () => {
-+    beginAutoSsoAttempt(100_000);
++    recordAutoSsoFailure(100_000);
 +    clearAutoSsoAttempt();
-+    expect(beginAutoSsoAttempt(100_001)).toBe(true);
++    expect(canStartAutoSso(100_001)).toBe(true);
 +  });
-+  it.each(['broken', 'Infinity', '-1', '9999999999999'])('does not strand users with invalid timestamp %s', value => {
-+    sessionStorage.setItem('sso_attempted_at', value);
-+    expect(beginAutoSsoAttempt(100_000)).toBe(true);
++  it.each(['broken', 'Infinity', '-1', '9999999999999'])('does not strand users with invalid failure timestamp %s', value => {
++    sessionStorage.setItem('auto_sso_failed_at', value);
++    expect(canStartAutoSso(100_000)).toBe(true);
 +  });
 +  it('allows login when browser storage is blocked', () => {
 +    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
-+    expect(beginAutoSsoAttempt()).toBe(true);
++    expect(canStartAutoSso()).toBe(true);
 +    expect(() => clearAutoSsoAttempt()).not.toThrow();
++    expect(() => recordAutoSsoFailure()).not.toThrow();
 +  });
 +});
 diff --git a/lib/auth/auto-sso.ts b/lib/auth/auto-sso.ts
 new file mode 100644
-index 0000000..cad36da
+index 0000000..0a5f998
 --- /dev/null
 +++ b/lib/auth/auto-sso.ts
-@@ -0,0 +1,21 @@
-+// A timestamp survives an OAuth round trip; a timer on the old document does not.
-+const ATTEMPT_KEY = 'sso_attempted_at';
+@@ -0,0 +1,28 @@
++// An abandoned sign-in is not an authentication failure. Only callbacks that
++// actually failed pause automatic retries; explicit return visits can start again.
++const FAILURE_KEY = 'auto_sso_failed_at';
 +const RETRY_DELAY_MS = 30_000;
 +
-+export function beginAutoSsoAttempt(now = Date.now()): boolean {
++export function canStartAutoSso(now = Date.now()): boolean {
 +  try {
-+    // Migrate the old permanent flag left by pre-patch login pages.
++    // Migrate both previous pending-attempt guards, including abandoned flows.
 +    sessionStorage.removeItem('sso_attempted');
-+    const previous = Number(sessionStorage.getItem(ATTEMPT_KEY));
-+    if (previous > 0 && now >= previous && now - previous < RETRY_DELAY_MS) return false;
-+    sessionStorage.setItem(ATTEMPT_KEY, String(now));
++    sessionStorage.removeItem('sso_attempted_at');
++    const failure = Number(sessionStorage.getItem(FAILURE_KEY));
++    if (failure > 0 && now >= failure && now - failure < RETRY_DELAY_MS) return false;
++    sessionStorage.removeItem(FAILURE_KEY);
 +  } catch { /* storage unavailable: the page's ref still prevents duplicate starts */ }
 +  return true;
 +}
 +
++export function recordAutoSsoFailure(now = Date.now()): void {
++  try { sessionStorage.setItem(FAILURE_KEY, String(now)); } catch { /* storage unavailable */ }
++}
++
 +export function clearAutoSsoAttempt(): void {
 +  try {
-+    sessionStorage.removeItem(ATTEMPT_KEY);
++    sessionStorage.removeItem(FAILURE_KEY);
++    sessionStorage.removeItem('sso_attempted_at');
 +    sessionStorage.removeItem('sso_attempted');
 +  } catch { /* storage unavailable */ }
 +}

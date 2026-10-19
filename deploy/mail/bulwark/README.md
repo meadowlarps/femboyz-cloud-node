@@ -2,23 +2,26 @@
 
 Base: Bulwark **1.15.0**, upstream commit
 `fc22f111efaefa837d1796864664935c12cbc7bd` (tag `1.15.0`).
-Our image: `femboyz/bulwark:1.15.0-femboyz.1`.
+Our image: `femboyz/bulwark:1.15.0-femboyz.2`.
 
-The old login page set `sessionStorage.sso_attempted=1` and used a timer to
-clear it. Leaving the page for OAuth destroyed that timer, blocking future
-automatic logins in the same tab. The patch migrates that flag, uses a timestamp
-for the 30-second failure guard, and clears it after successful authentication.
-The old ambiguous sign-out marker is also migrated on upgrade. Full provider
-logout clears the attempt and local sign-out pause so a later mail
-visit immediately starts SSO. Local-only logout retains the pause to prevent
-signing straight back in through an unchanged provider session. Error, add-account,
-multi-server and already-authenticated checks remain in place.
+Normal single-provider entry shows the logo and **Checking login…** with no
+sign-in choice or extra button. It forwards automatically to the site login or
+inbox. Discovery/start requests time out after 15 seconds; actual errors show
+**Try again** instead of an indefinite spinner. Add-account, multi-server and
+local-only sign-out flows keep their existing controls.
+
+The old login page's permanent flag, and our first patch's 30-second pending
+attempt, both blocked a user who left the provider login through Home and clicked
+Mail again. The current patch migrates both pending flags and records the retry
+pause only when the callback actually fails. Successful login/full provider logout
+clears that failure pause. Local-only logout retains its one-shot pause, preventing
+an immediate sign-in through a provider session that was never ended.
 
 Build on an amd64 machine with Git, Docker and network access:
 
 ```bash
 sudo ./deploy/mail/bulwark/build.sh /var/tmp/femboyz-bulwark-build-1
-sudo docker save femboyz/bulwark:1.15.0-femboyz.1 | gzip > /tmp/bulwark-image.tar.gz
+sudo docker save femboyz/bulwark:1.15.0-femboyz.2 | gzip > /tmp/bulwark-image.tar.gz
 scp /tmp/bulwark-image.tar.gz ops@femboyz:/tmp/
 ssh ops@femboyz 'gzip -dc /tmp/bulwark-image.tar.gz | sudo docker load'
 ```
@@ -30,12 +33,12 @@ base image is pinned by digest. The locale prefix remains `always`, matching the
 registered production callbacks. `pull_policy: never` prevents compose from
 replacing the locally built image with a registry image.
 
-Copy the generated `bulwark-1.15.0-femboyz.1-source.tar.gz` to
+Copy the generated `bulwark-1.15.0-femboyz.2-source.tar.gz` to
 `/etc/femboyz-mail/webmail/branding/`, mode 644, and record `image-id.txt` at
 `/etc/femboyz-mail/webmail/image-id.txt`. Verify the loaded image ID matches before
 starting it. The source archive includes the complete patched upstream source,
 its license, tests, and our build instructions in `.femboyz/`. It is served at
-`/branding/femboyz/bulwark-1.15.0-femboyz.1-source.tar.gz`, linked through
+`/branding/femboyz/bulwark-1.15.0-femboyz.2-source.tar.gz`, linked through
 `SOURCE_CODE_URL`, and included in the encrypted mail backup. This code retains
 upstream's AGPL-3.0-only license.
 
