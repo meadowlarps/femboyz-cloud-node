@@ -261,14 +261,10 @@
     text-transform: uppercase;
 }
 
-/* the brand word in a heading: light pink fading down to the accent, softly glowing.
-   A drop-shadow filter, since text-shadow would show through the clipped fill. */
+/* the brand word in a heading: accent pink with a soft glow */
 .acct-brand {
-    color: transparent;
-    background: linear-gradient(to bottom, #ff8fb1, var(--color-accent) 85%);
-    background-clip: text;
-    -webkit-background-clip: text;
-    filter: drop-shadow(0 0 0.5rem #c30f4566);
+    color: #e8346a;
+    text-shadow: 0 0 0.4rem #c30f4566, 0 0 1.2rem #c30f4533;
 }
 
 /* a badge sitting inside the right end of an input */
