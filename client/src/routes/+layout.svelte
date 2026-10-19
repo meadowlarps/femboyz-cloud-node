@@ -26,12 +26,20 @@
 		</a>
 
 		{#if home}
-			<a class="mail-button" href={mailUrl} aria-label="Mail" title="Mail">
-				<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-					<rect x="3" y="5" width="18" height="14" rx="1" />
-					<path d="m3.5 6 8.5 7 8.5-7" />
-				</svg>
-			</a>
+			<div class="header-buttons">
+				<a class="header-button" href="/account" aria-label="Account" title="Account">
+					<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="12" cy="8.5" r="3.5" />
+						<path d="M5 19.5c.8-3.3 3.6-5.5 7-5.5s6.2 2.2 7 5.5" />
+					</svg>
+				</a>
+				<a class="header-button" href={mailUrl} aria-label="Mail" title="Mail">
+					<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+						<rect x="3" y="5" width="18" height="14" rx="1" />
+						<path d="m3.5 6 8.5 7 8.5-7" />
+					</svg>
+				</a>
+			</div>
 		{/if}
 		<nav class="nav-links" aria-label="Main navigation">
 			<a href="/">Home</a>
@@ -74,14 +82,20 @@
 		background: none;
 	}
 
-	/* letter icon: no fill, gray border; border and icon turn white on hover */
-	.mail-button {
-		display: grid;
-		place-items: center;
+	/* account and mail, at the right end of the header, top-aligned with the logo */
+	.header-buttons {
+		display: flex;
+		gap: 0.75rem;
 		flex: none;
-		/* right end of the header, top-aligned with the logo; same height, square */
 		align-self: flex-start;
 		margin-left: auto;
+	}
+
+	/* line icon: no fill, gray border; border and icon turn white on hover.
+	   Same height as the logo, square. */
+	.header-button {
+		display: grid;
+		place-items: center;
 		height: 7rem;
 		aspect-ratio: 1;
 		box-sizing: border-box;
@@ -91,8 +105,8 @@
 		transition: color 0.2s ease-out, border-color 0.2s ease-out;
 	}
 
-	.mail-button:hover,
-	.mail-button:focus-visible {
+	.header-button:hover,
+	.header-button:focus-visible {
 		color: #fff;
 		border-color: #fff;
 		outline: none;

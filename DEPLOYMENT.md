@@ -1517,7 +1517,7 @@ Everything persistent lives under `/etc/femboyz-mail/webmail` (parent root 700):
 | :--- | :--- |
 | `bulwark.env` | runtime environment based on the committed example, root 600 |
 | `admin/` | read-only policy, theme registry/CSS, and local admin password hash |
-| `branding/` | copies of the site's existing webp logo and favicon, read-only |
+| `branding/` | copies of `mail/branding/` (logos, favicon) and the source archive, read-only |
 | `state/` | writable admin runtime state, UID/GID 1001, mode 700 |
 | `settings/` | writable server-synced user preferences, UID/GID 1001, mode 700 |
 | `secrets/oauth`, `secrets/session` | random independent secrets, UID/GID 1001, mode 400 |

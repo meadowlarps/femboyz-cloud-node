@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, tick } from 'svelte'
     import { page } from '$app/state'
+    import { env } from '$env/dynamic/public'
     import { slide } from 'svelte/transition'
     import { cubicOut } from 'svelte/easing'
     import '$lib/styles/account.css'
@@ -21,6 +22,7 @@
     const embed = page.url.searchParams.get('embed') === '1'
     const here = embed ? '/account?embed=1' : '/account'
     const reveal = { duration: 220, easing: cubicOut }
+    const mailUrl = env.PUBLIC_MAIL_URL || 'https://mail.femboyz.cloud'
 
     let me = $state<Me | null>(null)
     let loadError = $state('')
@@ -191,7 +193,15 @@
                 {#if embed}
                     <a class="acct-quiet" href="/account" target="_blank" rel="noopener noreferrer">Open account</a>
                 {:else}
-                    <button class="acct-quiet" type="button" onclick={signOut} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
+                    <div class="title-actions">
+                        <a class="acct-quiet acct-icon-button" href={mailUrl} aria-label="Mail" title="Mail">
+                            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="5" width="18" height="14" rx="1" />
+                                <path d="m3.5 6 8.5 7 8.5-7" />
+                            </svg>
+                        </a>
+                        <button class="acct-quiet" type="button" onclick={signOut} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
+                    </div>
                 {/if}
             </div>
             <div class="acct-field">
@@ -316,6 +326,19 @@
         display: inline-flex;
         align-items: center;
         text-decoration: none;
+    }
+
+    .title-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    /* square, as tall as the Sign out button next to it */
+    .title-row :global(a.acct-icon-button) {
+        justify-content: center;
+        width: 2.75rem;
+        padding: 0;
+        box-sizing: border-box;
     }
 
     .title-row p {
