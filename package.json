@@ -10,7 +10,8 @@
     "start": "NODE_ENV=prod node dist/index.js",
     "test": "tsc && NODE_ENV=dev LOGLEVEL=debug vitest run --reporter=verbose && npm run test:preview",
     "test:preview": "tsx --test test/client*.test.ts",
-    "oidc:keygen": "node dist/oidckeygen.js"
+    "oidc:keygen": "node dist/oidckeygen.js",
+    "mail:signatures": "node dist/signaturebackfill.js"
   },
   "keywords": [],
   "author": "meadowlarps, misikovich",
