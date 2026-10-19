@@ -40,6 +40,8 @@ services:
       # Copy of the certbot mx.femboyz.cloud cert, owned by UID 2000.
       # Kept in sync by the certbot deploy hook.
       - /etc/femboyz-mail/tls:/etc/stalwart-tls:ro
+      # Secret key of the S3 blob store (mail bodies, DEPLOYMENT.md 16.5), UID 2000, mode 400.
+      - /etc/femboyz-mail/s3-blobs-secret:/run/secrets/stalwart_s3_blobs:ro
     # Host unbound on the bridge gateway, not Hetzner's shared resolvers,
     # which DNS blocklists refuse. See unbound-femboyz-mail.conf.
     dns:
