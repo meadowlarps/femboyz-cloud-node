@@ -1253,8 +1253,14 @@
             flex-direction: column;
         }
 
+        /* the upload card fills the column instead of its fixed 25rem, which overflows a phone */
         .upload-sidebar {
             position: static;
+            align-self: stretch;
+        }
+
+        .upload-field {
+            width: auto;
         }
     }
 

@@ -20,7 +20,7 @@
 
 <div class="app-shell" class:embed>
 	{#if !embed}
-	<header class="site-header">
+	<header class="site-header" class:home>
 		<a class="brand" href="/" aria-label="Go to home">
 			<img class="logo-img" src={logo} alt="femboyz.cloud">
 		</a>
@@ -68,6 +68,7 @@
 
 	.app-shell {
 		min-height: 100vh;
+		min-height: 100dvh;
 	}
 
 	.site-header {
@@ -174,8 +175,21 @@
 		}
 
 		.page-content {
-			width: min(100% - 1.5rem, 72rem);
-			padding: 1.5rem 0;
+			padding: 1.5rem 1rem 2rem;
+		}
+
+		/* away from home the logo is only a way back, so it gives the form the room */
+		.site-header:not(.home) {
+			min-height: 0;
+			padding-top: 1rem;
+		}
+
+		.site-header:not(.home) .brand {
+			width: 11.5rem;
+		}
+
+		.site-header:not(.home) .logo-img {
+			height: 4.5rem;
 		}
 	}
 </style>

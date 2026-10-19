@@ -343,6 +343,38 @@
     }
 }
 
+/* Phones: no drop towards the middle (the keyboard takes half the screen), and
+   actions span the width so they're easy to hit with a thumb. */
+@media (max-width: 42rem) {
+    .acct-page {
+        gap: 2.5rem;
+        padding: 0.5rem 0 3rem;
+    }
+
+    .acct-actions > * {
+        flex: 1 1 0;
+        justify-content: center;
+        text-align: center;
+    }
+
+    /* the code boxes stretch across the row, the resend button goes full width under them */
+    .acct-code-row > .code-input {
+        flex: 1 1 100%;
+    }
+
+    /* width 0, not auto: an input's auto width is ~20 characters, which would
+       stretch the whole form past the screen */
+    .acct-code-row > .code-input input {
+        flex: 1;
+        width: 0;
+    }
+
+    .acct-code-row > .acct-resend {
+        flex: 1 1 100%;
+        width: auto;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .acct-fade-in {
         animation: none;
