@@ -1695,3 +1695,13 @@ Build/source distribution follows 15.5 using the `.3` suffix. Rollback copies
 of compose, environment, image identity and managed theme are under
 `/root/femboyz-phase3-transition/`; restore those files and restart only webmail
 to return to `.2`.
+
+Acceptance: 47 focused tests passed in the image build, followed by the production
+Next.js/TypeScript build. In the production browser, 435 sampled frames during a
+held SSO start request kept one background and one status position, with zero
+logo images or install buttons. Releasing the request forwarded to the site
+sign-in page. A normal Norwegian-locale entry also forwarded successfully; its
+recording showed the matching empty background during the transition. A 390px
+viewport with a deliberately cached old `#060606` theme still rendered the
+transition as `#1b1a1a` without overflow. Synthetic install events were cancelled,
+PWA metadata matched, and the downloadable source checksum matched the build.
