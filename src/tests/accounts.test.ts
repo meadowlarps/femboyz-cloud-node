@@ -10,6 +10,7 @@ const stalwart = vi.hoisted(() => ({
     before_create: null as (() => Promise<void>) | null,
     destroyed: [] as string[],
     redirects: new Map<string, string | null>(),
+    signatures: [] as string[],
     updates: [] as { id: string, change: unknown }[],
     new_senders: new Map<string, string>(),
     new_sender_changes: 0
@@ -35,6 +36,7 @@ vi.mock("../stalwart.js", async importOriginal => {
         stalwart_account_destroy: async (id: string) => { stalwart.destroyed.push(id) },
         stalwart_account_usage: async () => ({ used_bytes: 10, quota_bytes: 1024 }),
         stalwart_redirect_apply: async (id: string, script: string | null) => { stalwart.redirects.set(id, script) },
+        stalwart_signature_default: async (id: string) => { stalwart.signatures.push(id); return 1 },
         stalwart_new_senders_get: async () => new Map(stalwart.new_senders),
         stalwart_new_senders_change: async (add: string[], remove_ids: string[]) => {
             if (add.length === 0 && remove_ids.length === 0) return
@@ -87,6 +89,7 @@ beforeEach(async () => {
     stalwart.before_create = null
     stalwart.destroyed.length = 0
     stalwart.redirects.clear()
+    stalwart.signatures.length = 0
     stalwart.updates.length = 0
     stalwart.new_senders.clear()
     stalwart.new_sender_changes = 0
@@ -182,6 +185,7 @@ test("an invite works once, even when used in parallel", async () => {
         accounts.signup({ invite: code, username, password: PASSWORD })))
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
     expect(stalwart.created).toHaveLength(1)
+    expect(stalwart.signatures).toEqual([`sw-${stalwart.created[0]}`])
     expect(await accounts.invite_find_usable(code)).toBeNull()
 })
 

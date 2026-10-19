@@ -5,7 +5,7 @@ const scopelog = scope("stalwart")
 
 // Management calls run as the femboyz-api service account (API key). It holds the
 // `impersonate` permission, which lets it manage Sieve scripts on user accounts.
-const USING = ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:sieve", "urn:stalwart:jmap"]
+const USING = ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:sieve", "urn:stalwart:jmap"]
 const REDIRECT_SCRIPT = "femboyz-redirect"
 const TIMEOUT_MS = 15_000
 
@@ -117,6 +117,31 @@ export async function stalwart_account_usage(id: string): Promise<{ used_bytes: 
     const account = result.list?.[0]
     if (!account) return null
     return { used_bytes: Number(account.usedDiskQuota) || 0, quota_bytes: account.quotas?.maxDiskQuota ?? null }
+}
+
+// ---- SIGNATURE ----
+
+export const DEFAULT_SIGNATURE = "смартфон vivo"
+
+/** Gives every identity of the account without a signature the default one; set signatures are kept. */
+export async function stalwart_signature_default(account_id: string): Promise<number> {
+    // Stalwart creates the account's default identity on its first Identity/get.
+    const [[, existing]] = await jmap(`identities of ${account_id}`, [["Identity/get", { accountId: account_id, properties: ["textSignature", "htmlSignature"] }, "g"]]) as [MethodResponse]
+    const blank = (existing.list as { id: string, textSignature?: string | null, htmlSignature?: string | null }[])
+        .filter(identity => !identity.textSignature && !identity.htmlSignature)
+    if (blank.length === 0) return 0
+    const update = Object.fromEntries(blank.map(identity => [identity.id, { textSignature: DEFAULT_SIGNATURE, htmlSignature: DEFAULT_SIGNATURE }]))
+    await jmap(`set signature of ${account_id}`, [["Identity/set", { accountId: account_id, update }, "s"]])
+    scopelog.info(`Default signature set on ${blank.length} identities of ${account_id}`)
+    return blank.length
+}
+
+/** Ids of the mailboxes created for femboyz accounts (stalwart_account_create). */
+export async function stalwart_user_account_ids(): Promise<string[]> {
+    const [[, result]] = await jmap("list accounts", [["x:Account/get", { properties: ["@type", "description"] }, "a"]]) as [MethodResponse]
+    return (result.list as { id: string, "@type": string, description?: string }[])
+        .filter(account => account["@type"] === "User" && account.description === "femboyz account")
+        .map(account => account.id)
 }
 
 // ---- NEW SENDERS (outbound throttle tier) ----
