@@ -294,7 +294,7 @@ nginx already runs certbot and owns ports 80/443, and Stalwart's own ACME stays 
 
 ### Bulwark
 
-- Image `femboyz/bulwark:1.15.0-femboyz.1`, built from exact upstream 1.15.0 source plus `deploy/mail/bulwark/auto-sso.patch`, on `127.0.0.1:3100`. The patch removes the repeat-login SSO click; source and build instructions are preserved.
+- Image `femboyz/bulwark:1.15.0-femboyz.2`, built from exact upstream 1.15.0 source plus `deploy/mail/bulwark/auto-sso.patch`, on `127.0.0.1:3100`. The patch removes the repeat-login SSO click; source and build instructions are preserved.
 - Runtime configuration: `deploy/mail/bulwark.env.example`. Register each supported locale’s exact `https://mail.femboyz.cloud/<locale>/auth/callback`; the published image uses locale paths. Token authentication is `client_secret_post`.
 - **femboyz theme** in `mail/theme/`, built into a Bulwark theme ZIP and pinned for all users. It maps tokens from `client/src/lib/styles/global.css` onto Bulwark's CSS variables:
   - `--color-primary`, `--color-accent`, `--color-ring` → `#c30f45`

@@ -1,0 +1,2 @@
+# Unified diffs encode an empty context line as one space.
+deploy/mail/bulwark/*.patch whitespace=-blank-at-eol

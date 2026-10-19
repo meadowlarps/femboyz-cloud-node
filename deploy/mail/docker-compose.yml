@@ -57,7 +57,7 @@ services:
 
   webmail:
     # Rebuilt from the exact upstream commit plus deploy/mail/bulwark/auto-sso.patch.
-    image: femboyz/bulwark:1.15.0-femboyz.1
+    image: femboyz/bulwark:1.15.0-femboyz.2
     pull_policy: never
     container_name: femboyz-webmail
     restart: unless-stopped
