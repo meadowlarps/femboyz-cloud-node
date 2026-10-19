@@ -3,7 +3,8 @@
 # Installed copy: /etc/femboyz-mail/docker-compose.yml (root:root, 600).
 # Driven from the ops user with sudo, like MongoDB. See DEPLOYMENT.md section 13.
 #
-# Upgrades are manual: read the changelog, then `pull` + `up -d`.
+# Upgrades are manual: Stalwart uses `pull` + `up -d`; rebuild webmail with
+# deploy/mail/bulwark/build.sh before `up -d webmail`.
 # GitHub Actions deploy.sh never touches this stack.
 
 name: femboyz-mail
