@@ -1,6 +1,6 @@
 # femboyz accounts + mail — plan
 
-Status: draft v5 · branch `feature/mail` · 2026-10-19 · phase 1 done · phase 2 built and tested on dev, prod rollout pending (DEPLOYMENT.md 14)
+Status: v6 · 2026-10-19 · phases 1 and 2 deployed and verified in production · phase 3 next (DEPLOYMENT.md 14.9)
 
 Invite-only **femboyz accounts** that come with an `@femboyz.cloud` mailbox, read at `https://mail.femboyz.cloud`. The same account will later log in to femboyz.cloud itself.
 
@@ -361,9 +361,9 @@ Run it the same way as Mongo: compose in `/etc/femboyz-mail/` (root-owned, mode 
 - [x] Email codes and the redirect Sieve management, plus the bounce webhook.
 - [x] Dev: Stalwart OIDC directory pointed at our issuer (`docker-compose.yml` `mail` profile, DEPLOYMENT.md 14.8).
 - [x] Dev test: invite → signup → OIDC login → Stalwart accepts our JWT for JMAP → refresh → site session SSO. Request → approve; signup with the pre-verified address and with a code; add/change/remove the address; toggle redirect; three bounces turn it off. (2026-10-19)
-- [ ] Prod rollout per DEPLOYMENT.md 14: credentials, env, nginx, deploy, webhook, directory switch.
-- [ ] Prod test: request → admin mailbox (redirected) → approve → invite email → signup → mail in and out of the new mailbox.
-- [ ] Security review before merging.
+- [x] Prod rollout per DEPLOYMENT.md 14: service/admin API keys, noreply app password, env, nginx, deploy, signed webhook and OIDC directory switch (2026-10-19).
+- [x] Prod test: request → admin mailbox (Gmail redirect accepted) → approve → external invite → signup → OIDC/JMAP, refresh, site SSO, mail delivery, external-email changes, both forwarding modes, three real bounces, disable/delete token rejection. 16 checks passed; account DB and signing-key restore drill passed (2026-10-19, DEPLOYMENT.md 14.9).
+- [x] Security review before merging: fixed six findings covering verification races, stale forwarding, JWT-safe deletion, signup activation and rollback. Regression coverage: 127 backend tests + 29 client preview tests; Svelte check/build and production CI passed. Security fixes merged in PR #2.
 
 **Phase 3: webmail**
 - [ ] Bulwark container, theme, branding, nginx vhost, SSO env.
