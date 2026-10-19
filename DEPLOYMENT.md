@@ -1634,3 +1634,13 @@ Rollback copies of compose, runtime env and branding are saved under
 `/root/femboyz-phase3-login/`. To roll back, restore those files and run compose
 `up -d webmail`; the old upstream image remains on the server. API, site, mailboxes,
 OAuth registration and signing keys are unchanged by this rollout.
+
+Acceptance: 30 focused regression tests passed inside the image build, followed
+by the production Next.js/TypeScript build. In production, a tab seeded with both
+legacy browser flags went directly to the site's login and then the inbox.
+A second login after provider logout did the same without an SSO-button click;
+callback guards were cleared, and the site session returned 401 after logout.
+Embedded account settings continued to work. The supplied PNG rendered at
+approximately 157×160px and fitted a 390px mobile viewport without horizontal
+overflow. The downloadable source archive matched its build checksum. The test
+account was disabled and queued for deletion after token expiry.
