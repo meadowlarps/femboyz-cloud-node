@@ -1665,3 +1665,13 @@ the checking/error display. Source distribution and local image identity follow
 section 15.5 using the `.2` version suffix. Rollback copies are under
 `/root/femboyz-phase3-checking/`; restore its compose/env and restart only webmail
 to return to `.1`.
+
+Production acceptance for `.2`: the recorded Home → Mail → login → Home logo →
+Mail sequence was repeated five times, including four immediate returns within
+about ten seconds, without an SSO-button click. A recent old pending flag was
+migrated. Two additional returns through the Norwegian locale also forwarded.
+A delayed request in the test browser displayed **Checking login…**, its status
+role and the logo, with no button; it then forwarded automatically. A deliberate
+error displayed **Try again**, which resumed checking and forwarded. The public
+source archive checksum matched the generated build artifact. Root-only evidence
+and the backup log are under `/root/femboyz-phase3-checking/`.
