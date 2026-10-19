@@ -1,6 +1,6 @@
 # femboyz webmail
 
-Bulwark 1.15.0-femboyz.2 is built from a pinned upstream commit plus the
+Bulwark 1.15.0-femboyz.3 is built from a pinned upstream commit plus the
 automatic-login patch in `deploy/mail/bulwark/`. Its build instructions and
 regression tests live there. This directory holds our theme, logos, and managed
 policy. See DEPLOYMENT.md section 15 for production paths.

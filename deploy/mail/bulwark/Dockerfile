@@ -6,12 +6,14 @@ RUN npm ci
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_LOCALE_PREFIX=always
-ENV GIT_COMMIT=fc22f111-femboyz.2
+ENV GIT_COMMIT=fc22f111-femboyz.3
 ENV NODE_OPTIONS=--max-old-space-size=6144
 RUN npx vitest run lib/auth/__tests__/auto-sso.test.ts stores/__tests__/auth-store-provider-logout.test.ts \
     'app/(main)/[locale]/auth/callback/__tests__/auto-sso.test.tsx' \
     'app/(main)/[locale]/login/__tests__/auto-sso.test.tsx' \
-    components/auth/__tests__/auto-sso-screen.test.tsx
+    components/auth/__tests__/auto-sso-screen.test.tsx \
+    components/__tests__/pwa-install-prompt.test.tsx \
+    components/mail/__tests__/mail-app-login-redirect.test.tsx
 # Match upstream's production build: exclude mock JMAP and test-only imports.
 RUN rm -rf app/api/dev-jmap && \
     find . -path ./node_modules -prune -o \
@@ -21,7 +23,7 @@ RUN rm -rf app/api/dev-jmap && \
 
 FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runner
 LABEL org.opencontainers.image.title="femboyz Bulwark Webmail"
-LABEL org.opencontainers.image.version="1.15.0-femboyz.2"
+LABEL org.opencontainers.image.version="1.15.0-femboyz.3"
 LABEL org.opencontainers.image.source="https://github.com/meadowlarps/femboyz-cloud-node/tree/main/deploy/mail/bulwark"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app

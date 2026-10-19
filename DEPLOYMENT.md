@@ -1484,7 +1484,7 @@ management path for phase 2.
 
 ## 15. Phase 3: Bulwark webmail
 
-Bulwark 1.15.0-femboyz.2 is deployed at https://mail.femboyz.cloud using our
+Bulwark 1.15.0-femboyz.3 is deployed at https://mail.femboyz.cloud using our
 locally built image from a pinned upstream commit plus a small SSO patch
 (`deploy/mail/bulwark/README.md`). It listens only
 on `127.0.0.1:3100`; nginx terminates TLS using a separate certbot certificate
@@ -1675,3 +1675,33 @@ role and the logo, with no button; it then forwarded automatically. A deliberate
 error displayed **Try again**, which resumed checking and forwarded. The public
 source archive checksum matched the generated build artifact. Root-only evidence
 and the backup log are under `/root/femboyz-phase3-checking/`.
+
+### 15.7 Quiet login transitions (2026-10-19)
+
+`1.15.0-femboyz.3` removes the PWA installation card and suppresses browser
+install prompts in the head bootstrap, before React hydration. Installation
+through the browser menu still works. The initial mailbox session check has
+no visible loader. The login check waits 700 ms before showing a single
+**Checking login…** status without a logo; real errors still show retry immediately.
+The final femboyz.cloud sign-in page is unchanged.
+
+The website's actual background is `#1b1a1a`. It is applied to the server-rendered
+html/body, bundled with the full managed palette before client config loads,
+and set in theme 1.0.1 and the PWA metadata. This prevents default-theme and
+background flashes. Keep the bundled `app/femboyz.css` in the vendor patch in
+sync with `mail/theme/theme.css`.
+
+Build/source distribution follows 15.5 using the `.3` suffix. Rollback copies
+of compose, environment, image identity and managed theme are under
+`/root/femboyz-phase3-transition/`; restore those files and restart only webmail
+to return to `.2`.
+
+Acceptance: 47 focused tests passed in the image build, followed by the production
+Next.js/TypeScript build. In the production browser, 435 sampled frames during a
+held SSO start request kept one background and one status position, with zero
+logo images or install buttons. Releasing the request forwarded to the site
+sign-in page. A normal Norwegian-locale entry also forwarded successfully; its
+recording showed the matching empty background during the transition. A 390px
+viewport with a deliberately cached old `#060606` theme still rendered the
+transition as `#1b1a1a` without overflow. Synthetic install events were cancelled,
+PWA metadata matched, and the downloadable source checksum matched the build.
