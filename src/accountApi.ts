@@ -11,6 +11,7 @@ import {
     invite_create,
     invite_find_usable,
     invite_list,
+    invite_mail,
     invite_revoke,
     me_email_remove,
     me_email_send,
@@ -384,8 +385,10 @@ function admin_routes(app: FastifyInstance) {
             ...(input.quota_bytes !== undefined ? { quota_bytes: input.quota_bytes } : {}),
             ...(input.ttl_days !== undefined ? { ttl_days: input.ttl_days } : {})
         })
+        const mailed = input.send ? await invite_mail(invite, link) : false
+        if (input.send) scopelog.info(`Invite ${invite.id} ${mailed ? "emailed" : "NOT emailed"} to ${invite.email}`)
         const { code_hash: _, ...view } = invite
-        return reply.status(201).send({ invite: { ...view, status: "active" }, link })
+        return reply.status(201).send({ invite: { ...view, status: "active" }, link, mailed })
     })
 
     app.delete("/api/v2/admin/account/invites/:id", async request => {

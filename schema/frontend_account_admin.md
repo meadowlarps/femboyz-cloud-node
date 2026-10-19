@@ -19,7 +19,7 @@ The notification email links to `/admin?tab=requests&id=<id>`.
 | Route | |
 | :--- | :--- |
 | `GET /api/v2/admin/account/invites` | `{ "items": Invite[] }`, newest first, each with `status`: `active`, `used`, `expired`, `revoked`. Never includes the code. |
-| `POST /api/v2/admin/account/invites` | `{ "label"?, "email"?, "quota_bytes"?, "ttl_days"? (1–90) }` → `201 { "invite", "link" }`. The link holds the only copy of the code. `email`, if given, is pre-verified at signup. Not emailed. |
+| `POST /api/v2/admin/account/invites` | `{ "label"?, "email"?, "quota_bytes"?, "ttl_days"? (1–90), "send"? }` → `201 { "invite", "link", "mailed" }`. The link holds the only copy of the code. `email`, if given, is pre-verified at signup. With `"send": true` the link is emailed to `email` (required, else `400 invalid_body`); if `mailed` is false the admin sends `link` by hand. Without it nothing is emailed and `mailed` is false. |
 | `DELETE /api/v2/admin/account/invites/:id` | Revokes an unused invite: `{ "revoked": true, "id" }`. |
 
 ## Users

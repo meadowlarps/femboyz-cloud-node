@@ -281,8 +281,9 @@ export const InviteCreateSchema = z.object({
     label:       z.string().trim().max(100).default(""),
     email:       z.string().trim().max(254).nullable().default(null),
     quota_bytes: z.int().positive().optional(),
-    ttl_days:    z.int().min(1).max(90).optional()
-})
+    ttl_days:    z.int().min(1).max(90).optional(),
+    send:        z.boolean().default(false)
+}).refine(input => !input.send || !!input.email, { path: ["email"], message: "Sending needs an email" })
 
 export const UserUpdateSchema = z.object({
     status:      z.enum(["active", "disabled"]),

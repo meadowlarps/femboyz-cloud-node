@@ -260,7 +260,7 @@ export async function request_approve(id: string) {
     }
     const { invite, link } = await invite_create({ label: `request ${id}`, email: request.email, request_id: id })
     await requests().updateOne({ id }, { $set: { invite_id: invite.id } })
-    const mailed = await mail_send(mail_invite(request.email, link, invite.expires)).then(() => true, () => false)
+    const mailed = await invite_mail(invite, link)
     scopelog.info(`Admin approved request ${id}; invite ${invite.id} ${mailed ? "emailed" : "NOT emailed"} to ${request.email}`)
     return { request: { ...request_parse(request), invite_id: invite.id }, invite: invite_view(invite), link, mailed }
 }
@@ -325,6 +325,12 @@ export async function invite_create(input: { label?: string, email?: string | nu
     await invites().insertOne({ ...invite })
     scopelog.info(`Invite ${invite.id} created (${invite.label || "no label"})`)
     return { invite, link: invite_link(code) }
+}
+
+/** Emails an invite's link to its address. False if there's no address or delivery failed; the admin then sends the link by hand. */
+export async function invite_mail(invite: InviteDB, link: string): Promise<boolean> {
+    if (!invite.email) return false
+    return mail_send(mail_invite(invite.email, link, invite.expires)).then(() => true, () => false)
 }
 
 export async function invite_list() {
