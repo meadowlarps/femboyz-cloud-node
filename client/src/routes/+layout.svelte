@@ -34,12 +34,11 @@
 					</svg>
 					<span>Mail</span>
 				</a>
-				<a class="header-button" href="/account">
+				<a class="header-button icon-only" href="/account" aria-label="Account" title="Account">
 					<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
 						<circle cx="12" cy="8.5" r="3.5" />
 						<path d="M5 19.5c.8-3.3 3.6-5.5 7-5.5s6.2 2.2 7 5.5" />
 					</svg>
-					<span>Account</span>
 				</a>
 			</div>
 		{/if}
@@ -111,6 +110,13 @@
 		letter-spacing: 0.02em;
 		text-decoration: none;
 		transition: color 0.2s ease-out, border-color 0.2s ease-out;
+	}
+
+	/* account is just the icon, in a square */
+	.header-button.icon-only {
+		flex: none;
+		min-width: 0;
+		aspect-ratio: 1;
 	}
 
 	.header-button:hover,
