@@ -1723,6 +1723,16 @@ viewport with a deliberately cached old `#060606` theme still rendered the
 transition as `#1b1a1a` without overflow. Synthetic install events were cancelled,
 PWA metadata matched, and the downloadable source checksum matched the build.
 
+### 15.8 Header logo (2026-10-19)
+
+Webmail draws `APP_LOGO_*_URL` at 32×32 in its header and navigation rail, where
+the wide `logo.webp` banner looked squeezed. `mail/branding/app-logo.webp` (the cat
+login logo at 128px, 2.5 KB) was installed into `branding/`, both `APP_LOGO_*_URL`
+lines in the installed `bulwark.env` now point at it, and webmail was recreated
+with `docker compose -f /etc/femboyz-mail/docker-compose.yml up -d webmail`. No
+image rebuild. `/api/config` returns the new URL and the file serves with 200.
+Rollback: `bulwark.env.before-app-logo-20261019` next to the installed env.
+
 ## 16. Phase 4: outbound limits and abuse controls
 
 Users can send from webmail (JMAP submission) since phase 3. Stalwart runs
