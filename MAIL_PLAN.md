@@ -7,7 +7,7 @@ Invite-only **femboyz accounts** that come with an `@femboyz.cloud` mailbox, rea
 | Piece | What | Who builds it |
 |---|---|---|
 | **femboyz account** | Users, login page, request access, invites, OIDC provider | **us**, in femboyz-cloud-node + `client/` |
-| **Mail server** | [Stalwart](https://stalw.art) 0.16: SMTP, IMAP, JMAP, spam filter, DKIM | upstream image, config only |
+| **Mail server** | [Stalwart](https://stalw.art) 0.16: SMTP, IMAP, JMAP, spam filter, DKIM. Mail bodies in S3 (`femboyz-mail-blobs`, DEPLOYMENT.md 16.5) | upstream image, config only |
 | **Webmail** | [Bulwark](https://bulwarkmail.org) (Next.js + JMAP) with a femboyz theme | pinned upstream source + small SSO patch, config + theme |
 
 Decisions so far:

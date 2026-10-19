@@ -1156,9 +1156,10 @@ A systemd timer runs `femboyz-mail-backup` nightly at 03:30 UTC. The script:
 
 1. pauses the API when accounts are enabled, then stops Stalwart (RocksDB must
    not be copied while it is written);
-2. dumps MongoDB, then backs up the two mail volumes, `/etc/femboyz-mail`, the
-   dump, `.env.prod` and `oidc-jwks.json` with restic to
-   `s3:https://fsn1.your-objectstorage.com/femboyz-cloud-bucket/femboyz-mail`;
+2. dumps MongoDB, mounts the mail blob bucket read-only at
+   `/mnt/femboyz-mail-blobs` (16.5), then backs up the two mail volumes, the
+   blobs, `/etc/femboyz-mail`, the dump, `.env.prod` and `oidc-jwks.json` with
+   restic to `s3:https://fsn1.your-objectstorage.com/femboyz-cloud-bucket/femboyz-mail`;
 3. starts Stalwart and the API again, including on failure;
 4. keeps 7 daily, 4 weekly and 6 monthly snapshots;
 5. on Sundays, also re-reads 10% of the stored data to check it.
@@ -1166,8 +1167,8 @@ A systemd timer runs `femboyz-mail-backup` nightly at 03:30 UTC. The script:
 Mail and account operations pause during the dump and snapshot. Sending servers
 retry. Stopping both writers keeps account records and mailboxes consistent.
 
-restic encrypts the data before it uploads, so the bucket only ever holds
-ciphertext. The repository password is in `/etc/femboyz-mail/restic-password`
+restic encrypts the data before it uploads, so the backup bucket only ever holds
+ciphertext. The live blob bucket `femboyz-mail-blobs` does not; see 16.5. The repository password is in `/etc/femboyz-mail/restic-password`
 and **must also be in the password manager**. Without it, the backups can't be
 decrypted.
 
@@ -1181,7 +1182,9 @@ decrypted.
 Install:
 
 ```bash
-sudo apt install -y restic
+sudo apt install -y restic fuse3
+# rclone from rclone.org: Ubuntu's 1.60 mount answers xattr listing with EIO, which fails restic
+curl -fsSLO https://downloads.rclone.org/rclone-current-linux-amd64.deb && sudo dpkg -i rclone-current-linux-amd64.deb
 sudo install -m 755 /srv/femboyz-cloud/deploy/mail/backup.sh /usr/local/sbin/femboyz-mail-backup
 sudo install -m 644 /srv/femboyz-cloud/deploy/mail/femboyz-mail-backup.service \
   /srv/femboyz-cloud/deploy/mail/femboyz-mail-backup.timer /etc/systemd/system/
@@ -1220,13 +1223,27 @@ sudo docker run -d --name stw-drill --network stw-drill \
 sudo docker rm -f stw-drill && sudo docker network rm stw-drill && sudo rm -rf /tmp/stw-restore
 ```
 
+Blob drill (done 2026-10-19, 63/63 matching): restore only the blobs and compare
+them with the live bucket.
+
+```bash
+sudo femboyz-mail-backup restic restore latest --include /mnt/femboyz-mail-blobs --target /tmp/blob-drill
+# with RCLONE_CONFIG_BLOBS_* exported as in backup.sh:
+rclone check --download /tmp/blob-drill/mnt/femboyz-mail-blobs blobs:femboyz-mail-blobs
+```
+
 Real restore after losing the server:
 
 1. Rebuild per 13.2–13.4, but don't run the wizard.
 2. Stop Stalwart.
 3. `restic restore` the snapshot.
-4. Copy the two `_data` directories into the new volumes, `chown -R 2000:2000` them, and start Stalwart.
-5. `/etc/femboyz-mail` from the snapshot has the old compose file and TLS copy.
+4. Copy the two `_data` directories into the new volumes, `chown -R 2000:2000` them.
+5. `/etc/femboyz-mail` from the snapshot has the old compose file, TLS copy and
+   `s3-blobs-secret`.
+6. Blobs: `rclone copy` the restored `mnt/femboyz-mail-blobs` into the blob bucket
+   (recreate it if it is gone). Copy, not sync: blobs newer than the snapshot are
+   harmless, and Stalwart's nightly purge removes unreferenced ones.
+7. Start Stalwart.
 
 ## 14. femboyz accounts (OIDC provider)
 
@@ -1847,3 +1864,61 @@ The admin has to sign up for the external dashboards personally:
   `@example.com` recipients got 20 × `250 Queued` and 6 × `452 Rate limit
   exceeded`. The account was then deleted through `/admin`, and its API key
   file removed.
+
+### 16.5 Mail blobs in S3 (2026-10-19)
+
+Message bodies, attachments, Sieve scripts, queued mail, the spam model and the
+WebUI bundle are Stalwart **blobs**. They live in the Hetzner bucket
+`femboyz-mail-blobs` (fsn1, private) instead of the local RocksDB. Metadata
+(mailboxes, flags, index, settings) stays in RocksDB on the volume. Objects are
+named by blob hash in Stalwart's base32 alphabet, with no prefix.
+
+```text
+x:BlobStore  @type S3, bucket femboyz-mail-blobs, region Custom
+             (https://fsn1.your-objectstorage.com, fsn1), accessKey Value,
+             secretKey File /run/secrets/stalwart_s3_blobs
+/etc/femboyz-mail/s3-blobs-secret   UID 2000, 400, mounted by docker-compose.yml
+```
+
+The key is the same Hetzner project key as the backups. Hetzner S3 keys reach
+every bucket in the project, so a separate key would not isolate anything. A
+separate project would. The bucket holds mail in plaintext, as the server disk
+does. Hetzner can read both.
+
+A changed `x:BlobStore` applies at the next start. Stalwart doesn't move
+existing blobs. `deploy/mail/blobs-to-s3.py` copies them byte for byte from
+RocksDB. Procedure, as run in production (61 blobs, about a minute of
+downtime):
+
+```bash
+# 1. fingerprint each mailbox via JMAP (count + hash of every raw message and Sieve script)
+# 2. set x:BlobStore as above (pending until restart)
+sudo docker compose -f /etc/femboyz-mail/docker-compose.yml stop stalwart
+sudo tar -C /var/lib/docker/volumes -czf /root/stalwart-before-s3-$(date +%Y%m%d-%H%M).tgz \
+  femboyz-mail_stalwart_data femboyz-mail_stalwart_etc            # rollback
+# 3. flush the write-ahead log: Stalwart's RocksDB replays it on open
+sudo docker run -d --name fbz-flush --network none \
+  -v femboyz-mail_stalwart_data:/var/lib/stalwart -v femboyz-mail_stalwart_etc:/etc/stalwart \
+  stalwartlabs/stalwart:v0.16; sleep 12; sudo docker stop fbz-flush; sudo docker rm fbz-flush
+# 4. copy and verify (venv with rocksdict + boto3; AWS_* from backup.env)
+blobs-to-s3.py /var/lib/docker/volumes/femboyz-mail_stalwart_data/_data \
+  https://fsn1.your-objectstorage.com femboyz-mail-blobs --region fsn1
+sudo docker compose -f /etc/femboyz-mail/docker-compose.yml up -d stalwart
+# 5. fingerprints must match; send a message and see the object count grow
+```
+
+The flush matters. On shutdown Stalwart leaves recent writes in the RocksDB
+write-ahead log, and the log holds Merge records that only Stalwart's merge
+operator can replay. Opened from Python, RocksDB stops at the first one and
+drops everything after it **without an error**. On dev that hid 45 of 59
+blobs. The script refuses to run while the logs hold more than 4 KiB. It also
+checks that every linked blob (column family `k`) is present.
+
+Rollback: stop Stalwart, restore the tarball (it still says `Default`), start.
+The RocksDB copies of pre-migration blobs are untouched by the switch. Keep the
+tarball until a few nightly backups with blobs exist, then delete it.
+
+Results 2026-10-19: `admin@` 8 messages + `redirect-admin` Sieve and `noreply@`
+2 messages fingerprinted identical before and after. A new message added
+2 objects. The nightly backup mounts the bucket (13.13). The restore drill
+matched 63/63 objects.

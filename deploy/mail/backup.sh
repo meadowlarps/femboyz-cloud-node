@@ -16,6 +16,8 @@ COMPOSE=/etc/femboyz-mail/docker-compose.yml
 VOLUMES=/var/lib/docker/volumes
 ACCOUNT_BACKUP=/var/backups/femboyz-cloud
 APP_DIR=/srv/femboyz-cloud
+# Under /mnt: Ubuntu's AppArmor profile for fusermount3 refuses mount points in /run.
+BLOB_MOUNT=/mnt/femboyz-mail-blobs
 
 if [ "${1:-}" = "set-secret" ]; then
     printf 'S3 secret key: ' >&2
@@ -52,8 +54,12 @@ fi
 if [ -f "$APP_DIR/oidc-jwks.json" ] && systemctl is-active --quiet femboyz-api.service; then
     restart_accounts=true
 fi
+blobs_unmount() {
+    if mountpoint -q "$BLOB_MOUNT"; then fusermount3 -u "$BLOB_MOUNT" || fusermount3 -uz "$BLOB_MOUNT"; fi
+}
 restart() {
     restart_status=0
+    blobs_unmount || restart_status=1
     docker compose -f "$COMPOSE" start stalwart >/dev/null || restart_status=1
     if [ "$restart_accounts" = true ]; then systemctl start femboyz-api.service || restart_status=1; fi
     if [ "$restart_webmail" = true ]; then docker compose -f "$COMPOSE" start webmail >/dev/null || restart_status=1; fi
@@ -74,6 +80,17 @@ if [ -f "$APP_DIR/oidc-jwks.json" ]; then
     chmod 600 "$ACCOUNT_BACKUP/mongo.archive.gz.tmp"
     mv "$ACCOUNT_BACKUP/mongo.archive.gz.tmp" "$ACCOUNT_BACKUP/mongo.archive.gz"
     set -- "$ACCOUNT_BACKUP/mongo.archive.gz" "$APP_DIR/.env.prod" "$APP_DIR/oidc-jwks.json"
+fi
+
+# Mail bodies live in the S3 blob store (DEPLOYMENT.md 16.5), not in the volume.
+# Mount it read-only so one snapshot holds the metadata and every blob it references.
+if [ -n "${BLOB_BUCKET:-}" ]; then
+    export RCLONE_CONFIG_BLOBS_TYPE=s3 RCLONE_CONFIG_BLOBS_PROVIDER=Other \
+        RCLONE_CONFIG_BLOBS_ENDPOINT="$BLOB_ENDPOINT" RCLONE_CONFIG_BLOBS_REGION="${BLOB_REGION:-fsn1}" \
+        RCLONE_CONFIG_BLOBS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" RCLONE_CONFIG_BLOBS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+    install -d -m 700 "$BLOB_MOUNT"
+    rclone mount "blobs:$BLOB_BUCKET" "$BLOB_MOUNT" --read-only --daemon --vfs-cache-mode off --dir-cache-time 1m
+    set -- "$@" "$BLOB_MOUNT"
 fi
 
 restic backup --host femboyz-cloud-node-a --tag stalwart \
