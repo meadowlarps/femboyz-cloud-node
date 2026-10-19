@@ -183,3 +183,113 @@ export type UploadTokenDB = z.infer<typeof UploadTokenSchemaDB>
 export type UploadTokenCreate = z.infer<typeof UploadTokenCreateSchema>
 export type UploadTokenUpdate = z.infer<typeof UploadTokenUpdateSchema>
 export type TokenUseDB = z.infer<typeof TokenUseSchemaDB>
+
+// ---- femboyz accounts (MAIL_PLAN.md section 2) ----
+
+// schema/mongo_user.md
+export const ExternalEmailSchema = z.object({
+    address:     z.string(),                                    // normalised: trimmed, domain lowercased
+    key:         z.string(),                                    // address lowercased, unique across users
+    verified_at: z.iso.datetime()
+})
+
+export const UserSchemaDB = z.object({
+    id_user:        z.uuid(),                                   // OIDC `sub`, never changes
+    username:       z.string(),                                 // lowercase, also the mail local part, immutable
+    password_hash:  z.string(),                                 // argon2id PHC string
+    external_email: ExternalEmailSchema.nullable(),
+    status:         z.enum(["active", "disabled", "deleting"]),
+    delete_after:   z.iso.datetime().optional(),                // disabled until existing mail JWTs expire
+    created:        z.iso.datetime(),
+    invite_id:      z.string().nullable(),
+    services: z.object({
+        mail: z.object({
+            enabled:     z.boolean(),
+            stalwart_id: z.string().nullable(),
+            quota_bytes: z.int().positive(),
+            redirect: z.object({
+                enabled:   z.boolean(),
+                keep_copy: z.boolean(),
+                bounces:   z.int().nonnegative()
+            })
+        })
+    })
+})
+
+// schema/mongo_account_request.md
+export const AccountRequestSchemaDB = z.object({
+    id:        z.string(),
+    email:     z.string(),
+    email_key: z.string(),                                      // lowercased, finds an earlier pending request
+    note:      z.string(),
+    issuer:    z.object({ ip: z.string(), ua: z.string() }),
+    created:   z.iso.datetime(),
+    status:    z.enum(["pending", "approved", "rejected"]),
+    decided:   z.iso.datetime().nullable(),
+    invite_id: z.string().nullable()
+})
+
+// schema/mongo_invite.md
+export const InviteSchemaDB = z.object({
+    id:             z.string(),
+    code_hash:      z.string(),                                 // sha256 hex of the code in the link
+    label:          z.string(),
+    email:          z.string().nullable(),                      // request address, pre-verified at signup
+    request_id:     z.string().nullable(),
+    quota_bytes:    z.int().positive(),
+    created:        z.iso.datetime(),
+    expires:        z.iso.datetime(),
+    reserved_until: z.iso.datetime().nullable(),                // held by a signup in progress
+    used:           z.boolean(),
+    used_by:        z.string().nullable(),                      // id_user
+    used_at:        z.iso.datetime().nullable(),
+    revoked:        z.boolean()
+})
+
+export const AccountRequestCreateSchema = z.object({
+    email:   z.string().trim().max(254),
+    note:    z.string().trim().max(1000).default(""),
+    website: z.string().max(200).default("")                    // honeypot, must stay empty
+})
+
+export const SignupSchema = z.object({
+    invite:   z.string().trim().min(1).max(100),
+    username: z.string().trim().max(64),
+    password: z.string().max(256),
+    external_email: z.object({
+        address: z.string().trim().max(254),
+        code:    z.string().trim().max(8).optional()
+    }).optional()
+})
+
+export const SignupEmailCodeSchema = z.object({
+    invite:  z.string().trim().min(1).max(100),
+    address: z.string().trim().max(254)
+})
+
+export const LoginSchema = z.object({
+    username: z.string().trim().max(320),
+    password: z.string().max(256)
+})
+
+export const EmailAddressSchema = z.object({ address: z.string().trim().max(254) })
+export const EmailVerifySchema = z.object({ address: z.string().trim().max(254), code: z.string().trim().max(8) })
+export const PasswordConfirmSchema = z.object({ password: z.string().max(256) })
+export const RedirectUpdateSchema = z.object({ enabled: z.boolean(), keep_copy: z.boolean().default(true) })
+
+export const InviteCreateSchema = z.object({
+    label:       z.string().trim().max(100).default(""),
+    email:       z.string().trim().max(254).nullable().default(null),
+    quota_bytes: z.int().positive().optional(),
+    ttl_days:    z.int().min(1).max(90).optional()
+})
+
+export const UserUpdateSchema = z.object({
+    status:      z.enum(["active", "disabled"]),
+    quota_bytes: z.int().positive()
+}).partial()
+
+export type ExternalEmail = z.infer<typeof ExternalEmailSchema>
+export type UserDB = z.infer<typeof UserSchemaDB>
+export type AccountRequestDB = z.infer<typeof AccountRequestSchemaDB>
+export type InviteDB = z.infer<typeof InviteSchemaDB>

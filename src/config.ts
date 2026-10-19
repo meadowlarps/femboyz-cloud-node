@@ -39,10 +39,65 @@ export const envs = {
     UPLOAD_TOKEN_MAX_FAILS:             Number(process.env.UPLOAD_TOKEN_MAX_FAILS) || 20,
     UPLOAD_TOKEN_BLOCK_MINUTES:         Number(process.env.UPLOAD_TOKEN_BLOCK_MINUTES) || 15,
 
+    // ---- femboyz accounts + mail (MAIL_PLAN.md). Off unless OIDC_ISSUER is set. ----
+    OIDC_ISSUER:                        process.env.OIDC_ISSUER?.replace(/\/$/, ""),     // https://femboyz.cloud/oidc
+    OIDC_JWKS_FILE:                     process.env.OIDC_JWKS_FILE || "./oidc-jwks.json",
+    OIDC_COOKIE_KEYS:                   list(process.env.OIDC_COOKIE_KEYS),
+    OIDC_CLIENT_WEB_SECRET:             process.env.OIDC_CLIENT_WEB_SECRET,
+    OIDC_CLIENT_BULWARK_SECRET:         process.env.OIDC_CLIENT_BULWARK_SECRET,
+    OIDC_CLIENT_BULWARK_REDIRECT_URIS:  list(process.env.OIDC_CLIENT_BULWARK_REDIRECT_URIS),
+    OIDC_CLIENT_BULWARK_LOGOUT_URIS:    list(process.env.OIDC_CLIENT_BULWARK_LOGOUT_URIS),
+    STALWART_URL:                       process.env.STALWART_URL?.replace(/\/$/, ""),    // https://mx.femboyz.cloud
+    STALWART_RESOURCE:                  process.env.STALWART_RESOURCE || "https://mx.femboyz.cloud",
+    STALWART_API_KEY:                   process.env.STALWART_API_KEY,
+    STALWART_WEBHOOK_SECRET:            process.env.STALWART_WEBHOOK_SECRET,
+    MAIL_DOMAIN:                        process.env.MAIL_DOMAIN || "femboyz.cloud",
+    MAIL_DEFAULT_QUOTA_BYTES:           Number(process.env.MAIL_DEFAULT_QUOTA_BYTES) || 1024 ** 3,
+    MAIL_REDIRECT_MAX_BOUNCES:          Number(process.env.MAIL_REDIRECT_MAX_BOUNCES) || 3,
+    INVITE_TTL_DAYS:                    Number(process.env.INVITE_TTL_DAYS) || 7,
+    SMTP_HOST:                          process.env.SMTP_HOST,                            // unset = log mail instead of sending
+    SMTP_PORT:                          Number(process.env.SMTP_PORT) || 465,
+    SMTP_SECURE:                        process.env.SMTP_SECURE !== "false",              // implicit TLS (465); false = STARTTLS
+    SMTP_TLS_SERVERNAME:                process.env.SMTP_TLS_SERVERNAME,
+    SMTP_TLS_INSECURE:                  process.env.SMTP_TLS_INSECURE === "true",         // dev only: self-signed Stalwart
+    SMTP_USER:                          process.env.SMTP_USER,
+    SMTP_PASS:                          process.env.SMTP_PASS,
+    MAIL_FROM:                          process.env.MAIL_FROM || "femboyz.cloud <noreply@femboyz.cloud>",
+    ADMIN_NOTIFY_EMAIL:                 process.env.ADMIN_NOTIFY_EMAIL || "admin@femboyz.cloud",
+    EMAIL_CODE_SECRET:                  process.env.EMAIL_CODE_SECRET,
+    EMAIL_CODE_TTL_MINUTES:             Number(process.env.EMAIL_CODE_TTL_MINUTES) || 10,
+    EMAIL_CODE_MAX_ATTEMPTS:            Number(process.env.EMAIL_CODE_MAX_ATTEMPTS) || 5,
+    ACCOUNT_LOGIN_MAX_FAILS:            Number(process.env.ACCOUNT_LOGIN_MAX_FAILS) || 10,
+    ACCOUNT_LOGIN_BLOCK_MINUTES:        Number(process.env.ACCOUNT_LOGIN_BLOCK_MINUTES) || 15,
+    ACCOUNT_REQUESTS_MAX_PENDING:       Number(process.env.ACCOUNT_REQUESTS_MAX_PENDING) || 100,
+    MDB_COLLECTION_USERS:               process.env.MDB_COLLECTION_USERS || "users",
+    MDB_COLLECTION_ACCOUNT_REQUESTS:    process.env.MDB_COLLECTION_ACCOUNT_REQUESTS || "account_requests",
+    MDB_COLLECTION_INVITES:             process.env.MDB_COLLECTION_INVITES || "invites",
+    MDB_COLLECTION_EMAIL_CODES:         process.env.MDB_COLLECTION_EMAIL_CODES || "email_codes",
+    MDB_COLLECTION_WEB_SESSIONS:        process.env.MDB_COLLECTION_WEB_SESSIONS || "web_sessions",
+    MDB_COLLECTION_OIDC:                process.env.MDB_COLLECTION_OIDC || "oidc",
 }
 
+function list(value: string | undefined): string[] {
+    return (value ?? "").split(",").map(item => item.trim()).filter(Boolean)
+}
+
+export const ACCOUNTS_ENABLED = envs.OIDC_ISSUER !== undefined && envs.OIDC_ISSUER !== ""
+export const MAIL_ACCESS_TOKEN_TTL_SECONDS = 10 * 60
+
+/** The site that hosts /login, /signup and /account: the issuer's origin. */
+export function site_origin(): string {
+    return envs.OIDC_ISSUER ? new URL(envs.OIDC_ISSUER).origin : ""
+}
+
+const SECRET_ENVS = new Set([
+    "AUTH_ADMIN_KEY", "MDB_URI", "OIDC_COOKIE_KEYS", "OIDC_CLIENT_WEB_SECRET", "OIDC_CLIENT_BULWARK_SECRET",
+    "STALWART_API_KEY", "STALWART_WEBHOOK_SECRET", "SMTP_PASS", "EMAIL_CODE_SECRET"
+])
+
 for (const [key, value] of Object.entries(envs)) {
-    const loggedValue = key === "AUTH_ADMIN_KEY" || key === "MDB_URI" ? "[REDACTED]" : value
+    const set = Array.isArray(value) ? value.length > 0 : value !== undefined && value !== ""
+    const loggedValue = SECRET_ENVS.has(key) && set ? "[REDACTED]" : value
     scopelog.info(`ENV: ${key}=${loggedValue}`)
 }
 

@@ -4,6 +4,9 @@
     import { formatFileSize } from '$lib/upload/uploader'
     import LogsView from './LogsView.svelte'
     import TokensView from './TokensView.svelte'
+    import RequestsView from './RequestsView.svelte'
+    import InvitesView from './InvitesView.svelte'
+    import UsersView from './UsersView.svelte'
 
     type AdminFile = {
         index: number
@@ -63,7 +66,12 @@
 
     let adminKey = $state('')
     let authenticated = $state(false)
-    let tab = $state<'uploads' | 'logs' | 'tokens'>('uploads')
+    type Tab = 'uploads' | 'logs' | 'tokens' | 'requests' | 'invites' | 'users'
+    const TABS: Tab[] = ['uploads', 'logs', 'tokens', 'requests', 'invites', 'users']
+
+    let tab = $state<Tab>('uploads')
+    // ?tab=requests&id=… comes from the access request notification email
+    let focusRequestId = $state<string | null>(null)
     let signingIn = $state(false)
     let data = $state<AdminResponse | null>(null)
     let loading = $state(false)
@@ -77,6 +85,10 @@
     let deleting = $state(new Set<string>())
 
     onMount(() => {
+        const params = new URLSearchParams(location.search)
+        const wanted = params.get('tab')
+        if (wanted && (TABS as string[]).includes(wanted)) tab = wanted as Tab
+        focusRequestId = params.get('id')
         adminKey = sessionStorage.getItem(sessionKeyName) ?? ''
         if (adminKey) void authenticate()
     })
@@ -231,8 +243,8 @@
     <section class="admin-page">
         <header class="admin-header">
             <div>
-                <h1>Upload administration</h1>
-                <p>Private upload inventory and storage controls.</p>
+                <h1>Administration</h1>
+                <p>Uploads, storage, tokens and femboyz accounts.</p>
             </div>
             <button class="quiet-button" type="button" onclick={() => signOut()}>Log out</button>
         </header>
@@ -240,6 +252,9 @@
         <div class="mode-switcher">
             <button class="mode-tab" class:active={tab === 'uploads'} type="button" onclick={() => (tab = 'uploads')}>Uploads</button>
             <button class="mode-tab" class:active={tab === 'tokens'} type="button" onclick={() => (tab = 'tokens')}>Tokens</button>
+            <button class="mode-tab" class:active={tab === 'requests'} type="button" onclick={() => (tab = 'requests')}>Requests</button>
+            <button class="mode-tab" class:active={tab === 'invites'} type="button" onclick={() => (tab = 'invites')}>Invites</button>
+            <button class="mode-tab" class:active={tab === 'users'} type="button" onclick={() => (tab = 'users')}>Users</button>
             <button class="mode-tab" class:active={tab === 'logs'} type="button" onclick={() => (tab = 'logs')}>Error logs</button>
         </div>
 
@@ -247,6 +262,12 @@
             <LogsView {adminFetch} />
         {:else if tab === 'tokens'}
             <TokensView {adminFetch} />
+        {:else if tab === 'requests'}
+            <RequestsView {adminFetch} focusId={focusRequestId} />
+        {:else if tab === 'invites'}
+            <InvitesView {adminFetch} />
+        {:else if tab === 'users'}
+            <UsersView {adminFetch} />
         {:else}
             {#if data}
                 <section class="summary" aria-label="Storage overview">

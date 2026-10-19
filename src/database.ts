@@ -1,5 +1,5 @@
 import { Db, MongoClient } from "mongodb"
-import { envs } from "./config.js"
+import { ACCOUNTS_ENABLED, envs } from "./config.js"
 import { scope, errorFileLogger } from "./logger.js"
 import { shutdownUnexpectedly } from "./utils.js"
 
@@ -32,7 +32,44 @@ async function run() {
         shutdownUnexpectedly()
     })
     scopelog.info(`Ensured indexes on collections ${envs.MDB_COLLECTION_UPLOADS}, ${envs.MDB_COLLECTION_COMMENTS}, ${envs.MDB_COLLECTION_TOKENS} and ${envs.MDB_COLLECTION_TOKEN_USES}`)
+    if (ACCOUNTS_ENABLED) await account_indexes_ensure(DB).catch(dbErrorHandler)
     scopelog.info("Connected")
+}
+
+// Exported for the database-backed account tests, which run against a throwaway server.
+export async function account_indexes_ensure(db: Db) {
+    const users = db.collection(envs.MDB_COLLECTION_USERS)
+    const requests = db.collection(envs.MDB_COLLECTION_ACCOUNT_REQUESTS)
+    const invites = db.collection(envs.MDB_COLLECTION_INVITES)
+    const codes = db.collection(envs.MDB_COLLECTION_EMAIL_CODES)
+    const sessions = db.collection(envs.MDB_COLLECTION_WEB_SESSIONS)
+    const oidc = db.collection(envs.MDB_COLLECTION_OIDC)
+    await Promise.all([
+        users.createIndex({ id_user: 1 }, { unique: true }),
+        users.createIndex({ username: 1 }, { unique: true }),
+        users.createIndex({ status: 1, delete_after: 1 }),
+        // one verified address per account, and an address on one account only
+        users.createIndex({ "external_email.key": 1 }, {
+            unique: true, partialFilterExpression: { "external_email.key": { $type: "string" } }
+        }),
+        requests.createIndex({ id: 1 }, { unique: true }),
+        requests.createIndex({ status: 1, created: -1 }),
+        requests.createIndex({ email_key: 1, status: 1 }),
+        invites.createIndex({ id: 1 }, { unique: true }),
+        invites.createIndex({ code_hash: 1 }, { unique: true }),
+        codes.createIndex({ subject: 1, created: -1 }),
+        codes.createIndex({ address_key: 1, created: -1 }),
+        // codes stay a day after expiring so the per-day send limits can count them
+        codes.createIndex({ purge_at: 1 }, { expireAfterSeconds: 0 }),
+        sessions.createIndex({ token_hash: 1 }, { unique: true }),
+        sessions.createIndex({ id_user: 1 }),
+        sessions.createIndex({ expires: 1 }, { expireAfterSeconds: 0 }),
+        oidc.createIndex({ model: 1, uid: 1 }, { sparse: true }),
+        oidc.createIndex({ model: 1, userCode: 1 }, { sparse: true }),
+        oidc.createIndex({ grantId: 1 }, { sparse: true }),
+        oidc.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+    ])
+    scopelog.info("Ensured account indexes")
 }
 
 function dbErrorHandler(err: unknown) {
