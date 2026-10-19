@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { page } from '$app/state'
-    import { slide } from 'svelte/transition'
+    import { fade, scale, slide, type SlideParams, type TransitionConfig } from 'svelte/transition'
     import { cubicOut } from 'svelte/easing'
     import '$lib/styles/account.css'
     import { accountErrorText, accountFetch, AccountApiError, sessionStartUrl } from '$lib/account/api'
@@ -30,6 +30,12 @@
     let requestSent = $state(false)
 
     const reveal = { duration: 220, easing: cubicOut }
+
+    // slide, with the content fading as it folds
+    function fold(node: Element, params: SlideParams): TransitionConfig {
+        const config = slide(node, params)
+        return { ...config, css: (t, u) => `${config.css?.(t, u) ?? ''};opacity: ${t}` }
+    }
 
     onMount(() => {
         if (!uid && !startError) location.replace(sessionStartUrl('/account'))
@@ -77,10 +83,13 @@
     <meta name="robots" content="noindex" />
 </svelte:head>
 
-<section class="acct-page">
+<section class="acct-page login">
     <!-- without a uid the page is only a hop to the provider: render nothing, so the
          form fades in once, when the provider sends the browser back -->
     {#if uid || expired}
+    <!-- requesting access takes the whole page: sign-in folds away, and comes back on Cancel -->
+    {#if !requestOpen && !requestSent}
+    <div class="login-signin" transition:fold={reveal}>
     <div class="acct-panel acct-fade-in">
         <h1>Sign in</h1>
 
@@ -118,22 +127,47 @@
             </form>
         {/if}
     </div>
+    </div>
+    {/if}
 
-    <div class="acct-panel acct-fade-in">
+    {#if requestSent}
+        <!-- grows in once the request panel has folded away -->
+        <div class="login-sent" role="status" in:scale={{ start: 0.92, duration: 320, delay: reveal.duration, easing: cubicOut }} out:fade={{ duration: 150 }}>
+            <svg class="login-sent-icon" viewBox="0 0 48 48" aria-hidden="true">
+                <circle cx="24" cy="24" r="22" pathLength="1" />
+                <path d="M15 24.5l6 6 12-13" pathLength="1" />
+            </svg>
+            <div class="login-sent-text">
+                <p class="login-sent-title">Your request was successfully sent</p>
+                <p class="acct-muted">Await confirmation in your mailbox</p>
+                <p class="login-sent-mail">{requestEmail}</p>
+            </div>
+        </div>
+    {:else}
+    <div class="acct-panel acct-fade-in" class:login-takeover={requestOpen} transition:fold={reveal}>
         <h2>No account?</h2>
-        <p class="acct-muted">femboyz.cloud accounts are invite-only. Each one comes with a @femboyz.cloud mailbox.</p>
+        <p class="acct-muted">femboyz.cloud accounts are invite-only. <br />Each one comes with a @femboyz.cloud mailbox.</p>
 
-        {#if requestSent}
-            <p class="acct-ok" role="status" in:slide={reveal}>Request sent. If it's approved, the invite goes to {requestEmail}.</p>
-        {:else if !requestOpen}
-            <div class="acct-actions" in:slide={reveal}>
+        <!-- a plain block around the button and the form: as grid items, both would hold a
+             gap while one folds into the other, and it would snap shut at the end -->
+        <div>
+        {#if !requestOpen}
+            <div class="acct-actions" transition:fold={reveal}>
                 <button class="fb-button fb-button-ghost" type="button" onclick={() => (requestOpen = true)}>Request access</button>
             </div>
         {:else}
-            <form class="acct-form" onsubmit={sendRequest} aria-busy={requestBusy} transition:slide={reveal}>
+            <form class="acct-form" onsubmit={sendRequest} aria-busy={requestBusy} transition:fold={reveal}>
                 <label class="acct-field">
                     <span>Your email</span>
-                    <input bind:value={requestEmail} type="email" autocomplete="email" maxlength="254" required disabled={requestBusy} />
+                    <input
+                        bind:value={requestEmail}
+                        type="email"
+                        autocomplete="email"
+                        maxlength="254"
+                        required
+                        disabled={requestBusy}
+                        {@attach (input) => input.focus({ preventScroll: true })}
+                    />
                 </label>
                 <label class="acct-field">
                     <span>Who are you, and why do you want in? (optional)</span>
@@ -149,6 +183,120 @@
                 </div>
             </form>
         {/if}
+        </div>
     </div>
     {/if}
+    {/if}
 </section>
+
+<style>
+    /* the space between sign-in and the request panel lives inside the sign-in wrapper,
+       so it folds away with it instead of snapping shut at the end */
+    .login {
+        gap: 0;
+    }
+
+    .login-signin {
+        padding-bottom: 3rem;
+    }
+
+    /* with sign-in gone, the request heading grows into the page title */
+    .acct-panel h2 {
+        transition: font-size var(--acct-ease);
+    }
+
+    .login-takeover h2 {
+        font-size: 1.6rem;
+    }
+
+    /* Request sent: a green check in a circle beside three lines of text, in the
+       middle of the screen. Fixed, so it takes no room while the panel folds away. */
+    .login-sent {
+        position: fixed;
+        inset: 0;
+        margin: auto;
+        width: fit-content;
+        max-width: min(calc(100% - 3rem), 30rem);
+        height: fit-content;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .login-sent p {
+        margin: 0;
+    }
+
+    .login-sent-icon {
+        width: 3.5rem;
+        height: 3.5rem;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    /* the circle draws itself, then the check draws, once the block has grown in */
+    .login-sent-icon circle {
+        fill: #b8f0c80f;
+        stroke: #3f7a52;
+        stroke-width: 2;
+        stroke-dasharray: 1;
+        transform: rotate(-90deg);
+        transform-origin: center;
+        animation: login-sent-draw 0.5s 0.35s ease-out both;
+    }
+
+    .login-sent-icon path {
+        stroke: #b8f0c8;
+        stroke-width: 2.5;
+        stroke-dasharray: 1;
+        animation: login-sent-draw 0.3s 0.8s ease-out both;
+    }
+
+    .login-sent-text {
+        display: grid;
+        gap: 0.6rem;
+        min-width: 0;
+    }
+
+    .login-sent-title {
+        color: #f4f4f4;
+        font-weight: 600;
+    }
+
+    .login-sent-mail {
+        color: #9e9699;
+        overflow-wrap: anywhere;
+    }
+
+    @keyframes login-sent-draw {
+        from {
+            stroke-dashoffset: 1;
+        }
+        to {
+            stroke-dashoffset: 0;
+        }
+    }
+
+    @media (max-width: 42rem) {
+        .login-signin {
+            padding-bottom: 2.5rem;
+        }
+
+        /* phones: stays at the top, above where the keyboard was */
+        .login-sent {
+            position: static;
+            width: auto;
+            max-width: none;
+            margin: 0;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .login-sent-icon circle,
+        .login-sent-icon path {
+            animation: none;
+        }
+    }
+</style>
