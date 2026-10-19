@@ -182,7 +182,7 @@
                 <a class="fb-button" href={sessionStartUrl('/account')}>Sign in</a>
             </div>
         {:else}
-            <h1>Create your femboyz account</h1>
+            <h1>Create your <span class="acct-brand">femboyz</span> account</h1>
             <form class="acct-form" onsubmit={submit} aria-busy={busy}>
                 <label class="acct-field">
                     <span>Username</span>
