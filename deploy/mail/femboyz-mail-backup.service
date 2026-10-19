@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up Stalwart to S3 with restic
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/femboyz-mail-backup
+Nice=10
+IOSchedulingClass=idle

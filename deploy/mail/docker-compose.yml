@@ -1,0 +1,67 @@
+# Stalwart mail server for femboyz.cloud.
+#
+# Installed copy: /etc/femboyz-mail/docker-compose.yml (root:root, 600).
+# Driven from the ops user with sudo, like MongoDB. See DEPLOYMENT.md section 13.
+#
+# Upgrades are manual: read the changelog, then `pull` + `up -d`.
+# GitHub Actions deploy.sh never touches this stack.
+
+name: femboyz-mail
+
+services:
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16
+    container_name: femboyz-stalwart
+    restart: unless-stopped
+    hostname: mx.femboyz.cloud
+    environment:
+      # Base URL published in OAuth/OIDC/JMAP discovery. nginx serves it.
+      STALWART_PUBLIC_URL: https://mx.femboyz.cloud
+      # Pre-fills the server hostname in the setup wizard.
+      STALWART_HOSTNAME: mx.femboyz.cloud
+    env_file:
+      # Holds STALWART_RECOVERY_ADMIN only while it is needed (bootstrap,
+      # recovery). Keep the file, empty, the rest of the time.
+      - path: /etc/femboyz-mail/stalwart.env
+        required: false
+    ports:
+      # Inbound SMTP from the internet. Docker DNAT keeps the real client IP,
+      # which SPF/DMARC and auto-ban need. Docker-published ports bypass UFW.
+      - "25:25"
+      # HTTPS (JMAP, WebUI, OAuth) for nginx only. Never publish it publicly.
+      - "127.0.0.1:8443:443"
+      # Later phases: 127.0.0.1:465 for Fastify (noreply@), 465/993 for apps.
+    volumes:
+      - stalwart_etc:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+      # Copy of the certbot mx.femboyz.cloud cert, owned by UID 2000.
+      # Kept in sync by the certbot deploy hook.
+      - /etc/femboyz-mail/tls:/etc/stalwart-tls:ro
+    # Host unbound on the bridge gateway, not Hetzner's shared resolvers,
+    # which DNS blocklists refuse. See unbound-femboyz-mail.conf.
+    dns:
+      - 172.30.25.1
+    networks:
+      mail:
+        # Fixed address so the bootstrap/recovery listener (:8080) can be
+        # reached from the host without publishing it: http://172.30.25.10:8080
+        ipv4_address: 172.30.25.10
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+networks:
+  mail:
+    driver_opts:
+      # Fixed name so UFW can allow DNS from this bridge only.
+      com.docker.network.bridge.name: br-fbzmail
+    ipam:
+      config:
+        - subnet: 172.30.25.0/24
+          gateway: 172.30.25.1
+
+volumes:
+  stalwart_etc:
+  stalwart_data:
