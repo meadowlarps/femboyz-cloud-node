@@ -1935,8 +1935,10 @@ matched 63/63 objects.
 
 ### 16.6 Identity defaults: sender name and signature
 
-Stalwart names a mailbox's identity after the account description, so mail went
-out from "femboyz account". `stalwart_identity_defaults` in `src/stalwart.ts`
+Stalwart names a mailbox's identity after the account description at the time
+the identity is created, so mail went out from "femboyz account". (Logins later
+overwrite the description with the OIDC `name` claim, so the backfill takes
+mailbox ids from our users collection, not from descriptions.) `stalwart_identity_defaults` in `src/stalwart.ts`
 sets the name to the username and the signature to `смартфон vivo`
 (`DEFAULT_SIGNATURE`) through JMAP `Identity/set`; Bulwark shows both. Signup
 runs it right after creating the mailbox. Names other than "femboyz account" and
@@ -1945,4 +1947,22 @@ Existing mailboxes need one backfill after the deploy:
 
 ```bash
 sudo -u femboyz -H sh -c 'cd /srv/femboyz-cloud && NODE_ENV=prod npm run mail:identities'
+```
+
+### 16.7 Global queue quota disabled (2026-10-19)
+
+Stalwart's default `x:MtaQueueQuota` "Global queue quota" (100000 messages,
+10 GiB) is **disabled** on prod. A burst of about 12 parallel webmail
+submissions at 18:52 drove its usage counter below zero. Stalwart 0.16.27
+reads the signed counter `as u64` (`crates/smtp/src/queue/quota.rs`), so a
+negative count looks huge, and every message then failed with
+`452 4.3.1 Mail system full` (Bulwark: `forbiddenToSend`) on an empty queue,
+including `noreply@`. The per-account throttles in 16.1 are the sending limits;
+disk usage is watched separately. Don't re-enable the quota: the counter is
+still negative. Reapply after a Stalwart reset or restore:
+
+```bash
+echo '[["x:MtaQueueQuota/get", {"properties": ["description", "enable"]}, "g"]]' | ./stwjmap.py call
+echo '[["x:MtaQueueQuota/set", {"update": {"<ID>": {"enable": false}}}, "u"],
+       ["x:Action/set", {"create": {"a": {"@type": "ReloadSettings"}}}, "a"]]' | ./stwjmap.py call
 ```
