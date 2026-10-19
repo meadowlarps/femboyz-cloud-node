@@ -1834,3 +1834,16 @@ The admin has to sign up for the external dashboards personally:
   `postmaster@femboyz.cloud` as the verification address. That mail reaches the
   personal address through the admin redirect. Join JMRP from the same site
   to get Outlook.com spam complaints about our IP.
+
+### 16.4 Production rollout record — 2026-10-19
+
+- Service account `femboyz-api` (id `d`) granted the six permissions from 16.1 step 1.
+- PR #9 deployed by GitHub Actions. `/terms` answers 200, and the first sync
+  logged no errors. There were no user mailboxes, so the list was empty.
+- `outbound-limits.py`: 4 throttles created, `maxRecipients` 25 for logged-in
+  senders, settings reloaded. `inboundReportAddresses` = `postmaster@*`, `dmarc@*`.
+- Check: a throwaway account `p4check` was created through invite + signup. The
+  API logged `New senders: +1` straight away. One JMAP submission to 26
+  `@example.com` recipients got 20 × `250 Queued` and 6 × `452 Rate limit
+  exceeded`. The account was then deleted through `/admin`, and its API key
+  file removed.
