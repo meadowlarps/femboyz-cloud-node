@@ -148,14 +148,6 @@ export async function stalwart_identity_defaults(account_id: string): Promise<nu
     return count
 }
 
-/** Ids of the mailboxes created for femboyz accounts (stalwart_account_create). */
-export async function stalwart_user_account_ids(): Promise<string[]> {
-    const [[, result]] = await jmap("list accounts", [["x:Account/get", { properties: ["@type", "description"] }, "a"]]) as [MethodResponse]
-    return (result.list as { id: string, "@type": string, description?: string }[])
-        .filter(account => account["@type"] === "User" && account.description === ACCOUNT_DESCRIPTION)
-        .map(account => account.id)
-}
-
 // ---- NEW SENDERS (outbound throttle tier) ----
 
 // Stalwart's inbound throttles (DEPLOYMENT.md 16.1) match `key_exists(NEW_SENDERS, authenticated_as)`,
