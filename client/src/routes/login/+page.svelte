@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { page } from '$app/state'
-    import { fade, scale, slide } from 'svelte/transition'
+    import { fade, scale, slide, type SlideParams, type TransitionConfig } from 'svelte/transition'
     import { cubicOut } from 'svelte/easing'
     import '$lib/styles/account.css'
     import { accountErrorText, accountFetch, AccountApiError, sessionStartUrl } from '$lib/account/api'
@@ -30,6 +30,12 @@
     let requestSent = $state(false)
 
     const reveal = { duration: 220, easing: cubicOut }
+
+    // slide, with the content fading as it folds
+    function fold(node: Element, params: SlideParams): TransitionConfig {
+        const config = slide(node, params)
+        return { ...config, css: (t, u) => `${config.css?.(t, u) ?? ''};opacity: ${t}` }
+    }
 
     onMount(() => {
         if (!uid && !startError) location.replace(sessionStartUrl('/account'))
@@ -83,7 +89,7 @@
     {#if uid || expired}
     <!-- requesting access takes the whole page: sign-in folds away, and comes back on Cancel -->
     {#if !requestOpen && !requestSent}
-    <div class="login-signin" transition:slide={reveal}>
+    <div class="login-signin" transition:fold={reveal}>
     <div class="acct-panel acct-fade-in">
         <h1>Sign in</h1>
 
@@ -138,16 +144,19 @@
             </div>
         </div>
     {:else}
-    <div class="acct-panel acct-fade-in" class:login-takeover={requestOpen} transition:slide={reveal}>
+    <div class="acct-panel acct-fade-in" class:login-takeover={requestOpen} transition:fold={reveal}>
         <h2>No account?</h2>
-        <p class="acct-muted">femboyz.cloud accounts are invite-only. Each one comes with a @femboyz.cloud mailbox.</p>
+        <p class="acct-muted">femboyz.cloud accounts are invite-only. <br />Each one comes with a @femboyz.cloud mailbox.</p>
 
+        <!-- a plain block around the button and the form: as grid items, both would hold a
+             gap while one folds into the other, and it would snap shut at the end -->
+        <div>
         {#if !requestOpen}
-            <div class="acct-actions" in:slide={reveal}>
+            <div class="acct-actions" transition:fold={reveal}>
                 <button class="fb-button fb-button-ghost" type="button" onclick={() => (requestOpen = true)}>Request access</button>
             </div>
         {:else}
-            <form class="acct-form" onsubmit={sendRequest} aria-busy={requestBusy} transition:slide={reveal}>
+            <form class="acct-form" onsubmit={sendRequest} aria-busy={requestBusy} transition:fold={reveal}>
                 <label class="acct-field">
                     <span>Your email</span>
                     <input
@@ -174,6 +183,7 @@
                 </div>
             </form>
         {/if}
+        </div>
     </div>
     {/if}
     {/if}
@@ -211,7 +221,7 @@
         display: grid;
         grid-template-columns: auto 1fr;
         align-items: center;
-        gap: 1.25rem;
+        gap: 1.5rem;
     }
 
     .login-sent p {
@@ -246,17 +256,17 @@
 
     .login-sent-text {
         display: grid;
-        gap: 0.3rem;
+        gap: 0.6rem;
         min-width: 0;
     }
 
     .login-sent-title {
-        color: #b8f0c8;
+        color: #f4f4f4;
         font-weight: 600;
     }
 
     .login-sent-mail {
-        color: #f4f4f4;
+        color: #9e9699;
         overflow-wrap: anywhere;
     }
 
