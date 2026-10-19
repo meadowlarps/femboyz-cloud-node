@@ -7,6 +7,7 @@ const scopelog = scope("stalwart")
 // `impersonate` permission, which lets it manage Sieve scripts on user accounts.
 const USING = ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:sieve", "urn:stalwart:jmap"]
 const REDIRECT_SCRIPT = "femboyz-redirect"
+const ACCOUNT_DESCRIPTION = "femboyz account"
 const TIMEOUT_MS = 15_000
 
 type MethodCall = [string, Record<string, unknown>, string]
@@ -81,7 +82,7 @@ export async function stalwart_account_create(input: { username: string, id_user
                 "@type": "User",
                 name: input.username,
                 domainId: await domain_id_get(),
-                description: "femboyz account",
+                description: ACCOUNT_DESCRIPTION,
                 externalId: input.id_user,
                 roles: { "@type": "User" },
                 permissions: { "@type": "Inherit" },
@@ -119,28 +120,39 @@ export async function stalwart_account_usage(id: string): Promise<{ used_bytes: 
     return { used_bytes: Number(account.usedDiskQuota) || 0, quota_bytes: account.quotas?.maxDiskQuota ?? null }
 }
 
-// ---- SIGNATURE ----
+// ---- IDENTITIES ----
 
 export const DEFAULT_SIGNATURE = "смартфон vivo"
 
-/** Gives every identity of the account without a signature the default one; set signatures are kept. */
-export async function stalwart_signature_default(account_id: string): Promise<number> {
+type Identity = { id: string, name?: string, email: string, textSignature?: string | null, htmlSignature?: string | null }
+
+/**
+ * Fills in identity defaults the user hasn't changed: the username as the sender name
+ * (Stalwart names identities after the account description) and the default signature.
+ */
+export async function stalwart_identity_defaults(account_id: string): Promise<number> {
     // Stalwart creates the account's default identity on its first Identity/get.
-    const [[, existing]] = await jmap(`identities of ${account_id}`, [["Identity/get", { accountId: account_id, properties: ["textSignature", "htmlSignature"] }, "g"]]) as [MethodResponse]
-    const blank = (existing.list as { id: string, textSignature?: string | null, htmlSignature?: string | null }[])
-        .filter(identity => !identity.textSignature && !identity.htmlSignature)
-    if (blank.length === 0) return 0
-    const update = Object.fromEntries(blank.map(identity => [identity.id, { textSignature: DEFAULT_SIGNATURE, htmlSignature: DEFAULT_SIGNATURE }]))
-    await jmap(`set signature of ${account_id}`, [["Identity/set", { accountId: account_id, update }, "s"]])
-    scopelog.info(`Default signature set on ${blank.length} identities of ${account_id}`)
-    return blank.length
+    const [[, existing]] = await jmap(`identities of ${account_id}`, [["Identity/get", { accountId: account_id, properties: ["name", "email", "textSignature", "htmlSignature"] }, "g"]]) as [MethodResponse]
+    const update: Record<string, Record<string, string>> = {}
+    for (const identity of existing.list as Identity[]) {
+        const patch: Record<string, string> = {}
+        if (!identity.name || identity.name === ACCOUNT_DESCRIPTION) patch.name = identity.email.split("@")[0]!
+        if (!identity.textSignature && !identity.htmlSignature)
+            Object.assign(patch, { textSignature: DEFAULT_SIGNATURE, htmlSignature: DEFAULT_SIGNATURE })
+        if (Object.keys(patch).length > 0) update[identity.id] = patch
+    }
+    const count = Object.keys(update).length
+    if (count === 0) return 0
+    await jmap(`set identity defaults of ${account_id}`, [["Identity/set", { accountId: account_id, update }, "s"]])
+    scopelog.info(`Identity defaults set on ${count} identities of ${account_id}`)
+    return count
 }
 
 /** Ids of the mailboxes created for femboyz accounts (stalwart_account_create). */
 export async function stalwart_user_account_ids(): Promise<string[]> {
     const [[, result]] = await jmap("list accounts", [["x:Account/get", { properties: ["@type", "description"] }, "a"]]) as [MethodResponse]
     return (result.list as { id: string, "@type": string, description?: string }[])
-        .filter(account => account["@type"] === "User" && account.description === "femboyz account")
+        .filter(account => account["@type"] === "User" && account.description === ACCOUNT_DESCRIPTION)
         .map(account => account.id)
 }
 

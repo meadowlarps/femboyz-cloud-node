@@ -11,7 +11,7 @@
     "test": "tsc && NODE_ENV=dev LOGLEVEL=debug vitest run --reporter=verbose && npm run test:preview",
     "test:preview": "tsx --test test/client*.test.ts",
     "oidc:keygen": "node dist/oidckeygen.js",
-    "mail:signatures": "node dist/signaturebackfill.js"
+    "mail:identities": "node dist/identitybackfill.js"
   },
   "keywords": [],
   "author": "meadowlarps, misikovich",
