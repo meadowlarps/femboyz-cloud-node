@@ -815,6 +815,31 @@ index 20195bd..f880df7 100644
 +  // Installation remains available through the browser's own menu.
 +  return null;
  }
+diff --git a/lib/__tests__/web-push.test.ts b/lib/__tests__/web-push.test.ts
+index 48d2d7b..81caa7d 100644
+--- a/lib/__tests__/web-push.test.ts
++++ b/lib/__tests__/web-push.test.ts
+@@ -249,6 +249,20 @@ describe('enableWebPush', () => {
+     expect(result.subscriptionId).toBe('push-new');
+   });
+ 
++  it('explains a browser without a push service', async () => {
++    // Chromium without Google's push service (ungoogled-chromium, Helium).
++    const { registration } = installPushBrowser();
++    registration.pushManager.getSubscription.mockResolvedValue(null);
++    registration.pushManager.subscribe.mockRejectedValue(
++      new DOMException('Registration failed - push service error', 'AbortError'),
++    );
++    installFetch({});
++
++    await expect(
++      enableWebPush({ client: makeClient([]), relayBaseUrl: RELAY, inboxOnly: false }),
++    ).rejects.toThrow(/no push service/);
++  });
++
+   it('still subscribes when unsubscribing the mismatched subscription fails', async () => {
+     const { browserSub, registration } = installPushBrowser();
+     browserSub.options.applicationServerKey = new Uint8Array([9, 9, 9]).buffer;
 diff --git a/lib/auth/__tests__/auto-sso.test.ts b/lib/auth/__tests__/auto-sso.test.ts
 new file mode 100644
 index 0000000..c115884
@@ -895,6 +920,39 @@ index 0000000..0a5f998
 +    sessionStorage.removeItem('sso_attempted');
 +  } catch { /* storage unavailable */ }
 +}
+diff --git a/lib/web-push.ts b/lib/web-push.ts
+index 3efa0a2..21333c4 100644
+--- a/lib/web-push.ts
++++ b/lib/web-push.ts
+@@ -479,6 +479,19 @@ async function refreshSubscriptionExpires(
+   }
+ }
+ 
++// Chromium delivers Web Push only through Google's push service. Browsers
++// built without it (ungoogled-chromium, Helium, Brave with Google push off)
++// reject subscribe() with this bare message, which explains nothing.
++function explainSubscribeError(err: unknown): unknown {
++  const message = (err as { message?: unknown } | null)?.message;
++  if (typeof message !== 'string' || !/push service error/i.test(message)) return err;
++  return new Error(
++    "This browser has no push service, so background notifications can't be delivered. "
++      + 'Browsers based on ungoogled-chromium (such as Helium) lack one; in Brave, turn on '
++      + '"Use Google services for push messaging". Chrome, Edge, Firefox and Safari work.',
++  );
++}
++
+ export async function enableWebPush(
+   params: EnableWebPushParams,
+ ): Promise<EnableWebPushResult> {
+@@ -525,6 +538,8 @@ export async function enableWebPush(
+     pushSubscription = await registration.pushManager.subscribe({
+       userVisibleOnly: true,
+       applicationServerKey,
++    }).catch((err: unknown) => {
++      throw explainSubscribeError(err);
+     });
+   }
+ 
 diff --git a/stores/__tests__/auth-store-provider-logout.test.ts b/stores/__tests__/auth-store-provider-logout.test.ts
 index 237773b..ca1a307 100644
 --- a/stores/__tests__/auth-store-provider-logout.test.ts
