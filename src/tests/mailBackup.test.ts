@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-function backup(scenario: string) {
+function backup(scenario: string, webmail = false) {
     const directory = mkdtempSync(join(tmpdir(), "mail-backup-"))
     const bin = join(directory, "bin")
     const app = join(directory, "app")
@@ -16,6 +16,7 @@ function backup(scenario: string) {
     for (const command of ["docker", "systemctl", "restic"]) {
         writeFileSync(join(bin, command), `#!/bin/sh
 printf '%s\\n' '${command} '"$*" >> "$BACKUP_TEST_LOG"
+if [ '${command}' = docker ] && [ "$1" = inspect ] && [ "$BACKUP_TEST_WEBMAIL" = true ]; then printf true; fi
 if [ '${command}' = systemctl ] && [ "$1" = is-active ] && [ "$BACKUP_TEST_SCENARIO" = inactive ]; then exit 1; fi
 if [ '${command}' = docker ] && [ "$1" = exec ]; then
     if [ "$BACKUP_TEST_SCENARIO" = dump_failure ]; then exit 42; fi
@@ -37,7 +38,7 @@ fi
     let failed = false
     try {
         execFileSync("/bin/sh", [script], {
-            env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, BACKUP_TEST_LOG: log, BACKUP_TEST_SCENARIO: scenario },
+            env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, BACKUP_TEST_LOG: log, BACKUP_TEST_SCENARIO: scenario, BACKUP_TEST_WEBMAIL: String(webmail) },
             stdio: "pipe"
         })
     } catch { failed = true }
@@ -69,4 +70,12 @@ test("backup preserves an intentionally stopped API", () => {
     expect(failed).toBe(false)
     expect(calls).not.toContain("systemctl stop")
     expect(calls).not.toContain("systemctl start")
+})
+
+test.each(["success", "dump_failure"])("webmail is paused and restarted during backup %s", scenario => {
+    const { failed, calls } = backup(scenario, true)
+    expect(failed).toBe(scenario !== "success")
+    expect(calls.indexOf("stop webmail")).toBeLessThan(calls.indexOf("systemctl stop femboyz-api.service"))
+    expect(calls).toContain("start webmail")
+    expect(calls.indexOf("systemctl start femboyz-api.service")).toBeLessThan(calls.indexOf("start webmail"))
 })

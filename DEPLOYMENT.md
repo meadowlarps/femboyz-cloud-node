@@ -1481,3 +1481,94 @@ Detailed verification state and rollout credentials remain root-only under
 WebUI sign-in through an external OIDC client and promotion of the owner's personal
 account remain separate follow-up work; the verified administrator API key is the
 management path for phase 2.
+
+## 15. Phase 3: Bulwark webmail
+
+Bulwark 1.15.0 is deployed at https://mail.femboyz.cloud using the upstream
+image and digest pinned in `deploy/mail/docker-compose.yml`. It listens only
+on `127.0.0.1:3100`; nginx terminates TLS using a separate certbot certificate
+for mail.femboyz.cloud. The vhost template is `deploy/mail/nginx-mail.conf`.
+GitHub deployment updates the API/site; container and managed-config upgrades
+remain manual.
+
+### 15.1 Configuration and credentials
+
+Everything persistent lives under `/etc/femboyz-mail/webmail` (parent root 700):
+
+| Path | Purpose / ownership |
+| :--- | :--- |
+| `bulwark.env` | runtime environment based on the committed example, root 600 |
+| `admin/` | read-only policy, theme registry/CSS, and local admin password hash |
+| `branding/` | copies of the site's existing webp logo and favicon, read-only |
+| `state/` | writable admin runtime state, UID/GID 1001, mode 700 |
+| `settings/` | writable server-synced user preferences, UID/GID 1001, mode 700 |
+| `secrets/oauth`, `secrets/session` | random independent secrets, UID/GID 1001, mode 400 |
+
+Secret files are mounted separately at `/run/secrets/bulwark_*`; never commit
+them. The local Bulwark admin password is in root-only
+`/etc/femboyz-mail/credentials.txt`. `admin/admin.json` stores only its scrypt
+hash using Bulwark's `$scrypt$N=16384,r=8,p=1$<base64 salt>$<base64 hash>` format
+(32-byte salt, 64-byte hash). Local administration is independent of mailbox
+login; Stalwart admin access is disabled in webmail.
+
+The provider's `.env.prod` registers client `bulwark`, sharing the OAuth secret,
+with `OIDC_CLIENT_BULWARK_REDIRECT_URIS` containing a comma-separated exact URI
+`https://mail.femboyz.cloud/<locale>/auth/callback` for each supported locale:
+`ar ca cs da de en es fa fr he hu it ja ko lv mn nb nl pl pt ro ru sk tr uk zh zh-TW`.
+Logout URI is exactly `https://femboyz.cloud/`, including the trailing slash.
+The upstream image uses locale paths even though the source configuration's
+current default is unprefixed. Recheck actual browser requests on upgrades.
+Bulwark authenticates token exchange and refresh with `client_secret_post`.
+
+### 15.2 Install/update
+
+Obtain the hostname certificate before enabling the vhost:
+
+```bash
+sudo certbot certonly --nginx -d mail.femboyz.cloud
+python3 deploy/mail/build-webmail.py /tmp/femboyz-webmail
+```
+
+Provision the directories and secrets above before installing the new compose
+file (compose checks the env file even for Stalwart commands). Copy the generated
+`admin/` and `branding/` trees into their matching directories, preserving
+`admin/admin.json`; readable files are mode 644, directories 755 beneath the
+root-only parent. Install the runtime env example and set the matching API client
+environment. Restart the API after changing registration.
+
+```bash
+sudo install -m 600 deploy/mail/docker-compose.yml /etc/femboyz-mail/docker-compose.yml
+sudo install -m 644 deploy/mail/nginx-mail.conf /etc/nginx/sites-available/femboyz-mail
+sudo ln -s /etc/nginx/sites-available/femboyz-mail /etc/nginx/sites-enabled/femboyz-mail
+sudo nginx -t
+sudo systemctl reload nginx
+sudo docker compose -f /etc/femboyz-mail/docker-compose.yml config --quiet
+sudo docker compose -f /etc/femboyz-mail/docker-compose.yml up -d webmail
+curl --fail https://mail.femboyz.cloud/api/health
+```
+
+For later updates, rebuild and copy managed assets, then restart webmail. The
+read-only policy selects the femboyz theme for everyone and provides the native
+account sidebar app. Both theme variants use our dark palette. The site's Mail
+button links directly to webmail. See `mail/README.md` for theme packaging.
+
+### 15.3 Sessions, backups, rollback
+
+SSO redirects to the site's login, then returns to the inbox. Account settings
+use the site's ordinary session inside the native sidebar frame; **Open account**
+opens the full page. Bulwark logout ends its local session and the provider
+session. The provider also deletes this browser's site sessions by `sid` and
+clears the site cookie; other browsers stay signed in.
+
+The nightly encrypted restic snapshot already includes `/etc/femboyz-mail`, so
+it includes managed config, OAuth/session secrets, admin state and user settings.
+The updated backup script stops running webmail before the API and Stalwart and
+restarts all three on success or failure. Install it at
+`/usr/local/sbin/femboyz-mail-backup`, mode 755. Preserve numeric ownership when
+restoring settings/state and secrets.
+
+Before rollout, a fresh backup and copies of the previous compose/environment
+were saved under `/root/femboyz-phase3`. For rollback, stop webmail, disable its
+nginx vhost, restore the previous compose and API environment, and restart the
+API. Do not roll back Stalwart or MongoDB. Keep the encrypted backup and webmail
+state until the incident is resolved.

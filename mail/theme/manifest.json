@@ -1,0 +1,11 @@
+{
+  "id": "femboyz",
+  "name": "femboyz",
+  "version": "1.0.0",
+  "author": "femboyz.cloud",
+  "description": "The femboyz.cloud dark palette, typography and square controls.",
+  "type": "theme",
+  "apiVersion": 2,
+  "minAppVersion": "1.15.0",
+  "variants": ["light", "dark"]
+}

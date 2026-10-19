@@ -81,15 +81,15 @@ afterAll(async () => {
 // A minimal browser: follows nothing by itself, keeps cookies.
 function browser() {
     const jar = new Map<string, string>()
-    return async (url: string, init: { method?: string, body?: unknown, origin?: string } = {}) => {
+    return async (url: string, init: { method?: string, body?: unknown, form?: URLSearchParams, origin?: string } = {}) => {
         const response = await fetch(new URL(url, SITE), {
             method: init.method ?? "GET",
             redirect: "manual",
             headers: {
                 cookie: [...jar].map(([name, value]) => `${name}=${value}`).join("; "),
-                ...(init.body === undefined ? {} : { "content-type": "application/json", origin: init.origin ?? SITE })
+                ...(init.body === undefined && !init.form ? {} : { "content-type": init.form ? "application/x-www-form-urlencoded" : "application/json", origin: init.origin ?? SITE })
             },
-            ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
+            ...(init.form ? { body: init.form } : init.body === undefined ? {} : { body: JSON.stringify(init.body) })
         })
         for (const cookie of response.headers.getSetCookie()) {
             const [pair] = cookie.split(";")
@@ -142,10 +142,9 @@ test("the bulwark client gets a Stalwart JWT with the username claims", async ()
     const token = await fetch(`${SITE}/oidc/token`, {
         method: "POST",
         headers: {
-            "content-type": "application/x-www-form-urlencoded",
-            authorization: `Basic ${Buffer.from(`bulwark:${BULWARK_SECRET}`).toString("base64")}`
+            "content-type": "application/x-www-form-urlencoded"
         },
-        body: new URLSearchParams({ grant_type: "authorization_code", code: callback.searchParams.get("code")!, redirect_uri: BULWARK_REDIRECT, code_verifier: verifier })
+        body: new URLSearchParams({ client_id: "bulwark", client_secret: BULWARK_SECRET, grant_type: "authorization_code", code: callback.searchParams.get("code")!, redirect_uri: BULWARK_REDIRECT, code_verifier: verifier })
     })
     expect(token.status).toBe(200)
     const tokens = await token.json() as { access_token: string, id_token: string, refresh_token?: string }
@@ -160,6 +159,18 @@ test("the bulwark client gets a Stalwart JWT with the username claims", async ()
     expect(claims.scope.split(" ")).toEqual(expect.arrayContaining(["openid", "email"]))
     expect(claims.exp - claims.iat).toBe(600)
     expect(tokens.refresh_token).toBeTruthy()
+
+    // Bulwark uses client_secret_post for refresh as well as the code exchange.
+    const refreshed = await fetch(`${SITE}/oidc/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            client_id: "bulwark", client_secret: BULWARK_SECRET,
+            grant_type: "refresh_token", refresh_token: tokens.refresh_token!
+        })
+    })
+    expect(refreshed.status).toBe(200)
+    expect(await refreshed.json()).toHaveProperty("access_token")
 
     const jwks = await (await fetch(`${SITE}/oidc/jwks`)).json() as { keys: Record<string, unknown>[] }
     expect(jwks.keys[0]).not.toHaveProperty("d")                   // public halves only
@@ -205,4 +216,33 @@ test("a tampered session start state is refused", async () => {
     const go = browser()
     const response = await go("/api/v2/account/session/callback?code=x&state=forged")
     expect(response.headers.get("location")).toBe("/login?error=session")
+})
+
+test("webmail logout ends its browser's site session and preserves another browser", async () => {
+    const sessions = [browser(), browser()]
+    for (const go of sessions) {
+        let next = (await go("/api/v2/account/session/start?return=/account")).headers.get("location")!
+        for (let i = 0; i < 12 && next !== "/account"; i++) {
+            const url = new URL(next, SITE)
+            if (url.pathname === "/login") {
+                const response = await go(`/oidc/interaction/${url.searchParams.get("uid")}/login`, {
+                    method: "POST", body: { username: "alice", password: PASSWORD }
+                })
+                next = ((await response.json()) as { redirect: string }).redirect
+            } else next = (await go(next)).headers.get("location")!
+        }
+        expect(next).toBe("/account")
+        expect((await go("/api/v2/account/me")).status).toBe(200)
+    }
+    const go = sessions[0]!
+    const response = await go(`/oidc/session/end?client_id=bulwark&post_logout_redirect_uri=${encodeURIComponent(`${SITE}/`)}`)
+    const html = await response.text()
+    const xsrf = html.match(/name="xsrf" value="([^"]+)"/)?.[1]
+    const action = html.match(/action="([^"]+)"/)?.[1]
+    expect(xsrf).toBeTruthy()
+    expect(action).toBeTruthy()
+    const finished = await go(action!, { method: "POST", form: new URLSearchParams({ xsrf: xsrf!, logout: "yes" }) })
+    expect(finished.status).toBe(303)
+    expect((await go("/api/v2/account/me")).status).toBe(401)
+    expect((await sessions[1]!("/api/v2/account/me")).status).toBe(200)
 })

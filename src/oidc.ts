@@ -150,7 +150,8 @@ function clients(): ClientMetadata[] {
         post_logout_redirect_uris: envs.OIDC_CLIENT_BULWARK_LOGOUT_URIS.length > 0 ? envs.OIDC_CLIENT_BULWARK_LOGOUT_URIS : [`${site_origin()}/`],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
-        token_endpoint_auth_method: "client_secret_basic"
+        // Bulwark's server sends its secret in the form body, including on refresh.
+        token_endpoint_auth_method: "client_secret_post"
     })
     return list
 }
@@ -262,6 +263,22 @@ export function oidc_provider_create(): Provider {
 
     const provider = new Provider(envs.OIDC_ISSUER, configuration)
     provider.proxy = true                                   // nginx sets X-Forwarded-Proto
+    // RP logout also ends this browser's /account session. Capture the site's sid
+    // from the trusted provider event, then await its removal before responding.
+    const ended = new WeakMap<object, string>()
+    provider.on("end_session.success", ctx => {
+        const sid = ctx.oidc.session?.sidFor(WEB_CLIENT_ID)
+        if (sid) ended.set(ctx, sid)
+    })
+    provider.use(async (ctx, next) => {
+        await next()
+        const sid = ended.get(ctx)
+        if (!sid) return
+        await web_sessions().deleteMany({ sid })
+        ctx.cookies.set(WEB_SESSION_COOKIE, null, {
+            path: "/", httpOnly: true, sameSite: "lax", secure: site_origin().startsWith("https:")
+        })
+    })
     provider.on("server_error", (_ctx, err) => {
         scopelog.error(`OIDC server error: ${err.message}`)
         errorFileLogger.error({ err }, "OIDC server error")
