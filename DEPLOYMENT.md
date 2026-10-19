@@ -1517,7 +1517,7 @@ Everything persistent lives under `/etc/femboyz-mail/webmail` (parent root 700):
 | :--- | :--- |
 | `bulwark.env` | runtime environment based on the committed example, root 600 |
 | `admin/` | read-only policy, theme registry/CSS, and local admin password hash |
-| `branding/` | copies of the site's existing webp logo and favicon, read-only |
+| `branding/` | copies of `mail/branding/` (logos, favicon) and the source archive, read-only |
 | `state/` | writable admin runtime state, UID/GID 1001, mode 700 |
 | `settings/` | writable server-synced user preferences, UID/GID 1001, mode 700 |
 | `secrets/oauth`, `secrets/session` | random independent secrets, UID/GID 1001, mode 400 |
@@ -1722,6 +1722,16 @@ recording showed the matching empty background during the transition. A 390px
 viewport with a deliberately cached old `#060606` theme still rendered the
 transition as `#1b1a1a` without overflow. Synthetic install events were cancelled,
 PWA metadata matched, and the downloadable source checksum matched the build.
+
+### 15.8 Header logo (2026-10-19)
+
+Webmail draws `APP_LOGO_*_URL` at 32×32 in its header and navigation rail, where
+the wide `logo.webp` banner looked squeezed. `mail/branding/app-logo.webp` (the cat
+login logo at 128px, 2.5 KB) was installed into `branding/`, both `APP_LOGO_*_URL`
+lines in the installed `bulwark.env` now point at it, and webmail was recreated
+with `docker compose -f /etc/femboyz-mail/docker-compose.yml up -d webmail`. No
+image rebuild. `/api/config` returns the new URL and the file serves with 200.
+Rollback: `bulwark.env.before-app-logo-20261019` next to the installed env.
 
 ## 16. Phase 4: outbound limits and abuse controls
 
