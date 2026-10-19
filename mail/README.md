@@ -1,8 +1,9 @@
 # femboyz webmail
 
-Bulwark 1.15.0 runs from its upstream image, pinned by digest in
-`deploy/mail/docker-compose.yml`. This directory holds our theme, existing site
-logos, and managed policy. See DEPLOYMENT.md section 15 for production paths.
+Bulwark 1.15.0-femboyz.1 is built from a pinned upstream commit plus the
+automatic-login patch in `deploy/mail/bulwark/`. Its build instructions and
+regression tests live there. This directory holds our theme, logos, and managed
+policy. See DEPLOYMENT.md section 15 for production paths.
 
 Build the uploadable ZIP and server-managed configuration:
 
@@ -22,6 +23,6 @@ ancestor, so a custom settings plugin would prevent our account CSP and cookies
 from working reliably. The native integration needs no credentials or tokens.
 
 Upstream references:
-- https://github.com/bulwarkmail/webmail/tree/v1.15.0
+- https://github.com/bulwarkmail/webmail/tree/1.15.0
 - https://bulwarkmail.org/docs/getting-started/configuration/environment-reference
 - https://bulwarkmail.org/docs/guides/customization

@@ -1484,8 +1484,9 @@ management path for phase 2.
 
 ## 15. Phase 3: Bulwark webmail
 
-Bulwark 1.15.0 is deployed at https://mail.femboyz.cloud using the upstream
-image and digest pinned in `deploy/mail/docker-compose.yml`. It listens only
+Bulwark 1.15.0-femboyz.1 is deployed at https://mail.femboyz.cloud using our
+locally built image from a pinned upstream commit plus a small SSO patch
+(`deploy/mail/bulwark/README.md`). It listens only
 on `127.0.0.1:3100`; nginx terminates TLS using a separate certbot certificate
 for mail.femboyz.cloud. The vhost template is `deploy/mail/nginx-mail.conf`.
 GitHub deployment updates the API/site; container and managed-config upgrades
@@ -1602,3 +1603,44 @@ tree. Local validation passed 130 backend tests, 29 client preview tests, backen
 build, Svelte check (zero errors/warnings), and client build. GitHub's main workflow
 was queued during rollout, so production was deployed directly with the same
 commit-pinned deployment script after those checks passed locally.
+
+### 15.5 Repeat-login fix and square logo (2026-10-19)
+
+The upstream 1.15.0 login page kept a permanent `sso_attempted` browser flag when
+its cleanup timer was destroyed by navigation to the provider. Our patch migrates
+that flag, uses a bounded 30-second timestamp for failed attempts, and clears it
+after successful authentication. The old ambiguous logout flag is migrated on
+upgrade. Full provider logout also clears the one-shot local sign-out pause so
+the next intentional mail visit starts SSO automatically.
+Local-only logout still pauses automatic SSO, preventing an immediate login
+through a provider session that was never ended. Retry/error and multi-server
+checks remain intact.
+
+Build and transfer `femboyz/bulwark:1.15.0-femboyz.1` following
+`deploy/mail/bulwark/README.md`; compose uses `pull_policy: never`. Keep the exact
+loaded image ID at `/etc/femboyz-mail/webmail/image-id.txt`. The build runs the
+focused upstream regression tests, then the production Next.js build. The full
+patched source archive is served from the read-only branding directory and linked
+through `SOURCE_CODE_URL`. Backups include that source and the build identity, so
+restoring onto a new machine can rebuild the exact source before starting compose.
+
+The user-supplied square logo is preserved unchanged in
+`mail/branding/login-logo.png` (source recorded in that directory's README).
+Both login variants use it with maximum width/height 160px, replacing Bulwark's
+64px default; the redundant Webmail subtitle is hidden. Configuration is in
+`deploy/mail/bulwark.env.example`.
+
+Rollback copies of compose, runtime env and branding are saved under
+`/root/femboyz-phase3-login/`. To roll back, restore those files and run compose
+`up -d webmail`; the old upstream image remains on the server. API, site, mailboxes,
+OAuth registration and signing keys are unchanged by this rollout.
+
+Acceptance: 30 focused regression tests passed inside the image build, followed
+by the production Next.js/TypeScript build. In production, a tab seeded with both
+legacy browser flags went directly to the site's login and then the inbox.
+A second login after provider logout did the same without an SSO-button click;
+callback guards were cleared, and the site session returned 401 after logout.
+Embedded account settings continued to work. The supplied PNG rendered at
+approximately 157×160px and fitted a 390px mobile viewport without horizontal
+overflow. The downloadable source archive matched its build checksum. The test
+account was disabled and queued for deletion after token expiry.

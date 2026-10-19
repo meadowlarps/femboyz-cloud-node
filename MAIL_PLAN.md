@@ -8,7 +8,7 @@ Invite-only **femboyz accounts** that come with an `@femboyz.cloud` mailbox, rea
 |---|---|---|
 | **femboyz account** | Users, login page, request access, invites, OIDC provider | **us**, in femboyz-cloud-node + `client/` |
 | **Mail server** | [Stalwart](https://stalw.art) 0.16: SMTP, IMAP, JMAP, spam filter, DKIM | upstream image, config only |
-| **Webmail** | [Bulwark](https://bulwarkmail.org) (Next.js + JMAP) with a femboyz theme | upstream image, config + theme only |
+| **Webmail** | [Bulwark](https://bulwarkmail.org) (Next.js + JMAP) with a femboyz theme | pinned upstream source + small SSO patch, config + theme |
 
 Decisions so far:
 - Webmail lives at `mail.femboyz.cloud`. Stalwart gets a backend-only host, `mx.femboyz.cloud`, that users never see.
@@ -294,7 +294,7 @@ nginx already runs certbot and owns ports 80/443, and Stalwart's own ACME stays 
 
 ### Bulwark
 
-- Image `ghcr.io/bulwarkmail/webmail` (pinned tag) on `127.0.0.1:3100`, with volumes `/app/data/admin` and `/app/data/admin-state`.
+- Image `femboyz/bulwark:1.15.0-femboyz.1`, built from exact upstream 1.15.0 source plus `deploy/mail/bulwark/auto-sso.patch`, on `127.0.0.1:3100`. The patch removes the repeat-login SSO click; source and build instructions are preserved.
 - Runtime configuration: `deploy/mail/bulwark.env.example`. Register each supported locale’s exact `https://mail.femboyz.cloud/<locale>/auth/callback`; the published image uses locale paths. Token authentication is `client_secret_post`.
 - **femboyz theme** in `mail/theme/`, built into a Bulwark theme ZIP and pinned for all users. It maps tokens from `client/src/lib/styles/global.css` onto Bulwark's CSS variables:
   - `--color-primary`, `--color-accent`, `--color-ring` → `#c30f45`
@@ -407,7 +407,7 @@ Mail containers run from `/etc/femboyz-mail/` and are upgraded by hand with pinn
 | 4-digit codes are guessed, or used to spam someone's inbox | 5 attempts per code, 10-minute expiry, HMAC storage, per-account, per-address and per-IP limits |
 | The request-access form is used for spam | Honeypot, per-IP limits, a cap on pending requests; add Cloudflare Turnstile if needed |
 | Upstream changes break things | Pin minor tags, read changelogs, test on the dev box first |
-| AGPL | Unmodified upstream images; our theme is config |
+| AGPL | Patched Bulwark source, license and build scripts are downloadable through its Source link |
 
 ## 7. Decided
 

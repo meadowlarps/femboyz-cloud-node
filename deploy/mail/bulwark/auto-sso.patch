@@ -1,0 +1,220 @@
+diff --git a/app/(main)/[locale]/auth/callback/page.tsx b/app/(main)/[locale]/auth/callback/page.tsx
+index 380ac32..95f82c0 100644
+--- a/app/(main)/[locale]/auth/callback/page.tsx
++++ b/app/(main)/[locale]/auth/callback/page.tsx
+@@ -1,5 +1,6 @@
+ "use client";
+ 
++import { clearAutoSsoAttempt } from '@/lib/auth/auto-sso';
+ import { Suspense, useEffect, useRef, useState } from "react";
+ import { useRouter, useSearchParams } from "next/navigation";
+ import { useTranslations } from "next-intl";
+@@ -110,6 +111,7 @@ function OAuthCallbackInner() {
+       loginWithOAuth(serverUrl, code, codeVerifier, redirectUri, serverId)
+         .then((success) => {
+           if (success) {
++            clearAutoSsoAttempt();
+             sessionStorage.removeItem("oauth_state");
+             sessionStorage.removeItem("oauth_code_verifier");
+             sessionStorage.removeItem("oauth_server_url");
+@@ -187,6 +189,7 @@ function OAuthCallbackInner() {
+               sessionStorage.removeItem("mobile_redirect_uri");
+               sessionStorage.removeItem("mobile_state");
+             } catch { /* ignore */ }
++            clearAutoSsoAttempt();
+             window.location.replace(`${mobileRedirectUri}#${fragment.toString()}`);
+           } catch {
+             setError("token_exchange_failed");
+@@ -199,6 +202,7 @@ function OAuthCallbackInner() {
+       loginWithServerSso(code, state)
+         .then((success) => {
+           if (success) {
++            clearAutoSsoAttempt();
+             let redirectTo = `${ssoPrefix}/${params.locale}`;
+             try {
+               const saved = sessionStorage.getItem('redirect_after_login');
+diff --git a/app/(main)/[locale]/login/page.tsx b/app/(main)/[locale]/login/page.tsx
+index a4ee53e..79c141c 100644
+--- a/app/(main)/[locale]/login/page.tsx
++++ b/app/(main)/[locale]/login/page.tsx
+@@ -30,6 +30,7 @@ import {
+   type LiteOAuthDiscovery,
+ } from "@/lib/auth/lite-oauth";
+ import { toAsciiDomain } from "@/lib/idn";
++import { beginAutoSsoAttempt } from '@/lib/auth/auto-sso';
+ import { usePrefetchMailView } from "@/hooks/use-prefetch-mail-view";
+ 
+ /** The domain of a complete address (`user@example.com`), or '' while it is still being typed. */
+@@ -533,13 +534,8 @@ function LoginPageContent() {
+     // unreachable. Let them choose and press the button instead (issue #799).
+     if (jmapServers.length > 1) return;
+ 
+-    // Guard against redirect loops
+-    try {
+-      if (sessionStorage.getItem("sso_attempted")) return;
+-      sessionStorage.setItem("sso_attempted", "1");
+-      // Clear the flag after 30 seconds so retries are possible
+-      setTimeout(() => { try { sessionStorage.removeItem("sso_attempted"); } catch { /* ignore */ } }, 30000);
+-    } catch { /* sessionStorage unavailable */ }
++    // Bound retries across navigation without leaving a permanent session flag.
++    if (!beginAutoSsoAttempt()) return;
+ 
+     autoSsoTriggered.current = true;
+     startServerSideSso();
+diff --git a/lib/auth/__tests__/auto-sso.test.ts b/lib/auth/__tests__/auto-sso.test.ts
+new file mode 100644
+index 0000000..d09903f
+--- /dev/null
++++ b/lib/auth/__tests__/auto-sso.test.ts
+@@ -0,0 +1,31 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { beginAutoSsoAttempt, clearAutoSsoAttempt } from '../auto-sso';
++
++beforeEach(() => { sessionStorage.clear(); vi.restoreAllMocks(); });
++
++describe('automatic SSO across document navigation', () => {
++  it('migrates the permanent legacy flag and starts immediately', () => {
++    sessionStorage.setItem('sso_attempted', '1');
++    expect(beginAutoSsoAttempt(100_000)).toBe(true);
++    expect(sessionStorage.getItem('sso_attempted')).toBeNull();
++  });
++  it('expires a failed-attempt guard even when navigation destroyed its timer', () => {
++    expect(beginAutoSsoAttempt(100_000)).toBe(true);
++    expect(beginAutoSsoAttempt(129_999)).toBe(false);
++    expect(beginAutoSsoAttempt(130_000)).toBe(true);
++  });
++  it('allows a fresh login immediately after successful authentication', () => {
++    beginAutoSsoAttempt(100_000);
++    clearAutoSsoAttempt();
++    expect(beginAutoSsoAttempt(100_001)).toBe(true);
++  });
++  it.each(['broken', 'Infinity', '-1', '9999999999999'])('does not strand users with invalid timestamp %s', value => {
++    sessionStorage.setItem('sso_attempted_at', value);
++    expect(beginAutoSsoAttempt(100_000)).toBe(true);
++  });
++  it('allows login when browser storage is blocked', () => {
++    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
++    expect(beginAutoSsoAttempt()).toBe(true);
++    expect(() => clearAutoSsoAttempt()).not.toThrow();
++  });
++});
+diff --git a/lib/auth/auto-sso.ts b/lib/auth/auto-sso.ts
+new file mode 100644
+index 0000000..cad36da
+--- /dev/null
++++ b/lib/auth/auto-sso.ts
+@@ -0,0 +1,21 @@
++// A timestamp survives an OAuth round trip; a timer on the old document does not.
++const ATTEMPT_KEY = 'sso_attempted_at';
++const RETRY_DELAY_MS = 30_000;
++
++export function beginAutoSsoAttempt(now = Date.now()): boolean {
++  try {
++    // Migrate the old permanent flag left by pre-patch login pages.
++    sessionStorage.removeItem('sso_attempted');
++    const previous = Number(sessionStorage.getItem(ATTEMPT_KEY));
++    if (previous > 0 && now >= previous && now - previous < RETRY_DELAY_MS) return false;
++    sessionStorage.setItem(ATTEMPT_KEY, String(now));
++  } catch { /* storage unavailable: the page's ref still prevents duplicate starts */ }
++  return true;
++}
++
++export function clearAutoSsoAttempt(): void {
++  try {
++    sessionStorage.removeItem(ATTEMPT_KEY);
++    sessionStorage.removeItem('sso_attempted');
++  } catch { /* storage unavailable */ }
++}
+diff --git a/stores/__tests__/auth-store-provider-logout.test.ts b/stores/__tests__/auth-store-provider-logout.test.ts
+index 237773b..ca1a307 100644
+--- a/stores/__tests__/auth-store-provider-logout.test.ts
++++ b/stores/__tests__/auth-store-provider-logout.test.ts
+@@ -111,6 +111,8 @@ afterEach(() => {
+ describe('single-account sign-out and the identity provider', () => {
+   it('navigates to the provider logout once the credentials are cleared', async () => {
+     signIn([account()]);
++    sessionStorage.setItem('sso_attempted_at', String(Date.now()));
++    sessionStorage.setItem('signed_out', 'true');
+     const { calls } = mockFetch({
+       'DELETE /api/auth/session?slot=0': () => ok(),
+       'DELETE /api/auth/token?slot=0&end_session=true': () => ok({ ok: true, end_session_url: IDP_LOGOUT }),
+@@ -123,9 +125,9 @@ describe('single-account sign-out and the identity provider', () => {
+     expect(replaceSpy).toHaveBeenCalledTimes(1);
+     expect(replaceSpy).toHaveBeenCalledWith(IDP_LOGOUT);
+     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+-    // The login page must not sign straight back in through auto-SSO, once.
+-    expect(consumeSignedOut()).toBe(true);
++    // The provider session is ended; a later explicit mail visit can start SSO.
+     expect(consumeSignedOut()).toBe(false);
++    expect(sessionStorage.getItem('sso_attempted_at')).toBeNull();
+   });
+ 
+   it('keeps the page signed in until the cleanup finished, so the auth guards cannot leave first', async () => {
+@@ -162,7 +164,7 @@ describe('single-account sign-out and the identity provider', () => {
+     await useAuthStore.getState().logout();
+ 
+     expect(replaceSpy).toHaveBeenCalledWith('/en/login');
+-    expect(sessionStorage.getItem('signed_out')).toBe('true');
++    expect(sessionStorage.getItem('signed_out')).toBe('local-only');
+   });
+ 
+   it.each([
+@@ -405,3 +407,17 @@ describe('after leaving for the provider logout', () => {
+     expect(sessionStorage.getItem('redirect_after_login')).toBeNull();
+   });
+ });
++
++
++describe('sign-out pause migration', () => {
++  it('ignores the old ambiguous provider sign-out marker after upgrading', () => {
++    sessionStorage.setItem('signed_out', 'true');
++    expect(consumeSignedOut()).toBe(false);
++    expect(sessionStorage.getItem('signed_out')).toBeNull();
++  });
++  it('still pauses exactly once for a new local-only sign-out', () => {
++    sessionStorage.setItem('signed_out', 'local-only');
++    expect(consumeSignedOut()).toBe(true);
++    expect(consumeSignedOut()).toBe(false);
++  });
++});
+diff --git a/stores/auth-store.ts b/stores/auth-store.ts
+index e3a78b0..a092259 100644
+--- a/stores/auth-store.ts
++++ b/stores/auth-store.ts
+@@ -1,3 +1,4 @@
++import { clearAutoSsoAttempt } from '@/lib/auth/auto-sso';
+ import { create } from 'zustand';
+ import { persist } from 'zustand/middleware';
+ import { JMAPClient, RateLimitError, RequestTimeoutError } from '@/lib/jmap/client';
+@@ -918,7 +919,9 @@ const SIGNED_OUT_KEY = 'signed_out';
+  */
+ export function consumeSignedOut(): boolean {
+   try {
+-    const signedOut = sessionStorage.getItem(SIGNED_OUT_KEY) === 'true';
++    // The legacy 'true' also marked full provider logout and blocked the
++    // first visit after upgrading. Only a local-only logout needs a pause.
++    const signedOut = sessionStorage.getItem(SIGNED_OUT_KEY) === 'local-only';
+     sessionStorage.removeItem(SIGNED_OUT_KEY);
+     return signedOut;
+   } catch {
+@@ -931,14 +934,18 @@ export function consumeSignedOut(): boolean {
+  * when there is one to end, otherwise straight to the login page.
+  */
+ function finishSignOut(endSessionUrl: string | null, userInitiated: boolean): void {
+-  if (userInitiated) {
++  if (userInitiated && !endSessionUrl) {
+     try {
+-      sessionStorage.setItem(SIGNED_OUT_KEY, 'true');
++      sessionStorage.setItem(SIGNED_OUT_KEY, 'local-only');
+     } catch {
+       /* noop */
+     }
+   }
+   if (endSessionUrl) {
++    // Full OP logout ends the shared session. A later explicit visit to mail
++    // may start SSO again; local-only logout still needs the one-shot pause.
++    clearAutoSsoAttempt();
++    try { sessionStorage.removeItem(SIGNED_OUT_KEY); } catch { /* ignore */ }
+     leavingForProviderLogout = true;
+     replaceWindowLocation(endSessionUrl);
+     return;
