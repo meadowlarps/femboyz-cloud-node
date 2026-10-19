@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { page } from '$app/state'
-    import { slide } from 'svelte/transition'
+    import { fade, scale, slide } from 'svelte/transition'
     import { cubicOut } from 'svelte/easing'
     import '$lib/styles/account.css'
     import { accountErrorText, accountFetch, AccountApiError, sessionStartUrl } from '$lib/account/api'
@@ -125,11 +125,11 @@
     {/if}
 
     {#if requestSent}
-        <!-- waits for the request panel to fold away before unfolding -->
-        <div class="login-sent" role="status" in:slide={{ ...reveal, delay: reveal.duration }} out:slide={reveal}>
+        <!-- grows in once the request panel has folded away -->
+        <div class="login-sent" role="status" in:scale={{ start: 0.92, duration: 320, delay: reveal.duration, easing: cubicOut }} out:fade={{ duration: 150 }}>
             <svg class="login-sent-icon" viewBox="0 0 48 48" aria-hidden="true">
                 <circle cx="24" cy="24" r="22" pathLength="1" />
-                <path d="M14 24h19M25 16l8 8-8 8" />
+                <path d="M15 24.5l6 6 12-13" pathLength="1" />
             </svg>
             <div class="login-sent-text">
                 <p class="login-sent-title">Your request was successfully sent</p>
@@ -199,8 +199,15 @@
         font-size: 1.6rem;
     }
 
-    /* Request sent: a green arrow in a circle beside three lines of text. */
+    /* Request sent: a green check in a circle beside three lines of text, in the
+       middle of the screen. Fixed, so it takes no room while the panel folds away. */
     .login-sent {
+        position: fixed;
+        inset: 0;
+        margin: auto;
+        width: fit-content;
+        max-width: min(calc(100% - 3rem), 30rem);
+        height: fit-content;
         display: grid;
         grid-template-columns: auto 1fr;
         align-items: center;
@@ -219,7 +226,7 @@
         stroke-linejoin: round;
     }
 
-    /* the circle draws itself, then the arrow slides in, once the block has unfolded */
+    /* the circle draws itself, then the check draws, once the block has grown in */
     .login-sent-icon circle {
         fill: #b8f0c80f;
         stroke: #3f7a52;
@@ -227,13 +234,14 @@
         stroke-dasharray: 1;
         transform: rotate(-90deg);
         transform-origin: center;
-        animation: login-sent-ring 0.5s 0.4s ease-out both;
+        animation: login-sent-draw 0.5s 0.35s ease-out both;
     }
 
     .login-sent-icon path {
         stroke: #b8f0c8;
         stroke-width: 2.5;
-        animation: login-sent-arrow 0.35s 0.7s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+        stroke-dasharray: 1;
+        animation: login-sent-draw 0.3s 0.8s ease-out both;
     }
 
     .login-sent-text {
@@ -252,7 +260,7 @@
         overflow-wrap: anywhere;
     }
 
-    @keyframes login-sent-ring {
+    @keyframes login-sent-draw {
         from {
             stroke-dashoffset: 1;
         }
@@ -261,20 +269,17 @@
         }
     }
 
-    @keyframes login-sent-arrow {
-        from {
-            opacity: 0;
-            translate: -0.35rem 0;
-        }
-        to {
-            opacity: 1;
-            translate: 0 0;
-        }
-    }
-
     @media (max-width: 42rem) {
         .login-signin {
             padding-bottom: 2.5rem;
+        }
+
+        /* phones: stays at the top, above where the keyboard was */
+        .login-sent {
+            position: static;
+            width: auto;
+            max-width: none;
+            margin: 0;
         }
     }
 
