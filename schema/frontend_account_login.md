@@ -9,9 +9,9 @@ femboyz-cloud-node is an OpenID Connect provider ([oidc-provider](https://github
 | `client_id` | Who | Grants | Access token |
 | :--- | :--- | :--- | :--- |
 | `femboyz-web` | the site itself (`/account`) | `authorization_code` | opaque, unused |
-| `bulwark` | webmail (phase 3) | `authorization_code`, `refresh_token` | JWT for Stalwart |
+| `bulwark` | webmail | `authorization_code`, `refresh_token` | JWT for Stalwart |
 
-Both use `client_secret_basic` and PKCE (S256, required).
+Both require PKCE (S256). The site uses `client_secret_basic`; Bulwark uses `client_secret_post` for code exchange and refresh.
 
 ## Provider endpoints
 
@@ -82,6 +82,8 @@ The site is an ordinary client of its own provider.
 | `POST /api/v2/account/session/logout` | Deletes the session, clears the cookie, answers `{ "redirect": "<issuer>/session/end?…" }` so the client also ends the provider session. |
 
 `fbz_session` is 32 random bytes, `HttpOnly; SameSite=Lax; Secure`, 14 days. The database stores only its SHA-256 (`schema/mongo_user.md`).
+
+Bulwark logout uses the provider end-session endpoint. Successful provider logout also removes this browser’s site sessions by their OIDC `sid` and clears `fbz_session`. Another browser’s sessions remain valid.
 
 ## CSRF
 

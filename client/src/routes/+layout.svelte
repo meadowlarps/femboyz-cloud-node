@@ -11,8 +11,7 @@
 	// /account?embed=1 sits inside webmail settings, without the site header
 	const embed = $derived(page.url.pathname === '/account' && page.url.searchParams.get('embed') === '1')
 	const home = $derived(page.url.pathname === '/')
-	// webmail arrives in phase 3; until PUBLIC_MAIL_URL points at it, the button opens the account page
-	const mailUrl = env.PUBLIC_MAIL_URL || '/account'
+	const mailUrl = env.PUBLIC_MAIL_URL || 'https://mail.femboyz.cloud'
 </script>
 
 <svelte:head>

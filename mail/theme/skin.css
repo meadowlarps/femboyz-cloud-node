@@ -1,0 +1,16 @@
+button, input, textarea, select, [role="dialog"], [class*="rounded"] {
+    border-radius: 0 !important;
+}
+button.bg-primary {
+    font-weight: 700;
+    transition: color 0.2s ease-out, background-color 0.2s ease-out, transform 0.4s ease;
+}
+button.bg-primary:not(:disabled):hover,
+button.bg-primary:focus-visible {
+    background-color: #fff0f3;
+    color: #060606;
+    transform: scale(1.02);
+}
+@media (prefers-reduced-motion: reduce) {
+    button.bg-primary { transition: none; transform: none !important; }
+}

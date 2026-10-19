@@ -1,0 +1,44 @@
+/* Both Bulwark mode variants intentionally use the same dark palette. */
+:root, .dark {
+    color-scheme: dark !important;
+    --color-primary: #c30f45;
+    --color-primary-foreground: #ffffff;
+    --color-accent: #c30f45;
+    --color-accent-foreground: #fff0f3;
+    --color-ring: #c30f45;
+    --color-background: #060606;
+    --color-foreground: #fff0f3;
+    --color-secondary: #171515;
+    --color-secondary-foreground: #fff0f3;
+    --color-muted: #221f20;
+    --color-muted-foreground: #fff0f3bf;
+    --color-border: #4a4447;
+    --color-input: #4a4447;
+    --color-popover: #171515;
+    --color-popover-foreground: #fff0f3;
+    --color-card: #171515;
+    --color-card-foreground: #fff0f3;
+    --color-sidebar: #060606;
+    --color-sidebar-foreground: #fff0f3;
+    --color-sidebar-border: #4a4447;
+    --color-sidebar-accent: #221f20;
+    --color-sidebar-accent-foreground: #fff0f3;
+    --color-selection: #53132b;
+    --color-selection-foreground: #fff0f3;
+    --color-unread: #ef477a;
+    --color-success: #82cea0;
+    --color-success-foreground: #060606;
+    --color-warning: #f5c879;
+    --color-warning-foreground: #060606;
+    --color-info: #8cbaff;
+    --color-info-foreground: #060606;
+    --color-destructive: #ff829f;
+    --color-destructive-foreground: #060606;
+    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+    --font-display: Inter, ui-sans-serif, system-ui, sans-serif;
+    --radius: 0;
+    --radius-sm: 0;
+    --radius-md: 0;
+    --radius-lg: 0;
+    --radius-xl: 0;
+}

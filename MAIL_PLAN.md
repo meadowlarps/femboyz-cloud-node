@@ -295,25 +295,7 @@ nginx already runs certbot and owns ports 80/443, and Stalwart's own ACME stays 
 ### Bulwark
 
 - Image `ghcr.io/bulwarkmail/webmail` (pinned tag) on `127.0.0.1:3100`, with volumes `/app/data/admin` and `/app/data/admin-state`.
-- Env:
-  ```env
-  JMAP_SERVER_URL=https://mx.femboyz.cloud
-  OAUTH_ENABLED=true
-  OAUTH_ONLY=true
-  AUTO_SSO_ENABLED=true
-  OAUTH_ISSUER_URL=https://femboyz.cloud/oidc
-  OAUTH_CLIENT_ID=bulwark
-  OAUTH_CLIENT_SECRET_FILE=/run/secrets/bulwark_oauth
-  OAUTH_POST_LOGOUT_REDIRECT_URI=https://femboyz.cloud
-  SESSION_SECRET_FILE=/run/secrets/bulwark_session
-  APP_NAME=femboyz mail
-  APP_SHORT_NAME=femboyz
-  FAVICON_URL=/branding/favicon.svg
-  APP_LOGO_DARK_URL=/branding/logo.svg
-  PWA_THEME_COLOR=#060606
-  PWA_BACKGROUND_COLOR=#060606
-  ADMIN_CONFIG_READONLY=true   # after setup
-  ```
+- Runtime configuration: `deploy/mail/bulwark.env.example`. Register each supported locale’s exact `https://mail.femboyz.cloud/<locale>/auth/callback`; the published image uses locale paths. Token authentication is `client_secret_post`.
 - **femboyz theme** in `mail/theme/`, built into a Bulwark theme ZIP and pinned for all users. It maps tokens from `client/src/lib/styles/global.css` onto Bulwark's CSS variables:
   - `--color-primary`, `--color-accent`, `--color-ring` → `#c30f45`
   - `--color-background` → `#060606`
@@ -323,9 +305,8 @@ nginx already runs certbot and owns ports 80/443, and Stalwart's own ACME stays 
 
   The ZIP format isn't in Bulwark's docs; read the theme loader in Bulwark's source first.
 - Logos go in `mail/branding/`, exported from `client/src/lib/assets`.
-- **femboyz account plugin** (`mail/plugin-account/`): a Bulwark plugin with a `settings-page` surface titled "femboyz account". It iframes `https://femboyz.cloud/account?embed=1` (manifest `frameOrigins: ["https://femboyz.cloud"]`). `mail.` and the main domain are the same site, so the femboyz.cloud session cookie (`SameSite=Lax`) is sent inside the frame. The plugin never touches tokens.
-  - Our `/account` response must send `Content-Security-Policy: frame-ancestors https://mail.femboyz.cloud`.
-  - Fallback if the plugin route doesn't work: a `navigation-rail` link that opens `femboyz.cloud/account` in a new tab.
+- **femboyz account shortcut**: Bulwark 1.15's managed sidebar app embeds `https://femboyz.cloud/account?embed=1` directly. Policy lives in `mail/config/policy.json`. The native frame preserves same-site cookies; the account page also has an **Open account** link to a separate tab. No plugin or token access is needed.
+  - `/account` allows `frame-ancestors 'self' https://mail.femboyz.cloud`; Bulwark derives its frame origin policy from the managed app.
 
 ---
 
@@ -398,7 +379,7 @@ deploy/mail/admin-redirect.sieve      admin@ redirect template
 deploy/mail/backup.sh + femboyz-mail-backup.{service,timer}  nightly restic backup to S3
 DEPLOYMENT.md                         + mail section: DNS, PTR, certs, bootstrap, backups
 mail/theme/  mail/branding/           Bulwark theme + logos
-mail/plugin-account/                  Bulwark settings plugin framing femboyz.cloud/account
+mail/config/policy.json               Managed account sidebar app and theme policy
 DEPLOYMENT.md section 14             accounts rollout: Stalwart credentials, env, nginx, directory switch
 src/accounts.ts  src/accountApi.ts  src/oidc.ts  src/oidckeygen.ts
 src/emailcodes.ts  src/stalwart.ts  src/mailer.ts

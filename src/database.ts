@@ -63,6 +63,7 @@ export async function account_indexes_ensure(db: Db) {
         codes.createIndex({ purge_at: 1 }, { expireAfterSeconds: 0 }),
         sessions.createIndex({ token_hash: 1 }, { unique: true }),
         sessions.createIndex({ id_user: 1 }),
+        sessions.createIndex({ sid: 1 }),
         sessions.createIndex({ expires: 1 }, { expireAfterSeconds: 0 }),
         oidc.createIndex({ model: 1, uid: 1 }, { sparse: true }),
         oidc.createIndex({ model: 1, userCode: 1 }, { sparse: true }),

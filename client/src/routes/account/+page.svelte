@@ -188,7 +188,9 @@
                     <h1>{me.username}</h1>
                     <p class="acct-muted">{me.email}</p>
                 </div>
-                {#if !embed}
+                {#if embed}
+                    <a class="acct-quiet" href="/account" target="_blank" rel="noopener noreferrer">Open account</a>
+                {:else}
                     <button class="acct-quiet" type="button" onclick={signOut} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
                 {/if}
             </div>

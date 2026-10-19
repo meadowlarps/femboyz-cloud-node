@@ -1,0 +1,16 @@
+{
+  "defaults": { "theme": "dark" },
+  "themePolicy": { "defaultThemeId": "femboyz", "disabledBuiltinThemes": [], "disabledThemes": [] },
+  "forceEnabledThemes": ["femboyz"],
+  "features": { "pluginsUploadEnabled": false },
+  "defaultSidebarApps": [
+    {
+      "id": "femboyz-account",
+      "name": "femboyz account",
+      "url": "https://femboyz.cloud/account?embed=1",
+      "icon": "UserRound",
+      "openMode": "inline",
+      "showOnMobile": true
+    }
+  ]
+}

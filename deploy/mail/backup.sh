@@ -45,6 +45,10 @@ esac
 # duration of the snapshot; sending servers retry, so no mail is lost.
 # Back up accounts and provider secrets with the mailboxes once accounts are enabled.
 restart_accounts=false
+restart_webmail=false
+if [ "$(docker inspect -f '{{.State.Running}}' femboyz-webmail 2>/dev/null || true)" = true ]; then
+    restart_webmail=true
+fi
 if [ -f "$APP_DIR/oidc-jwks.json" ] && systemctl is-active --quiet femboyz-api.service; then
     restart_accounts=true
 fi
@@ -52,9 +56,11 @@ restart() {
     restart_status=0
     docker compose -f "$COMPOSE" start stalwart >/dev/null || restart_status=1
     if [ "$restart_accounts" = true ]; then systemctl start femboyz-api.service || restart_status=1; fi
+    if [ "$restart_webmail" = true ]; then docker compose -f "$COMPOSE" start webmail >/dev/null || restart_status=1; fi
     return "$restart_status"
 }
 trap restart EXIT
+if [ "$restart_webmail" = true ]; then docker compose -f "$COMPOSE" stop webmail >/dev/null; fi
 if [ "$restart_accounts" = true ]; then systemctl stop femboyz-api.service; fi
 docker compose -f "$COMPOSE" stop stalwart >/dev/null
 
