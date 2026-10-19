@@ -160,6 +160,12 @@
 <svelte:head>
     <title>Create your account · femboyz.cloud</title>
     <meta name="robots" content="noindex" />
+    <!-- link preview for invite links pasted into chats -->
+    <meta name="description" content="Accept your femboyz account invitation" />
+    <meta property="og:site_name" content="femboyz.cloud" />
+    <meta property="og:title" content="femboyz.cloud" />
+    <meta property="og:description" content="Accept your femboyz account invitation" />
+    <meta property="og:type" content="website" />
 </svelte:head>
 
 {#if loadError}
