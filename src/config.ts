@@ -54,6 +54,7 @@ export const envs = {
     MAIL_DOMAIN:                        process.env.MAIL_DOMAIN || "femboyz.cloud",
     MAIL_DEFAULT_QUOTA_BYTES:           Number(process.env.MAIL_DEFAULT_QUOTA_BYTES) || 1024 ** 3,
     MAIL_REDIRECT_MAX_BOUNCES:          Number(process.env.MAIL_REDIRECT_MAX_BOUNCES) || 3,
+    MAIL_NEW_SENDER_DAYS:               Number(process.env.MAIL_NEW_SENDER_DAYS) || 14,      // stricter outbound throttles
     INVITE_TTL_DAYS:                    Number(process.env.INVITE_TTL_DAYS) || 7,
     SMTP_HOST:                          process.env.SMTP_HOST,                            // unset = log mail instead of sending
     SMTP_PORT:                          Number(process.env.SMTP_PORT) || 465,

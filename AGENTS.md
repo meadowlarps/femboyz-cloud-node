@@ -39,7 +39,7 @@ TypeScript Node.js server.
 | `src/accountApi.ts` | Account routes, their rate limits, Origin check, Stalwart bounce webhook |
 | `src/oidc.ts`      | OIDC provider (oidc-provider) at `/oidc`, Mongo adapter, femboyz.cloud site session |
 | `src/emailcodes.ts` | 4-digit email codes: HMAC storage, attempts, send limits    |
-| `src/stalwart.ts`  | Stalwart JMAP management client: mailboxes, quota, redirect Sieve |
+| `src/stalwart.ts`  | Stalwart JMAP management client: mailboxes, quota, redirect Sieve, new-sender list |
 | `src/mailer.ts`    | nodemailer to Stalwart as noreply@, mail templates            |
 | `src/utils.ts`     | Shared helpers                                                |
 
@@ -141,7 +141,7 @@ npm test             # vitest (browser via Playwright)
 | ------------------------------- | ------------------------------------------- |
 | `src/routes/+page.svelte`       | Home page (`/`), upload UI                  |
 | `src/routes/admin/+page.svelte` | Admin page (`/admin`): uploads / tokens / requests / invites / users / logs |
-| `src/routes/login/`, `signup/`, `account/` | femboyz accounts; `src/lib/account/` holds the API helper and the code input |
+| `src/routes/login/`, `signup/`, `account/`, `terms/` | femboyz accounts and their rules; `src/lib/account/` holds the API helper and the code input |
 | `src/routes/+layout.svelte`     | Global layout                               |
 | `src/hooks.server.ts`           | Server `handle`: `frame-ancestors` for the account pages |
 | `src/lib/`                      | Shared code (`$lib/...`)                    |

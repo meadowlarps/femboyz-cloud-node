@@ -17,6 +17,7 @@ import {
     me_email_verify,
     me_redirect_update,
     me_view,
+    new_senders_sync,
     redirect_bounce_register,
     request_approve,
     request_create,
@@ -149,8 +150,13 @@ export async function account_routes_register(server: FastifyInstance, admin_aut
     oidc_mount(server, provider)
     const deletions = setInterval(() => { void user_deletions_finish().catch(err => errorFileLogger.error({ err }, "Account deletion worker failed")) }, 60_000)
     deletions.unref()
-    server.addHook("onClose", async () => { clearInterval(deletions) })
+    // Keeps Stalwart's new-sender throttle tier in step with account age (DEPLOYMENT.md 16.1).
+    const sync_new_senders = () => { void new_senders_sync().catch(err => errorFileLogger.error({ err }, "New-sender sync failed")) }
+    const new_senders = setInterval(sync_new_senders, 10 * 60_000)
+    new_senders.unref()
+    server.addHook("onClose", async () => { clearInterval(deletions); clearInterval(new_senders) })
     await user_deletions_finish()
+    sync_new_senders()
 
     await server.register(async app => {
         app.setErrorHandler(account_error_handler)

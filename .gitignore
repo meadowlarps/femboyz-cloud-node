@@ -21,3 +21,4 @@ dumpremotelogs/
 
 # OIDC provider signing keys (private)
 oidc-jwks.json
+__pycache__/

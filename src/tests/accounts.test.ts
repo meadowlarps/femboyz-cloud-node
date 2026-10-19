@@ -10,7 +10,9 @@ const stalwart = vi.hoisted(() => ({
     before_create: null as (() => Promise<void>) | null,
     destroyed: [] as string[],
     redirects: new Map<string, string | null>(),
-    updates: [] as { id: string, change: unknown }[]
+    updates: [] as { id: string, change: unknown }[],
+    new_senders: new Map<string, string>(),
+    new_sender_changes: 0
 }))
 const sent = vi.hoisted(() => [] as { to: string, subject: string, text: string }[])
 const db_holder = vi.hoisted(() => ({ db: undefined as Db | undefined }))
@@ -32,7 +34,14 @@ vi.mock("../stalwart.js", async importOriginal => {
         stalwart_account_update: async (id: string, change: unknown) => { stalwart.updates.push({ id, change }) },
         stalwart_account_destroy: async (id: string) => { stalwart.destroyed.push(id) },
         stalwart_account_usage: async () => ({ used_bytes: 10, quota_bytes: 1024 }),
-        stalwart_redirect_apply: async (id: string, script: string | null) => { stalwart.redirects.set(id, script) }
+        stalwart_redirect_apply: async (id: string, script: string | null) => { stalwart.redirects.set(id, script) },
+        stalwart_new_senders_get: async () => new Map(stalwart.new_senders),
+        stalwart_new_senders_change: async (add: string[], remove_ids: string[]) => {
+            if (add.length === 0 && remove_ids.length === 0) return
+            stalwart.new_sender_changes++
+            for (const [address, id] of stalwart.new_senders) if (remove_ids.includes(id)) stalwart.new_senders.delete(address)
+            for (const address of add) stalwart.new_senders.set(address, `key-${address}`)
+        }
     }
 })
 vi.mock("../mailer.js", async importOriginal => ({
@@ -79,6 +88,8 @@ beforeEach(async () => {
     stalwart.destroyed.length = 0
     stalwart.redirects.clear()
     stalwart.updates.length = 0
+    stalwart.new_senders.clear()
+    stalwart.new_sender_changes = 0
     sent.length = 0
 })
 
@@ -467,4 +478,30 @@ test("a failed external-email database write restores the previous forwarding sc
         expect((await accounts.user_find_by_id(user.id_user))?.external_email?.address).toBe("previous@example.org")
         expect(stalwart.redirects.get("sw-restoreuser")).toContain('"previous@example.org"')
     } finally { spy.mockRestore() }
+})
+
+test("new-sender list follows account age and deletion", async () => {
+    const fresh = await user_create("freshuser")
+    const old = await user_create("olduser")
+    await db_holder.db!.collection(envs.MDB_COLLECTION_USERS).updateOne(
+        { id_user: old.id_user }, { $set: { created: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString() } })
+    stalwart.new_senders.set("stranger@femboyz.cloud", "key-stranger")
+
+    await accounts.new_senders_sync()
+    expect([...stalwart.new_senders.keys()]).toEqual(["freshuser@femboyz.cloud"])
+    const changes = stalwart.new_sender_changes
+    await accounts.new_senders_sync()
+    expect(stalwart.new_sender_changes).toBe(changes)
+
+    const view = (await accounts.user_list("")).items
+    expect(view.find(user => user.username === "olduser")?.new_sender_until).toBeNull()
+    expect(Date.parse(view.find(user => user.username === "freshuser")!.new_sender_until!)).toBeGreaterThan(Date.now() + 13 * 24 * 3600 * 1000)
+
+    await accounts.new_senders_sync(Date.now() + 15 * 24 * 3600 * 1000)
+    expect(stalwart.new_senders.size).toBe(0)
+
+    await accounts.new_senders_sync()
+    await accounts.user_delete(fresh.id_user)
+    await accounts.new_senders_sync()
+    expect(stalwart.new_senders.size).toBe(0)
 })

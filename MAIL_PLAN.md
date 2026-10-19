@@ -1,6 +1,6 @@
 # femboyz accounts + mail — plan
 
-Status: v7 · 2026-10-19 · phases 1–3 deployed and verified in production · phase 4 next (DEPLOYMENT.md 15)
+Status: v8 · 2026-10-19 · phases 1–3 deployed and verified in production · phase 4 built and dev-verified, production rollout pending (DEPLOYMENT.md 16)
 
 Invite-only **femboyz accounts** that come with an `@femboyz.cloud` mailbox, read at `https://mail.femboyz.cloud`. The same account will later log in to femboyz.cloud itself.
 
@@ -353,10 +353,12 @@ Run it the same way as Mongo: compose in `/etc/femboyz-mail/` (root-owned, mode 
 - [x] Production browser: logged-out visit → femboyz login → inbox; controlled message read; account iframe SSO; mobile view; logout clears webmail/provider/site sessions, fresh visit requires login. Backup/restore validates config, secrets, ownership and decryptable user settings (DEPLOYMENT.md 15.4).
 
 **Phase 4: outbound for users + abuse controls**
-- [ ] Stalwart per-sender throttles: strict for the first 14 days (e.g. 20 messages/hour, 100/day), then relaxed.
-- [ ] Cap recipients per message. Spam-score outbound mail.
-- [ ] Google Postmaster Tools and Microsoft SNDS. Watch DMARC reports, then tighten the policy.
-- [ ] Terms / acceptable-use page linked from signup. One-click disable in `/admin` → Users. Triage `abuse@`.
+- [x] Stalwart per-sender throttles, counted in recipients: 60/hour and 300/day for everyone, 20/hour and 100/day for accounts on the `femboyz-new-senders` list. The API keeps that list at accounts younger than `MAIL_NEW_SENDER_DAYS` (14). `noreply@` is exempt. Verified on dev for webmail (JMAP) submission (2026-10-19). Prod: DEPLOYMENT.md 16.1.
+- [x] Cap recipients per message: 25 for logged-in senders.
+- [ ] ~~Spam-score outbound mail~~: not possible in Stalwart 0.16, which never classifies authenticated sessions. An rspamd milter is the option if it's ever needed (DEPLOYMENT.md 16.1).
+- [ ] Google Postmaster Tools and Microsoft SNDS: the admin signs up personally (DEPLOYMENT.md 16.3).
+- [ ] DMARC: `dmarc@*` added to Stalwart's report addresses, plus `deploy/mail/dmarc-summary.py`. Tighten `p=none` → `quarantine` → `reject` after clean reports (16.3).
+- [x] Rules page `/terms`; signup requires ticking "I agree". `/admin` → Users already had **Disable** (one click + confirm) and now shows each account's sending tier. `abuse@` triage runbook in DEPLOYMENT.md 16.2.
 
 **Phase 5: later**
 - [ ] femboyz.cloud features that use the account (the `femboyz-web` session already exists from phase 2): uploads owned by users, a profile page.

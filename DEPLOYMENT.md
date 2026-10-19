@@ -1705,3 +1705,132 @@ recording showed the matching empty background during the transition. A 390px
 viewport with a deliberately cached old `#060606` theme still rendered the
 transition as `#1b1a1a` without overflow. Synthetic install events were cancelled,
 PWA metadata matched, and the downloadable source checksum matched the build.
+
+## 16. Phase 4: outbound limits and abuse controls
+
+Users can send from webmail (JMAP submission) since phase 3. Stalwart runs
+JMAP submissions through the same MAIL FROM / RCPT TO stages as SMTP, so the
+limits below cover both. Design: `MAIL_PLAN.md` section 4, phase 4.
+
+### 16.1 Sending limits
+
+All limits count **recipients** per logged-in account (`authenticated_as`, the
+full address, e.g. `alice@femboyz.cloud`). `noreply@` is exempt; the API
+rate-limits what it sends. Inbound mail from other servers is unaffected.
+
+| Limit | Value |
+|---|---|
+| Recipients per message (logged-in senders) | 25 (inbound keeps Stalwart's 100) |
+| Every account | 60 per hour, 300 per day |
+| New accounts (first `MAIL_NEW_SENDER_DAYS`, default 14) | 20 per hour, 100 per day |
+
+Over a limit, Stalwart answers `452 4.4.5 Rate limit exceeded` (or
+`455 4.5.3 Too many recipients`) for each extra recipient. The message still
+goes to the accepted ones, and Bulwark names the rejected recipients.
+
+"New" is the `femboyz-new-senders` memory lookup list, matched with
+`key_exists('femboyz-new-senders', authenticated_as)`. The API keeps it in step
+with account age at startup, every 10 minutes and after each signup
+(`new_senders_sync` in `src/accounts.ts`). It then runs `ReloadLookupStores`,
+because the list is static between reloads. `/admin` → Users shows
+**Sending limits: New until …** for these accounts.
+
+Rollout, as `admin@` (`STW_TOKEN=-` prompts for the runbook API key):
+
+1. Grant the API service account the lookup and reload permissions. This also
+   lets it edit other lookup lists (spam lists); it is already fully trusted
+   (14.1).
+
+   ```bash
+   cd /srv/femboyz-cloud/deploy/mail
+   export STW_TOKEN=-
+   echo '[["x:Account/get", {"properties": ["name"]}, "a"]]' | ./stwjmap.py call   # <SVC_ID> of femboyz-api
+   python3 -c 'import json; print(json.dumps([["x:Account/set", {"update": {"<SVC_ID>": {f"permissions/enabledPermissions/{p}": True for p in
+     ["sysMemoryLookupKeyGet", "sysMemoryLookupKeyQuery", "sysMemoryLookupKeyCreate", "sysMemoryLookupKeyDestroy", "sysActionCreate", "actionReloadLookupStores"]}}}, "u"]]))' | \
+     ./stwjmap.py call
+   ```
+
+2. Deploy the API. Its log shows `New senders: +N -0` (the first sync).
+   `forbidden` errors mean step 1 is missing.
+3. Apply the throttles and the recipient cap. The script is idempotent and
+   matches throttles by description. `--show` only prints.
+
+   ```bash
+   ./outbound-limits.py
+   ```
+
+`ReloadSettings` re-runs OIDC discovery against the issuer, so the API must
+be up when the script runs.
+
+Verify: send from webmail to 26 recipients. The 26th fails with "Too many
+recipients". An account on the list stops after 20 recipients in an hour. The
+counters are fixed windows in Stalwart's in-memory store.
+
+To change a limit, edit `THROTTLES` in `outbound-limits.py` and rerun it. A new
+count or period starts a fresh counter. To trust a user early, there is no
+switch: wait out the window, or lower `MAIL_NEW_SENDER_DAYS` for everyone.
+
+**Outbound spam scoring is not possible with Stalwart alone.** 0.16 never runs
+its spam classifier on authenticated sessions (`spam_classify` returns
+`Disabled` when `is_authenticated()`). Options, if it is ever needed: an rspamd
+milter on the DATA stage (`x:MtaMilter`), or an `x:MtaHook` to a small
+classifier. For now the limits, invite-only signup and the disable switch are
+the controls.
+
+### 16.2 Abuse handling
+
+`abuse@` and `postmaster@` are aliases of `admin@`, which forwards to the
+admin's personal address (13.9). For a complaint or a blocklist notice:
+
+1. Find the account. The complaint usually includes the headers; the
+   `From:` / `Return-Path:` is `<user>@femboyz.cloud`. Check the queue for
+   anything still waiting: WebUI → Queue, or
+   `echo '[["x:QueuedMessage/query", {"limit": 50}, "q"]]' | ./stwjmap.py call`.
+2. Disable it: `/admin` → Users → **Disable**. This withdraws Stalwart's
+   `authenticate` permission immediately, so webmail, tokens and SMTP stop at
+   once, and it ends all site and OIDC sessions.
+3. Remove the queued spam: WebUI → Queue, filter by sender, cancel.
+4. Delete the account if it was abuse rather than a compromise
+   (`/admin` → Users → **Delete**). A compromised account can be re-enabled
+   after the user picks a new password.
+5. Check the blocklists (Spamhaus, Barracuda, SpamCop; `MAIL_PLAN.md` phase 0) and Google Postmaster Tools / SNDS (16.3).
+
+The rules users agree to at signup are at `/terms` (`client/src/routes/terms/`).
+
+### 16.3 Reputation monitoring and DMARC
+
+DMARC aggregate reports go to `dmarc@` (`rua` in 13.10). Stalwart only parses
+reports sent to `inboundReportAddresses`, which defaults to `postmaster@*`, so
+add `dmarc@*`:
+
+```bash
+echo '[["x:ReportSettings/set", {"update": {"singleton": {"inboundReportAddresses": {"postmaster@*": true, "dmarc@*": true}}}}, "s"],
+  ["x:Action/set", {"create": {"r": {"@type": "ReloadSettings"}}}, "a"]]' | ./stwjmap.py call
+```
+
+The reports still land in admin's mailbox. They are not forwarded (13.9).
+Summarise them with:
+
+```bash
+./dmarc-summary.py 14      # reporter, source IP, messages, DKIM/SPF passes
+```
+
+Rows marked `<- not us` are forwarders or spoofers. Tighten `_dmarc` at
+Namecheap in steps. Each step needs about two weeks of reports in which
+167.233.218.194 passes DKIM or SPF for everything:
+
+1. `v=DMARC1; p=quarantine; pct=25; rua=mailto:dmarc@femboyz.cloud`
+2. `v=DMARC1; p=quarantine; rua=mailto:dmarc@femboyz.cloud`
+3. `v=DMARC1; p=reject; rua=mailto:dmarc@femboyz.cloud`
+
+The admin has to sign up for the external dashboards personally:
+
+- **Google Postmaster Tools** (https://postmaster.google.com): add
+  `femboyz.cloud` and verify it with the TXT record it gives (Namecheap host `@`,
+  next to the SPF record). Graphs appear only after a daily volume to Gmail of
+  very roughly a hundred messages or more. An empty dashboard is normal for now.
+- **Microsoft SNDS** (https://sendersupport.olc.protection.outlook.com/snds/):
+  sign in with a Microsoft account → Request Access → `167.233.218.194`. Choose
+  `postmaster@femboyz.cloud` as the verification address. That mail reaches the
+  personal address through the admin redirect. Join JMRP from the same site
+  to get Outlook.com spam complaints about our IP.

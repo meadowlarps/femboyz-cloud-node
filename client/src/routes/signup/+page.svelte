@@ -33,6 +33,7 @@
     let cooldownTimer: ReturnType<typeof setInterval> | undefined
     let codeInput = $state<ReturnType<typeof CodeInput>>()
 
+    let agreed = $state(false)
     let busy = $state(false)
     let error = $state('')
     let created = $state<{ username: string; email: string } | null>(null)
@@ -50,7 +51,7 @@
     )
     const accountReady = $derived(availability?.available === true && [...password].length >= 12 && password === confirm)
     const canSubmit = $derived(
-        accountReady && !busy && (needsVerify ? cooldown === 0 : !awaitingCode || /^\d{4}$/.test(code)))
+        accountReady && agreed && !busy && (needsVerify ? cooldown === 0 : !awaitingCode || /^\d{4}$/.test(code)))
 
     onMount(() => {
         if (!invite) {
@@ -233,6 +234,11 @@
                         </div>
                     </div>
                 {/if}
+
+                <label class="acct-check">
+                    <input bind:checked={agreed} type="checkbox" required disabled={busy} />
+                    <span>I agree to the <a href="/terms" target="_blank" rel="noopener">rules</a>: no spam, no abuse, and the account can be closed if I break them.</span>
+                </label>
 
                 {#if error}<p class="acct-error" role="alert" transition:slide={reveal}>{error}</p>{/if}
                 <div class="acct-actions">

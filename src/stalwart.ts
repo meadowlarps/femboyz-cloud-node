@@ -119,6 +119,34 @@ export async function stalwart_account_usage(id: string): Promise<{ used_bytes: 
     return { used_bytes: Number(account.usedDiskQuota) || 0, quota_bytes: account.quotas?.maxDiskQuota ?? null }
 }
 
+// ---- NEW SENDERS (outbound throttle tier) ----
+
+// Stalwart's inbound throttles (DEPLOYMENT.md 16.1) match `key_exists(NEW_SENDERS, authenticated_as)`,
+// and authenticated_as is the full address. The list is static until ReloadLookupStores runs.
+export const NEW_SENDERS_NAMESPACE = "femboyz-new-senders"
+
+/** Address → lookup key id for every entry of the new-sender list. */
+export async function stalwart_new_senders_get(): Promise<Map<string, string>> {
+    const [, [, result]] = await jmap("list new senders", [
+        ["x:MemoryLookupKey/query", { filter: { namespace: NEW_SENDERS_NAMESPACE }, limit: 10_000 }, "q"],
+        ["x:MemoryLookupKey/get", { "#ids": { resultOf: "q", name: "x:MemoryLookupKey/query", path: "/ids" }, properties: ["namespace", "key"] }, "g"]
+    ]) as [MethodResponse, MethodResponse]
+    const entries = (result.list ?? []) as { id: string, namespace: string, key: string }[]
+    return new Map(entries.filter(entry => entry.namespace === NEW_SENDERS_NAMESPACE).map(entry => [entry.key, entry.id]))
+}
+
+/** Adds and removes new-sender entries, then reloads the lookup stores so throttles see them. */
+export async function stalwart_new_senders_change(add: string[], remove_ids: string[]): Promise<void> {
+    if (add.length === 0 && remove_ids.length === 0) return
+    const create = Object.fromEntries(add.map((address, index) =>
+        [`n${index}`, { namespace: NEW_SENDERS_NAMESPACE, key: address, isGlobPattern: false }]))
+    await jmap("update new senders", [
+        ["x:MemoryLookupKey/set", { create, destroy: remove_ids }, "s"],
+        ["x:Action/set", { create: { r: { "@type": "ReloadLookupStores" } } }, "r"]
+    ], true)
+    scopelog.info(`New senders: +${add.length} -${remove_ids.length}`)
+}
+
 // ---- REDIRECT (Sieve) ----
 
 // Strict on purpose: the address is pasted into a Sieve string literal.
