@@ -21,7 +21,7 @@ import {
     stalwart_new_senders_change,
     stalwart_new_senders_get,
     stalwart_redirect_apply,
-    stalwart_signature_default
+    stalwart_identity_defaults
 } from "./stalwart.js"
 import {
     AccountRequestSchemaDB,
@@ -482,8 +482,8 @@ export async function signup(input: SignupInput) {
     scopelog.info(`Signup: ${username} (${user.id_user}) with invite ${invite.id}${external ? ", external email verified" : ""}`)
     // Until the next periodic sync puts them on the list, the account only has the regular limits.
     void new_senders_sync().catch(err => errorFileLogger.error({ err }, `New-sender sync after signup of ${username} failed`))
-    void stalwart_signature_default(user.services.mail.stalwart_id!)
-        .catch(err => errorFileLogger.error({ err }, `Default signature for ${username} failed`))
+    void stalwart_identity_defaults(user.services.mail.stalwart_id!)
+        .catch(err => errorFileLogger.error({ err }, `Identity defaults for ${username} failed`))
     return { username, email: user_mail_address(user) }
 }
 

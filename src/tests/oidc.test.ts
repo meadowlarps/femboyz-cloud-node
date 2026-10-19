@@ -17,7 +17,7 @@ vi.mock("../stalwart.js", async importOriginal => ({
     ...await importOriginal<typeof import("../stalwart.js")>(),
     stalwart_account_create: async ({ username }: { username: string }) => `sw-${username}`,
     stalwart_account_usage: async () => null,
-    stalwart_signature_default: async () => 0
+    stalwart_identity_defaults: async () => 0
 }))
 vi.mock("../mailer.js", async importOriginal => ({
     ...await importOriginal<typeof import("../mailer.js")>(),

@@ -1933,14 +1933,16 @@ Results 2026-10-19: `admin@` 8 messages + `redirect-admin` Sieve and `noreply@`
 2 objects. The nightly backup mounts the bucket (13.13). The restore drill
 matched 63/63 objects.
 
-### 16.6 Default signature
+### 16.6 Identity defaults: sender name and signature
 
-Every mailbox's identities get the signature `смартфон vivo`
-(`DEFAULT_SIGNATURE` in `src/stalwart.ts`) through JMAP `Identity/set`, which
-Bulwark shows in the composer. Signup sets it right after creating the mailbox.
-Only identities without a signature are touched, so users can change or clear it
-in webmail settings. Existing mailboxes need one backfill after the deploy:
+Stalwart names a mailbox's identity after the account description, so mail went
+out from "femboyz account". `stalwart_identity_defaults` in `src/stalwart.ts`
+sets the name to the username and the signature to `смартфон vivo`
+(`DEFAULT_SIGNATURE`) through JMAP `Identity/set`; Bulwark shows both. Signup
+runs it right after creating the mailbox. Names other than "femboyz account" and
+existing signatures are left alone, so users can change both in webmail settings.
+Existing mailboxes need one backfill after the deploy:
 
 ```bash
-sudo -u femboyz -H sh -c 'cd /srv/femboyz-cloud && NODE_ENV=prod npm run mail:signatures'
+sudo -u femboyz -H sh -c 'cd /srv/femboyz-cloud && NODE_ENV=prod npm run mail:identities'
 ```
