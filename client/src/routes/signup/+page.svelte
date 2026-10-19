@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, tick } from 'svelte'
     import { page } from '$app/state'
-    import { slide } from 'svelte/transition'
+    import { fade, slide } from 'svelte/transition'
     import { cubicOut } from 'svelte/easing'
     import '$lib/styles/account.css'
     import CodeInput from '$lib/account/CodeInput.svelte'
@@ -182,7 +182,7 @@
                 <a class="fb-button" href={sessionStartUrl('/account')}>Sign in</a>
             </div>
         {:else}
-            <h1>Create your femboyz account</h1>
+            <h1>Create your <span class="acct-brand">femboyz</span> account</h1>
             <form class="acct-form" onsubmit={submit} aria-busy={busy}>
                 <label class="acct-field">
                     <span>Username</span>
@@ -217,11 +217,13 @@
 
                 <label class="acct-field">
                     <span>Recovery &amp; Redirect email (optional)</span>
-                    <input bind:value={address} type="email" autocomplete="email" maxlength="254" placeholder="example@gmail.com" disabled={busy} />
+                    <div class="acct-badged">
+                        <input bind:value={address} type="email" autocomplete="email" maxlength="254" placeholder="example@gmail.com" disabled={busy} />
+                        {#if preVerified}
+                            <span class="acct-badge acct-tip" data-tip="Your invite was sent here." tabindex="-1" transition:fade={{ duration: 180 }}>Verified</span>
+                        {/if}
+                    </div>
                 </label>
-                {#if preVerified}
-                    <p transition:slide={reveal}><span class="acct-badge">Verified</span> <span class="acct-muted">Your invite was sent here.</span></p>
-                {/if}
 
                 {#if awaitingCode}
                     <div class="acct-field" transition:slide={reveal}>
