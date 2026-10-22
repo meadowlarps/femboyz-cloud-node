@@ -40,8 +40,11 @@
     let selectedIndex = $state(0)
     let cardHovered = $state(false)
     let persistentSelection = $state(false)
-    let mediaReady = $state(false)
-    let mediaWaitExpired = $state(false)
+    // Ids rather than booleans, so a card handed a new id starts over without
+    // an effect resetting them (which could race the media's own load event).
+    let mediaReadyFor = $state<string>()
+    let mediaWaitExpiredFor = $state<string>()
+    let firstMedia: HTMLImageElement | HTMLVideoElement | undefined
     let returnTimer: ReturnType<typeof setTimeout> | undefined
 
     const files = $derived(data?.files ?? [])
@@ -54,6 +57,8 @@
     )
     const totalSize = $derived(files.reduce((sum, file) => sum + file.size, 0))
     const noteLength = $derived(data?.note_length ?? 0)
+    const mediaReady = $derived(mediaReadyFor === id)
+    const mediaWaitExpired = $derived(mediaWaitExpiredFor === id)
     // Album cards stay behind the skeleton until their first media has loaded,
     // so the whole card fades in at once instead of the picture popping in late.
     const revealed = $derived(data !== null && (data.type !== 'album' || files.length === 0 || mediaReady || mediaWaitExpired))
@@ -80,27 +85,33 @@
         data = preloaded ?? null
     })
 
-    // Keyed on id alone: a refetch that hands over a new `initial` object keeps
-    // the already loaded media, so it must not send the card back to the skeleton.
-    $effect(() => {
-        void id
-        mediaReady = false
-        mediaWaitExpired = false
-    })
-
+    // Also re-checks the media itself, so a missed load event can't leave the
+    // media area shimmering once the file is actually there.
     $effect(() => {
         if (!data || mediaReady) return
-        const timer = setTimeout(() => { mediaWaitExpired = true }, MEDIA_WAIT_MS)
+        const cardId = id
+        const timer = setTimeout(() => {
+            mediaWaitExpiredFor = cardId
+            if (firstMedia && mediaLoaded(firstMedia)) mediaReadyFor = cardId
+        }, MEDIA_WAIT_MS)
         return () => clearTimeout(timer)
     })
+
+    function mediaLoaded(node: HTMLImageElement | HTMLVideoElement) {
+        return node instanceof HTMLImageElement
+            ? node.complete
+            : node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    }
 
     // Marks the card ready once the first slide is on screen; failures count
     // too, so a broken file doesn't hold the card back.
     function watchFirstMedia(node: HTMLImageElement | HTMLVideoElement, first: boolean) {
         if (!first) return
-        const ready = () => { mediaReady = true }
+        const cardId = id
+        const ready = () => { mediaReadyFor = cardId }
+        firstMedia = node
         if (node instanceof HTMLImageElement) {
-            if (node.complete) {
+            if (mediaLoaded(node)) {
                 ready()
                 return
             }
@@ -108,6 +119,7 @@
             node.addEventListener('error', ready)
             return {
                 destroy() {
+                    if (firstMedia === node) firstMedia = undefined
                     node.removeEventListener('load', ready)
                     node.removeEventListener('error', ready)
                 }
@@ -125,11 +137,12 @@
                 ready()
             }
         }
-        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) loaded()
+        if (mediaLoaded(video)) loaded()
         video.addEventListener('loadeddata', loaded)
         video.addEventListener('error', ready)
         return {
             destroy() {
+                if (firstMedia === video) firstMedia = undefined
                 video.removeEventListener('loadeddata', loaded)
                 video.removeEventListener('error', ready)
                 if (frameRequest !== undefined) video.cancelVideoFrameCallback(frameRequest)
@@ -249,10 +262,10 @@
             </div>
         {:else}
             {#if !revealed}
-                <!-- Mirrors the loaded card's layout; laid over it once data is in, so nothing shifts when it fades. -->
+                <!-- Always laid over the card: an outroing element stops updating, so one that
+                     switched to an overlay only once data arrived would stay in flow and double the card. -->
                 <div
                     class="skeleton"
-                    class:overlay={data !== null}
                     aria-busy="true"
                     aria-label={`Loading ${id}`}
                     out:fade={{ duration: prefersReducedMotion.current ? 0 : 300 }}
@@ -264,7 +277,13 @@
                     </div>
                 </div>
             {/if}
-            {#if data}
+            {#if !data}
+                <!-- holds the card's shape until data arrives; swapped for the card in one frame -->
+                <div class="skeleton-spacer" aria-hidden="true">
+                    <div class="skeleton-stage"></div>
+                    <div class="skeleton-info"></div>
+                </div>
+            {:else}
             <div class="card-loaded" class:revealed inert={!revealed}>
                 {#if data.type === 'album'}
                     <div
@@ -412,17 +431,13 @@
     }
 
     .skeleton {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        pointer-events: none;
-    }
-
-    .skeleton.overlay {
         position: absolute;
         z-index: 5;
         inset: 0;
+        display: flex;
+        flex-direction: column;
         background: #1e1b1c;
+        pointer-events: none;
     }
 
     .skeleton-stage {
