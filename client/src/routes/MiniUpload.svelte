@@ -12,6 +12,11 @@
 
     type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'archive' | 'document' | 'binary'
 
+    // A card whose first media is slow (a big video on a slow link, or Safari
+    // skipping its first frame under preload="metadata") shows up after this
+    // long anyway, with the media area still shimmering until it arrives.
+    const MEDIA_WAIT_MS = 8000
+
     // The parent fetches card data (in batches); while `initial` and `error` are
     // both unset the card shows its loading state.
     let {
@@ -35,6 +40,11 @@
     let selectedIndex = $state(0)
     let cardHovered = $state(false)
     let persistentSelection = $state(false)
+    // Ids rather than booleans, so a card handed a new id starts over without
+    // an effect resetting them (which could race the media's own load event).
+    let mediaReadyFor = $state<string>()
+    let mediaWaitExpiredFor = $state<string>()
+    let firstMedia: HTMLImageElement | HTMLVideoElement | undefined
     let returnTimer: ReturnType<typeof setTimeout> | undefined
 
     const files = $derived(data?.files ?? [])
@@ -47,6 +57,11 @@
     )
     const totalSize = $derived(files.reduce((sum, file) => sum + file.size, 0))
     const noteLength = $derived(data?.note_length ?? 0)
+    const mediaReady = $derived(mediaReadyFor === id)
+    const mediaWaitExpired = $derived(mediaWaitExpiredFor === id)
+    // Album cards stay behind the skeleton until their first media has loaded,
+    // so the whole card fades in at once instead of the picture popping in late.
+    const revealed = $derived(data !== null && (data.type !== 'album' || files.length === 0 || mediaReady || mediaWaitExpired))
     const carouselOptions = $derived<EmblaOptionsType>({
         loop: false,
         watchDrag: hasMultiple
@@ -69,6 +84,71 @@
         }
         data = preloaded ?? null
     })
+
+    // Also re-checks the media itself, so a missed load event can't leave the
+    // media area shimmering once the file is actually there.
+    $effect(() => {
+        if (!data || mediaReady) return
+        const cardId = id
+        const timer = setTimeout(() => {
+            mediaWaitExpiredFor = cardId
+            if (firstMedia && mediaLoaded(firstMedia)) mediaReadyFor = cardId
+        }, MEDIA_WAIT_MS)
+        return () => clearTimeout(timer)
+    })
+
+    function mediaLoaded(node: HTMLImageElement | HTMLVideoElement) {
+        return node instanceof HTMLImageElement
+            ? node.complete
+            : node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    }
+
+    // Marks the card ready once the first slide is on screen; failures count
+    // too, so a broken file doesn't hold the card back.
+    function watchFirstMedia(node: HTMLImageElement | HTMLVideoElement, first: boolean) {
+        if (!first) return
+        const cardId = id
+        const ready = () => { mediaReadyFor = cardId }
+        firstMedia = node
+        if (node instanceof HTMLImageElement) {
+            if (mediaLoaded(node)) {
+                ready()
+                return
+            }
+            node.addEventListener('load', ready)
+            node.addEventListener('error', ready)
+            return {
+                destroy() {
+                    if (firstMedia === node) firstMedia = undefined
+                    node.removeEventListener('load', ready)
+                    node.removeEventListener('error', ready)
+                }
+            }
+        }
+
+        // loadeddata comes well before the first frame is presented (over a
+        // second on a slow link), so wait for the frame itself where supported.
+        const video = node
+        let frameRequest: number | undefined
+        const loaded = () => {
+            if ('requestVideoFrameCallback' in video) {
+                frameRequest ??= video.requestVideoFrameCallback(ready)
+            } else {
+                ready()
+            }
+        }
+        if (mediaLoaded(video)) loaded()
+        video.addEventListener('loadeddata', loaded)
+        video.addEventListener('error', ready)
+        return {
+            destroy() {
+                if (firstMedia === video) firstMedia = undefined
+                video.removeEventListener('loadeddata', loaded)
+                video.removeEventListener('error', ready)
+                if (frameRequest !== undefined) video.cancelVideoFrameCallback(frameRequest)
+            }
+        }
+    }
 
     onDestroy(() => {
         clearReturnTimer()
@@ -180,13 +260,35 @@
                 <strong>{id}</strong>
                 <span>{error}</span>
             </div>
-        {:else if !data}
-            <div class="state-box loading" aria-busy="true" aria-label={`Loading ${id}`}></div>
         {:else}
-            <div class="card-loaded" in:fade={{ duration: 300 }}>
+            {#if !revealed}
+                <!-- Always laid over the card: an outroing element stops updating, so one that
+                     switched to an overlay only once data arrived would stay in flow and double the card. -->
+                <div
+                    class="skeleton"
+                    aria-busy="true"
+                    aria-label={`Loading ${id}`}
+                    out:fade={{ duration: prefersReducedMotion.current ? 0 : 300 }}
+                >
+                    <div class="skeleton-stage shimmer"></div>
+                    <div class="skeleton-info">
+                        <span class="skeleton-line shimmer"></span>
+                        <span class="skeleton-line short shimmer"></span>
+                    </div>
+                </div>
+            {/if}
+            {#if !data}
+                <!-- holds the card's shape until data arrives; swapped for the card in one frame -->
+                <div class="skeleton-spacer" aria-hidden="true">
+                    <div class="skeleton-stage"></div>
+                    <div class="skeleton-info"></div>
+                </div>
+            {:else}
+            <div class="card-loaded" class:revealed inert={!revealed}>
                 {#if data.type === 'album'}
                     <div
                         class="preview-stage"
+                        class:shimmer={!mediaReady}
                         role="region"
                         aria-label={`${label} preview`}
                         aria-roledescription="carousel"
@@ -212,11 +314,12 @@
                                             tabindex={index === selectedIndex ? 0 : -1}
                                         >
                                             {#if file.mime.startsWith('image/')}
-                                                <img src={file.url} alt="" loading="lazy" />
+                                                <img src={file.url} alt="" loading="lazy" use:watchFirstMedia={index === 0} />
                                             {:else}
                                                 <!-- Muted card previews have no spoken content or caption resource. -->
                                                 <!-- svelte-ignore a11y_media_has_caption -->
                                                 <video
+                                                    use:watchFirstMedia={index === 0}
                                                     src={file.url}
                                                     muted
                                                     playsinline
@@ -291,12 +394,14 @@
                     </div>
                 </footer>
             </div>
+            {/if}
         {/if}
     </article>
 {/if}
 
 <style>
     .mini-card {
+        position: relative;
         width: 100%;
         min-width: 0;
         overflow: hidden;
@@ -312,10 +417,50 @@
         transform: scale(1.01);
     }
 
+    /* stays laid out (not display: none) so the lazy first image still loads behind the skeleton */
     .card-loaded {
         display: flex;
         flex-direction: column;
         height: 100%;
+        opacity: 0;
+        transition: opacity 300ms ease-out;
+    }
+
+    .card-loaded.revealed {
+        opacity: 1;
+    }
+
+    .skeleton {
+        position: absolute;
+        z-index: 5;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        background: #1e1b1c;
+        pointer-events: none;
+    }
+
+    .skeleton-stage {
+        aspect-ratio: 4 / 3;
+    }
+
+    /* same height as .card-info, so the loaded card doesn't grow when it replaces the skeleton */
+    .skeleton-info {
+        display: grid;
+        align-content: center;
+        gap: 0.55rem;
+        height: 4.1rem;
+        padding: 0 0.65rem;
+    }
+
+    .skeleton-line {
+        width: 70%;
+        height: 0.7rem;
+    }
+
+    .skeleton-line.short {
+        width: 45%;
+        height: 0.5rem;
     }
 
     .state-box {
@@ -335,7 +480,8 @@
         color: #ffb3c7;
     }
 
-    .state-box.loading {
+    /* two classes so it beats .preview-stage's own background */
+    .mini-card .shimmer {
         background: linear-gradient(90deg, #252222 25%, #2e2a2b 50%, #252222 75%);
         background-size: 200% 100%;
         animation: shimmer 1.4s infinite;
@@ -409,6 +555,12 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+        transition: opacity 300ms ease-out;
+    }
+
+    /* the card was revealed by MEDIA_WAIT_MS before its media: keep the shimmer showing through */
+    .preview-stage.shimmer .media-link :is(img, video) {
+        opacity: 0;
     }
 
     .carousel-selectors {
@@ -565,7 +717,13 @@
             transition: none;
         }
 
-        .state-box.loading {
+        .card-loaded,
+        .media-link img,
+        .media-link video {
+            transition: none;
+        }
+
+        .mini-card .shimmer {
             animation: none;
         }
     }
