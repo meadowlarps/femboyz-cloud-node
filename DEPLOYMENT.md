@@ -1501,7 +1501,7 @@ management path for phase 2.
 
 ## 15. Phase 3: Bulwark webmail
 
-Bulwark 1.15.0-femboyz.4 is deployed at https://mail.femboyz.cloud using our
+Bulwark 1.15.0-femboyz.5 is deployed at https://mail.femboyz.cloud using our
 locally built image from a pinned upstream commit plus a small SSO patch
 (`deploy/mail/bulwark/README.md`). It listens only
 on `127.0.0.1:3100`; nginx terminates TLS using a separate certbot certificate
@@ -1982,3 +1982,23 @@ echo '[["x:MtaQueueQuota/get", {"properties": ["description", "enable"]}, "g"]]'
 echo '[["x:MtaQueueQuota/set", {"update": {"<ID>": {"enable": false}}}, "u"],
        ["x:Action/set", {"create": {"a": {"@type": "ReloadSettings"}}}, "a"]]' | ./stwjmap.py call
 ```
+
+### 16.8 eMudhra CA compromise and CVE pass (2026-10-23)
+
+Eight eMudhra intermediates had recoverable private keys (CVE-2026-111943,
+CVE-2026-113470). Our certificates are Let's Encrypt and unaffected. The risk
+is our own outbound TLS clients accepting forged certificates. Test any client
+with `curl https://dv-g3b-emudhra.we-have-a-problem.com/` and the `-aaa-` host
+(success means it still trusts the compromised CA):
+
+| Client | Status |
+|---|---|
+| Host curl/Python, `/usr/bin/node` (API, web) | Rejects: `ca-certificates 20260816ubuntu0.26.04.1` |
+| Bulwark | Fixed in `1.15.0-femboyz.5`: base `node:24-alpine` 24.22.1 (`CERT_REVOKED`) |
+| Stalwart 0.16.27 | **Still trusts.** The image's `ca-certificates 20250419` and the binary's built-in webpki-roots both carry emSign ECC Root CA - G3, so mounting the host bundle doesn't fix it. Wait for a release with webpki-roots >= 1.0.10, then `pull` + `up -d` and re-test |
+
+Bulwark `femboyz.5` is the same source and patch as `femboyz.4` on the new
+base digest; previous compose/env are in `/root/femboyz-bulwark-femboyz4-20261023`.
+The same pass updated fastify/find-my-way/fast-uri (API) and sharp 0.35.5/devalue
+(client) and ran `apt upgrade` (systemd 259.9). Host OpenSSL `3.5.5-1ubuntu3.7`
+carries the September 2026 OpenSSL fixes.
