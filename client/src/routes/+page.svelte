@@ -25,6 +25,8 @@
 
     const GALLERY_REFRESH_MS = 30_000
     const REORDER_DRAG_THRESHOLD_PX = 4
+    const REORDER_HOLD_MS = 300             // touch: a long press anywhere on a row picks it up
+    const REORDER_HOLD_SLOP_PX = 8          // moving further than this before the hold fires is a scroll
     const TOKEN_HOLD_MS = 600
     const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
@@ -77,8 +79,10 @@
     // row being dragged to reorder, and its offset from the slot it currently occupies
     let reorderKey = $state<number>()
     let reorderOffset = $state(0)
-    let reorderPending: { key: number, node: HTMLElement, startY: number, startTop: number } | undefined
+    // armed: movement drags the row (mouse and handle at once, touch elsewhere after the long press)
+    let reorderPending: { key: number, node: HTMLElement, startY: number, startTop: number, armed: boolean } | undefined
     let reorderPointerY = 0
+    let reorderHoldTimer: ReturnType<typeof setTimeout> | undefined
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
     let hideProgressTimer: ReturnType<typeof setTimeout> | undefined
@@ -315,18 +319,44 @@
         const target = event.target as HTMLElement
         const fromHandle = target.closest('.drag-handle') !== null
         if (target.closest('button') && !fromHandle) return
-        // touch scrolls the page unless it starts on the handle
-        if (event.pointerType !== 'mouse' && !fromHandle) return
-        event.preventDefault()
+        const armed = event.pointerType === 'mouse' || fromHandle
+        if (armed) event.preventDefault()
         const node = event.currentTarget as HTMLElement
         node.setPointerCapture(event.pointerId)
-        reorderPending = { key: fileKeys.get(file)!, node, startY: event.clientY, startTop: node.offsetTop }
+        const pending = { key: fileKeys.get(file)!, node, startY: event.clientY, startTop: node.offsetTop, armed }
+        reorderPending = pending
+        if (armed) return
+        // touch elsewhere on the row scrolls the page, unless the finger holds still first
+        clearTimeout(reorderHoldTimer)
+        reorderHoldTimer = setTimeout(() => {
+            if (reorderPending !== pending) return
+            pending.armed = true
+            reorderKey = pending.key
+            navigator.vibrate?.(10)
+        }, REORDER_HOLD_MS)
     }
+
+    // touchmove has to be non-passive to stop the page scrolling under an armed drag
+    $effect(() => {
+        const list = fileListEl
+        if (!list) return
+        const block = (event: Event) => { if (reorderPending?.armed) event.preventDefault() }
+        list.addEventListener('touchmove', block, { passive: false })
+        list.addEventListener('contextmenu', block)
+        return () => {
+            list.removeEventListener('touchmove', block)
+            list.removeEventListener('contextmenu', block)
+        }
+    })
 
     async function reorderMove(event: PointerEvent) {
         const pending = reorderPending
         if (!pending) return
         reorderPointerY = event.clientY
+        if (!pending.armed) {
+            if (Math.abs(event.clientY - pending.startY) > REORDER_HOLD_SLOP_PX) reorderEnd()
+            return
+        }
         if (reorderKey === undefined) {
             if (Math.abs(event.clientY - pending.startY) < REORDER_DRAG_THRESHOLD_PX) return
             reorderKey = pending.key
@@ -348,6 +378,7 @@
     }
 
     function reorderEnd() {
+        clearTimeout(reorderHoldTimer)
         reorderPending = undefined
         reorderKey = undefined
         reorderOffset = 0
@@ -1104,6 +1135,8 @@
     .file-list li.reorderable {
         cursor: grab;
         user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
         transition: transform 0.18s ease-out, border-color 0.18s ease-out, box-shadow 0.18s ease-out;
     }
 
@@ -1412,13 +1445,17 @@
         .file-list .index {
             display: none;
         }
+        /* a full-size touch target in the corner */
         .file-list li > .drag-handle {
             position: absolute;
-            top: 0.75rem;
-            right: 0.75rem;
-            width: auto;
-            margin: -0.5rem;
-            padding: 0.5rem 0.6rem;
+            top: 0;
+            right: 0;
+            width: 3rem;
+            height: 3rem;
+            margin: 0;
+            padding: 0;
+            /* above .file-label, which shares z-index 5 and comes later */
+            z-index: 6;
         }
         .file-list li:has(> .drag-handle) .file-label {
             padding-right: 2rem;
