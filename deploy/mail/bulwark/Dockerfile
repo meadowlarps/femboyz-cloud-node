@@ -1,12 +1,12 @@
 # Bulwark 1.15.0 plus auto-sso.patch; built by build.sh from its exact source commit.
-FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS builder
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_LOCALE_PREFIX=always
-ENV GIT_COMMIT=fc22f111-femboyz.4
+ENV GIT_COMMIT=fc22f111-femboyz.5
 ENV NODE_OPTIONS=--max-old-space-size=6144
 RUN npx vitest run lib/auth/__tests__/auto-sso.test.ts lib/__tests__/web-push.test.ts stores/__tests__/auth-store-provider-logout.test.ts \
     'app/(main)/[locale]/auth/callback/__tests__/auto-sso.test.tsx' \
@@ -21,9 +21,9 @@ RUN rm -rf app/api/dev-jmap && \
       -prune -exec rm -rf {} \; && \
     npx next build --webpack
 
-FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runner
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runner
 LABEL org.opencontainers.image.title="femboyz Bulwark Webmail"
-LABEL org.opencontainers.image.version="1.15.0-femboyz.4"
+LABEL org.opencontainers.image.version="1.15.0-femboyz.5"
 LABEL org.opencontainers.image.source="https://github.com/meadowlarps/femboyz-cloud-node/tree/main/deploy/mail/bulwark"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app

@@ -4,7 +4,7 @@ set -euo pipefail
 readonly output="${1:?usage: build.sh OUTPUT_DIRECTORY}"
 readonly here="$(cd "$(dirname "$0")" && pwd)"
 readonly upstream=fc22f111efaefa837d1796864664935c12cbc7bd
-readonly image=femboyz/bulwark:1.15.0-femboyz.4
+readonly image=femboyz/bulwark:1.15.0-femboyz.5
 mkdir -p "$output"
 readonly destination="$(cd "$output" && pwd)"
 readonly source_dir="$destination/source"
@@ -25,8 +25,8 @@ mkdir "$source_dir/.femboyz"
 cp "$here"/* "$source_dir/.femboyz/"
 cp "$source_dir/.dockerignore" "$source_dir/.femboyz/upstream.dockerignore"
 cp "$here/Dockerfile.dockerignore" "$source_dir/.dockerignore"
-tar --exclude=.git -czf "$destination/bulwark-1.15.0-femboyz.4-source.tar.gz" -C "$source_dir" .
+tar --exclude=.git -czf "$destination/bulwark-1.15.0-femboyz.5-source.tar.gz" -C "$source_dir" .
 docker build --platform linux/amd64 --tag "$image" --file "$here/Dockerfile" "$source_dir"
 docker image inspect "$image" --format '{{.Id}}' > "$destination/image-id.txt"
-sha256sum "$destination/bulwark-1.15.0-femboyz.4-source.tar.gz" > "$destination/source.sha256"
+sha256sum "$destination/bulwark-1.15.0-femboyz.5-source.tar.gz" > "$destination/source.sha256"
 printf 'Built %s; source distribution and image ID are in %s\n' "$image" "$destination"
