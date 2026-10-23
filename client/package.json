@@ -27,11 +27,11 @@
 		"embla-carousel-svelte": "^8.6.0",
 		"ffmpeg-static": "^5.3.0",
 		"hash-wasm": "^4.12.0",
-		"sharp": "^0.35.3"
+		"sharp": "^0.35.5"
 	},
 	"overrides": {
 		"@vercel/og": {
-			"sharp": "^0.35.3"
+			"sharp": "^0.35.5"
 		}
 	}
 }
