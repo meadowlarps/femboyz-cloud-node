@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import {
     MAX_OG_SOURCE_BYTES,
+    OG_CARD_WIDTH, OG_CARD_HEIGHT, OG_LEAD_WIDTH, OG_LEAD_HEIGHT,
+    truncateFilename,
     buildOgCardElement,
-    buildTileLabels,
     canNormalizeLeadImage,
     fileTypeColor,
     fileTypeLabel,
-    mediaTypeLabel,
     normalizeLeadImage,
     renderOgCard,
     selectLeadImage
 } from '../client/src/lib/upload/ogCard.ts'
+import sharp from '../client/node_modules/sharp/dist/index.mjs'
 import type { FileData, UploadData } from '../client/src/lib/upload/downloader.ts'
 
 function file(index: number, filename: string, mime: string, size = 1000): FileData {
@@ -37,29 +39,24 @@ function upload(type: UploadData['type'], files: FileData[], title = '', desc = 
     }
 }
 
-test('builds safe file labels and preserves the first six item order', () => {
+test('labels files by extension with MIME fallbacks and preserves extensions when shortening filenames', () => {
     assert.equal(fileTypeLabel(file(0, 'archive.tar.gz', 'application/gzip')), 'GZ')
     assert.equal(fileTypeLabel(file(0, 'document.тест', 'application/pdf')), 'PDF')
     assert.equal(fileTypeLabel(file(0, 'track', 'audio/mpeg')), 'AUD')
-    assert.equal(fileTypeLabel(file(0, 'animation', 'image/gif')), 'GIF')
     assert.equal(fileTypeLabel(file(0, 'unknown.longextension', 'application/octet-stream')), 'FILE')
-    assert.equal(mediaTypeLabel(file(0, 'clip.mp4', 'video/mp4')), 'VID')
-    assert.equal(mediaTypeLabel(file(0, 'still.png', 'image/png')), 'IMG')
-    assert.equal(mediaTypeLabel(file(0, 'animation.gif', 'image/gif')), 'GIF')
-
-    const files = Array.from({ length: 8 }, (_, index) => file(index, `item.${index}`, 'application/octet-stream'))
-    assert.deepEqual(buildTileLabels(files), ['0', '1', '2', '3', '4', '5'])
-    assert.deepEqual(buildTileLabels(files, 2), ['0', '1', '3', '4', '5', '6'])
+    assert.equal(truncateFilename('short.mp4'), 'short.mp4')
+    const long = truncateFilename('a-very-long-video-filename-that-needs-shortening.mp4')
+    assert.equal(Array.from(long).length, 23)
+    assert.match(long, /….*\.mp4$/u)
+    assert.doesNotMatch(truncateFilename('emoji-🔒-track.mp3'), /🔒/u)
 })
 
-test('uses Miniupload file colors', () => {
-    assert.equal(fileTypeColor(file(0, 'photo.jpg', 'image/jpeg')), '#66b8e8')
-    assert.equal(fileTypeColor(file(0, 'clip.mp4', 'video/mp4')), '#c78be8')
-    assert.equal(fileTypeColor(file(0, 'track.mp3', 'audio/mpeg')), '#e887b3')
-    assert.equal(fileTypeColor(file(0, 'manual.pdf', 'application/pdf')), '#e86f77')
-    assert.equal(fileTypeColor(file(0, 'archive.zip', 'application/zip')), '#e6b85f')
-    assert.equal(fileTypeColor(file(0, 'notes.txt', 'text/plain')), '#75cda5')
-    assert.equal(fileTypeColor(file(0, 'program.exe', 'application/octet-stream')), '#918a8d')
+test('uses the approved category colors', () => {
+    assert.equal(fileTypeColor(file(0, 'photo.jpg', 'image/jpeg')), '#6fb3e8')
+    assert.equal(fileTypeColor(file(0, 'clip.mp4', 'video/mp4')), '#e0457b')
+    assert.equal(fileTypeColor(file(0, 'track.mp3', 'audio/mpeg')), '#5fc7b0')
+    assert.equal(fileTypeColor(file(0, 'archive.zip', 'application/zip')), '#e2a74a')
+    assert.equal(fileTypeColor(file(0, 'program.exe', 'application/octet-stream')), '#a49ca0')
 })
 
 test('selects an image only when it is the first album item and guards normalization inputs', () => {
@@ -90,52 +87,56 @@ test('normalizes common raster formats to a bounded PNG and rejects malformed in
         assert.ok(dataUri?.startsWith('data:image/png;base64,'))
         const png = Buffer.from(dataUri.slice('data:image/png;base64,'.length), 'base64')
         assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
-        assert.equal(png.readUInt32BE(16), 640)
-        assert.equal(png.readUInt32BE(20), 400)
+        assert.equal(png.readUInt32BE(16), OG_LEAD_WIDTH)
+        assert.equal(png.readUInt32BE(20), OG_LEAD_HEIGHT)
     }
 
     assert.equal(await normalizeLeadImage(new Uint8Array([1, 2, 3])), null)
 })
 
-test('renders a compact borderless card and only the first album item', async () => {
+test('hides the ID for titled cards and summarizes overflow files without dropping their bytes', () => {
+    const files = upload('files', Array.from({ length: 23 }, (_, index) =>
+        file(index, `item-${index}.zip`, 'application/zip', 1024)), '🔒 private title')
+    const tree = JSON.stringify(buildOgCardElement(files, 'femboyz.cloud', null))
+    assert.match(tree, /\? private title/)
+    assert.doesNotMatch(tree, /1234ABCD|🔒|item-4\.zip/)
+    assert.match(tree, /item-3\.zip/)
+    assert.match(tree, /\+19/)
+    assert.match(tree, /19\.0 KB/)
+    assert.match(tree, /23\.0 KB/)
+    assert.doesNotMatch(tree, /23 files ·|—/)
+    assert.equal(buildOgCardElement(files, 'femboyz.cloud', null).props.style?.border, undefined)
+
+    const untitled = JSON.stringify(buildOgCardElement(upload('files', []), 'femboyz.cloud', null))
+    assert.match(untitled, /1234ABCD/)
+    const poster = 'data:image/png;base64,frame'
+    const albumTree = JSON.stringify(buildOgCardElement(upload('album', [
+        file(0, 'clip.mp4', 'video/mp4'), file(1, 'photo.png', 'image/png')
+    ]), 'femboyz.cloud', poster))
+    assert.match(albumTree, /data:image\/png;base64,frame/)
+})
+
+test('renders the full card as a wide PNG without network requests or falling back to text', async () => {
     const files = upload('files', [
         file(0, 'archive.zip', 'application/zip'),
         file(1, 'manual.pdf', 'application/pdf')
-    ], '🔒 private title', 'A useful description')
-    const elementTree = JSON.stringify(buildOgCardElement(files, 'femboyz.cloud', null))
-    assert.match(elementTree, /\? private title/)
-    assert.match(elementTree, /A useful description/)
-    assert.doesNotMatch(elementTree, /🔒/)
-    assert.match(elementTree, /2px solid #3f3f3f/)
-    assert.match(elementTree, /"width":188/)
-    assert.equal(buildOgCardElement(files, 'femboyz.cloud', null).props.style?.border, undefined)
-
-    const albumTree = JSON.stringify(buildOgCardElement(upload('album', [
-        file(0, 'clip.mp4', 'video/mp4'),
-        file(1, 'photo.png', 'image/png')
-    ]), 'femboyz.cloud', null))
-    assert.match(albumTree, /VID/)
-    assert.doesNotMatch(albumTree, /IMG/)
-
-    const videoFrameTree = JSON.stringify(buildOgCardElement(upload('album', [
-        file(0, 'clip.mp4', 'video/mp4'),
-        file(1, 'second.mp4', 'video/mp4')
-    ]), 'femboyz.cloud', 'data:image/png;base64,frame'))
-    assert.match(videoFrameTree, /data:image\/png;base64,frame/)
-    assert.doesNotMatch(videoFrameTree, /VID/)
-
+    ], '🔒 private title')
     const originalFetch = globalThis.fetch
     let fetchCount = 0
     globalThis.fetch = (async () => {
         fetchCount++
         throw new Error('Unexpected remote fetch')
     }) as typeof fetch
-
     try {
-        const png = Buffer.from(await renderOgCard(files, 'femboyz.cloud', null))
+        const png = Buffer.from(await renderOgCard(files, 'femboyz.cloud', null, [
+            { name: 'DejaVu Sans', weight: 400, data: await readFile(new URL('../client/src/lib/server/upload/assets/DejaVuSans.ttf', import.meta.url)) },
+            { name: 'DejaVu Sans', weight: 700, data: await readFile(new URL('../client/src/lib/server/upload/assets/DejaVuSans-Bold.ttf', import.meta.url)) }
+        ]))
         assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
-        assert.equal(png.readUInt32BE(16), 720)
-        assert.equal(png.readUInt32BE(20), 600)
+        assert.equal(png.readUInt32BE(16), OG_CARD_WIDTH)
+        assert.equal(png.readUInt32BE(20), OG_CARD_HEIGHT)
+        const panelPixel = await sharp(png).extract({ left: 480, top: 64, width: 1, height: 1 }).removeAlpha().raw().toBuffer()
+        assert.deepEqual([...panelPixel], [35, 32, 33], 'the file panel must render instead of the text fallback')
         assert.equal(fetchCount, 0)
     } finally {
         globalThis.fetch = originalFetch

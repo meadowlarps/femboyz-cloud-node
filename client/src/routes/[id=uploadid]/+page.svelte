@@ -8,6 +8,7 @@
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
     import ViewIcon from '$lib/ViewIcon.svelte'
     import { markUploadViewed } from '$lib/upload/downloader'
+    import { OG_CARD_WIDTH, OG_CARD_HEIGHT } from '$lib/upload/preview'
 
     let { data }: { data: PageData } = $props()
 
@@ -64,10 +65,11 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content={preview.canonicalUrl} />
     {#if preview.cardImageUrl}
+        <meta name="twitter:card" content="summary_large_image" />
         <meta property="og:image" content={preview.cardImageUrl} />
         <meta property="og:image:type" content="image/png" />
-        <meta property="og:image:width" content="720" />
-        <meta property="og:image:height" content="600" />
+        <meta property="og:image:width" content={String(OG_CARD_WIDTH)} />
+        <meta property="og:image:height" content={String(OG_CARD_HEIGHT)} />
         <meta property="og:image:alt" content={preview.cardImageAlt ?? preview.title} />
     {:else if preview.image}
         <meta property="og:image" content={preview.image.url} />
