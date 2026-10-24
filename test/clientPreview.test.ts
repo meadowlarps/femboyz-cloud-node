@@ -53,7 +53,7 @@ test('redirects preview crawlers only for raw single media', () => {
     assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', 'TelegramBot').redirectUrl, null)
 })
 
-test('uses the custom title or upload ID and only a custom description', () => {
+test('uses custom metadata when supplied and summarizes generated cards otherwise', () => {
     const custom = buildUploadPreview(
         upload('album', [file(0, 'image/png'), file(1, 'video/mp4')], '  My upload  ', '  My description  '),
         'https://femboyz.cloud',
@@ -67,8 +67,8 @@ test('uses the custom title or upload ID and only a custom description', () => {
     assert.equal(buildUploadPreview(upload('files', [file(0, 'application/zip')]), 'https://femboyz.cloud', null).title, '1234ABCD')
     assert.equal(buildUploadPreview(upload('playlist', [file(0, 'audio/mpeg')]), 'https://femboyz.cloud', null).title, '1234ABCD')
     assert.equal(buildUploadPreview(upload('album', [file(0, 'image/png')]), 'https://femboyz.cloud', null).title, '1234ABCD')
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')]), 'https://femboyz.cloud', null).description, '')
-    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')], 'Notes'), 'https://femboyz.cloud', null).description, '')
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')]), 'https://femboyz.cloud', null).description, '1 file 1000 B')
+    assert.equal(buildUploadPreview(upload('files', [file(0, 'text/plain')], 'Notes'), 'https://femboyz.cloud', null).description, '1 file 1000 B')
 })
 
 test('uses the first image, then falls back to the first video', () => {
@@ -98,7 +98,7 @@ test('generates versioned cards for files, playlists, and multi-media albums', (
     assert.equal(hasGeneratedCard(link), false)
 
     const preview = buildUploadPreview(files, 'https://femboyz.cloud', null)
-    assert.equal(OG_CARD_VERSION, '7')
+    assert.equal(OG_CARD_VERSION, '8')
     assert.equal(preview.cardImageUrl, `https://femboyz.cloud/1234ABCD/og.png?v=${OG_CARD_VERSION}`)
     assert.equal(preview.cardImageAlt, '1234ABCD: 1 file via femboyz.cloud')
     assert.equal(buildUploadPreview(singleMedia, 'https://femboyz.cloud', null).cardImageUrl, null)
@@ -108,4 +108,17 @@ test('exports the same type-aware count labels used by metadata and generated ca
     assert.equal(buildUploadCountLabel(upload('files', [file(0, 'text/plain')])), '1 file')
     assert.equal(buildUploadCountLabel(upload('playlist', [file(0, 'audio/ogg'), file(1, 'audio/mpeg')])), '2 tracks')
     assert.equal(buildUploadCountLabel(upload('album', [file(0, 'video/mp4'), file(1, 'image/png')])), '2 media')
+})
+
+test('describes the sample bundle without the removed dash or count-size dot', () => {
+    const files = [file(0, 'video/mp4'), file(1, 'video/mp4'), file(2, 'application/x-rar'),
+        file(3, 'video/mp4'), file(4, 'audio/mpeg')]
+    const sizes = [629964, 1850846, 10227102, 2554754, 247056]
+    files.forEach((file, index) => file.size = sizes[index]!)
+    const preview = buildUploadPreview(upload('files', files), 'https://femboyz.cloud', null)
+    assert.equal(preview.description, '5 files 14.8 MB, 3 videos, 1 archive, 1 track')
+    assert.doesNotMatch(preview.description, /—|files ·/)
+    const note = upload('note', [])
+    note.note_preview = 'A  short\n note'
+    assert.equal(buildUploadPreview(note, 'https://femboyz.cloud', null).description, 'A short note')
 })

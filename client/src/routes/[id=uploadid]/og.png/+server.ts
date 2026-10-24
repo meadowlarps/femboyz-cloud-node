@@ -1,6 +1,9 @@
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 import { env } from '$env/dynamic/private'
+import { read } from '$app/server'
+import regularFontUrl from '$lib/server/upload/assets/DejaVuSans.ttf?url'
+import boldFontUrl from '$lib/server/upload/assets/DejaVuSans-Bold.ttf?url'
 import { fetchUpload, type FileData, type UploadData } from '$lib/upload/downloader'
 import {
     MAX_OG_SOURCE_BYTES,
@@ -12,6 +15,22 @@ import {
 import { hasGeneratedCard } from '$lib/upload/preview'
 import { forwardedHeaders } from '$lib/upload/forwarded'
 import { extractVideoFrame } from '$lib/server/upload/videoFrame'
+
+// Keep font loading local and reuse the buffers across preview requests.
+let fonts: Promise<[
+    { name: string, data: ArrayBuffer, weight: 400 },
+    { name: string, data: ArrayBuffer, weight: 700 }
+]> | undefined
+
+function loadFonts() {
+    return fonts ??= Promise.all([
+        read(regularFontUrl).arrayBuffer(),
+        read(boldFontUrl).arrayBuffer()
+    ]).then(([regular, bold]) => [
+        { name: 'DejaVu Sans', data: regular, weight: 400 },
+        { name: 'DejaVu Sans', data: bold, weight: 700 }
+    ])
+}
 
 function rawFileUrl(upload: UploadData, file: FileData, apiEndpoint: string): string {
     return apiEndpoint
@@ -64,7 +83,7 @@ export const GET: RequestHandler = async ({ params, fetch, request, url }) => {
     if (!hasGeneratedCard(upload)) throw error(404, 'Preview not found')
 
     const leadMediaDataUri = await loadLeadMedia(upload, apiEndpoint, fetch, forwarded)
-    const png = await renderOgCard(upload, url.hostname, leadMediaDataUri)
+    const png = await renderOgCard(upload, url.hostname, leadMediaDataUri, await loadFonts())
 
     return new Response(png, {
         headers: {

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { OG_LEAD_WIDTH, OG_LEAD_HEIGHT } from '../client/src/lib/upload/ogCard.ts'
 import { extractVideoFrame } from '../client/src/lib/server/upload/videoFrame.ts'
 
 const MP4_FIXTURE = Buffer.from(
@@ -20,8 +21,8 @@ test('extracts a bounded PNG poster from a video and rejects invalid input', asy
         assert.ok(dataUri?.startsWith('data:image/png;base64,'))
         const png = Buffer.from(dataUri.slice('data:image/png;base64,'.length), 'base64')
         assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
-        assert.equal(png.readUInt32BE(16), 640)
-        assert.equal(png.readUInt32BE(20), 400)
+        assert.equal(png.readUInt32BE(16), OG_LEAD_WIDTH)
+        assert.equal(png.readUInt32BE(20), OG_LEAD_HEIGHT)
         assert.equal(await extractVideoFrame(join(dir, 'missing.mp4')), null)
     } finally {
         await rm(dir, { recursive: true, force: true })

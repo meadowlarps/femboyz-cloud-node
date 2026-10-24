@@ -1,6 +1,53 @@
-import type { FileData, UploadData } from './downloader'
+import type { FileData, UploadData } from './downloader.js'
 
-export const OG_CARD_VERSION = '7'
+export const OG_CARD_VERSION = '8'
+export const OG_CARD_WIDTH = 1200
+export const OG_CARD_HEIGHT = 630
+
+export const FILE_KINDS = {
+    video: { color: '#e0457b', singular: 'video', plural: 'videos' },
+    archive: { color: '#e2a74a', singular: 'archive', plural: 'archives' },
+    audio: { color: '#5fc7b0', singular: 'track', plural: 'tracks' },
+    image: { color: '#6fb3e8', singular: 'image', plural: 'images' },
+    document: { color: '#a49ca0', singular: 'file', plural: 'files' }
+} as const
+
+export type FileKind = keyof typeof FILE_KINDS
+
+export function fileKind(file: FileData): FileKind {
+    const mime = file.mime.toLowerCase()
+    if (mime.startsWith('video/')) return 'video'
+    if (mime.startsWith('audio/')) return 'audio'
+    if (mime.startsWith('image/')) return 'image'
+    if (/zip|compressed|archive|tar|rar|7z|gzip/.test(mime)) return 'archive'
+    return 'document'
+}
+
+export function formatPreviewSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+    return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+}
+
+export function summarizeUploadFiles(files: FileData[]) {
+    const groups = new Map<FileKind, { kind: FileKind, count: number, bytes: number }>()
+    for (const file of files) {
+        const kind = fileKind(file)
+        const group = groups.get(kind) ?? { kind, count: 0, bytes: 0 }
+        group.count++
+        group.bytes += file.size
+        groups.set(kind, group)
+    }
+    return {
+        bytes: files.reduce((total, file) => total + file.size, 0),
+        groups: [...groups.values()]
+    }
+}
+
+export function fileKindCountLabel(kind: FileKind, count: number): string {
+    return `${count} ${count === 1 ? FILE_KINDS[kind].singular : FILE_KINDS[kind].plural}`
+}
 
 export type UploadPreview = {
     title: string
@@ -36,22 +83,18 @@ export function hasGeneratedCard(upload: UploadData): boolean {
         || (upload.type === 'album' && upload.files.length > 1)
 }
 
-export function buildUploadCardText(upload: UploadData, siteName: string) {
-    const countLabel = buildUploadCountLabel(upload)
-    const customTitle = upload.meta.title.trim()
-    return {
-        title: customTitle || countLabel,
-        description: upload.meta.desc.trim()
-            || (customTitle ? `${countLabel} via ${siteName}` : `via ${siteName}`)
-    }
-}
-
 export function buildUploadPreviewText(upload: UploadData) {
+    const summary = summarizeUploadFiles(upload.files)
+    const countLabel = buildUploadCountLabel(upload)
+    const details = summary.groups.map(group => fileKindCountLabel(group.kind, group.count)).join(', ')
+    const fallback = hasGeneratedCard(upload)
+        ? `${countLabel} ${formatPreviewSize(summary.bytes)}${details && details !== countLabel ? `, ${details}` : ''}`
+        : ''
     return {
         title: upload.meta.title.trim() || upload.id,
         description: upload.type === 'note'
             ? (upload.note_preview ?? '').replace(/\s+/g, ' ').trim()
-            : upload.meta.desc.trim()
+            : upload.meta.desc.trim() || fallback
     }
 }
 
