@@ -1812,8 +1812,8 @@
         height: 2.8rem;
         margin-bottom: 0.5rem;
         border-radius: 50%;
-        background: #14301f;
-        color: #5de899;
+        background: #1d4a30;
+        color: #7af0ad;
     }
 
     .done-check svg {
