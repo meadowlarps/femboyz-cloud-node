@@ -714,13 +714,15 @@
 
     {#if mode === 'files' && uploadResultId && lastUpload}
         <div class="done" style={`min-height: ${lastUpload.height}px`} in:fly={{ y: 10, duration: ms(320), easing: cubicOut }}>
-            <div class="done-check" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+            <div class="done-summary">
+                <div class="done-check" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                </div>
+                <h2>Uploaded!</h2>
+                <p>
+                    {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
+                </p>
             </div>
-            <h2>Uploaded!</h2>
-            <p>
-                {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
-            </p>
             <div class="result-link">
                 <a href={`/${uploadResultId}`}><span class="host">femboyz.cloud/</span><b>{uploadResultId}</b></a>
                 <button class="fb-button copy" type="button" onclick={copyResultLink}>
@@ -1710,6 +1712,19 @@
         text-align: center;
     }
 
+    /* boxed like the link and buttons below it, so the message doesn't float loose in the card */
+    .done-summary {
+        display: grid;
+        justify-items: center;
+        gap: 0.2rem;
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 0.5rem;
+        padding: 1.1rem 1rem 1rem;
+        border: 1px solid #4b4246;
+        background: #191718;
+    }
+
     .done-check {
         display: grid;
         place-items: center;
@@ -1738,14 +1753,15 @@
         animation: draw 0.35s 0.25s ease-out forwards;
     }
 
+    .done-summary > :nth-child(n + 2),
     .done > :nth-child(n + 2) {
         animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
-    .done > :nth-child(2) { animation-delay: 0.1s; }
-    .done > :nth-child(3) { animation-delay: 0.15s; }
-    .done > :nth-child(4) { animation-delay: 0.22s; }
-    .done > :nth-child(5) { animation-delay: 0.29s; }
+    .done-summary > :nth-child(2) { animation-delay: 0.1s; }
+    .done-summary > :nth-child(3) { animation-delay: 0.15s; }
+    .done > :nth-child(2) { animation-delay: 0.22s; }
+    .done > :nth-child(3) { animation-delay: 0.29s; }
 
     @keyframes pop {
         from { transform: scale(0.4); opacity: 0; }
@@ -1765,7 +1781,7 @@
     }
 
     .done p {
-        margin: 0 0 0.85rem;
+        margin: 0;
         color: #8a8385;
         font-size: 0.8rem;
     }
@@ -1952,7 +1968,8 @@
         .upload-field.dragging .add-icon,
         .upload-fill::after,
         .done-check,
-        .done > * {
+        .done > *,
+        .done-summary > * {
             animation: none;
         }
 
