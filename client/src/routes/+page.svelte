@@ -350,7 +350,8 @@
                 if (!uploadStartedAt) uploadStartedAt = performance.now()
                 uploadProgress = progress
             }, token)
-            lastUpload = { count: files.length, bytes: totalBytes, isPublic }
+            // the done screen keeps the tray's height, so the card doesn't collapse under the pointer
+            lastUpload = { count: files.length, bytes: totalBytes, isPublic, height: composeEl?.offsetHeight ?? 0 }
             // a token covers a single upload — it has to be entered again for the next one
             if (token) tokenClose()
             uploadResultId = result.id
@@ -473,7 +474,8 @@
     // ── tray: thumbnails, totals, overall progress ──
     const thumbUrls = new WeakMap<File, string>()
     let uploadStartedAt = 0
-    let lastUpload = $state<{ count: number; bytes: number; isPublic: boolean } | null>(null)
+    let lastUpload = $state<{ count: number; bytes: number; isPublic: boolean; height: number } | null>(null)
+    let composeEl = $state<HTMLElement>()
     let totalBytes = $derived(files.reduce((sum, file) => sum + file.size, 0))
     let overallPercent = $derived(uploadProgress && uploadProgress.total > 0
         ? Math.round((uploadProgress.loaded / uploadProgress.total) * 100) : 0)
@@ -588,7 +590,7 @@
     </div>
 
     {#if mode === 'files' && uploadResultId && lastUpload}
-        <div class="done" in:fly={{ y: 10, duration: ms(320), easing: cubicOut }}>
+        <div class="done" style={`min-height: ${lastUpload.height}px`} in:fly={{ y: 10, duration: ms(320), easing: cubicOut }}>
             <div class="done-check" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
             </div>
@@ -615,7 +617,7 @@
             </div>
         </div>
     {:else}
-    <div class="compose" in:fade={{ duration: ms(220) }}>
+    <div class="compose" bind:this={composeEl} in:fade={{ duration: ms(220) }}>
         {#if mode !== 'link'}
             <input
                 class="title-input"
@@ -1529,7 +1531,9 @@
 
     /* ── done ── */
     .done {
+        box-sizing: border-box;
         display: grid;
+        align-content: center;
         justify-items: center;
         gap: 0.2rem;
         padding: 0.75rem 0 0.25rem;
