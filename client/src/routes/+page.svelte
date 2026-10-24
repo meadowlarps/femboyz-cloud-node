@@ -1165,17 +1165,17 @@
         position: relative;
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        padding: 2px;
+        padding: 4px;
         border: 1px solid #3b3538;
         background: #171515;
     }
 
     .mode-pill-indicator {
         position: absolute;
-        top: 2px;
-        bottom: 2px;
-        left: 2px;
-        width: calc((100% - 4px) / 3);
+        top: 4px;
+        bottom: 4px;
+        left: 4px;
+        width: calc((100% - 8px) / 3);
         background: var(--color-accent);
         transform: translateX(calc(var(--mode-index, 0) * 100%));
         transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
