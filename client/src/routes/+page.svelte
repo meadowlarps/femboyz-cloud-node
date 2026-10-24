@@ -614,17 +614,6 @@
         return { destroy: () => observer.disconnect() }
     }
 
-    // the done summary's veil: blur and darkening build up together over the finished tray
-    function veil(_node: Element, { duration }: { duration: number }) {
-        return {
-            duration,
-            easing: cubicOut,
-            css: (t: number) => `backdrop-filter: blur(${t * 10}px) brightness(${1 - t * 0.45});`
-                + `-webkit-backdrop-filter: blur(${t * 10}px) brightness(${1 - t * 0.45});`
-                + `background-color: rgb(20 18 19 / ${t * 0.45})`
-        }
-    }
-
     // ── tray: thumbnails, totals, overall progress ──
     const thumbUrls = new WeakMap<File, string>()
     let uploadStartedAt = 0
@@ -751,10 +740,10 @@
     <div class="compose">
         {#if mode !== 'link'}
             <div class="stage">
-                <!-- inert under the summary: the finished upload is shown, not edited -->
-                <div class="stage-content" inert={isDone}>
+                <div class="stage-content">
                     <input
                         class="title-input"
+                        inert={isDone}
                         bind:value={title}
                         type="text"
                         name="title"
@@ -767,6 +756,7 @@
                         <div class="mode-body" in:fade={{ duration: ms(200) }}>
                         <textarea
                             class="desc-input"
+                            inert={isDone}
                             bind:value={description}
                             name="description"
                             rows="1"
@@ -776,7 +766,9 @@
                             disabled={isUploading}
                         ></textarea>
 
-                        <ul class="tray" class:empty={files.length === 0} aria-label="Selected files" bind:this={trayEl}>
+                        <!-- on the done screen the finished upload is shown, not edited -->
+                        <div class="tray-wrap">
+                        <ul class="tray" class:empty={files.length === 0} aria-label="Selected files" bind:this={trayEl} class:veiled={isDone} inert={isDone}>
                             {#each trayItems as file, index (file ? fileKeys.get(file) : 'add')}
                                 {@const key = file ? fileKeys.get(file) : undefined}
                                 {@const reorderable = !!file && files.length > 1 && !isUploading}
@@ -868,21 +860,22 @@
                                 </li>
                             {/each}
                         </ul>
+
+                        {#if isDone && lastUpload}
+                            <div class="done-overlay" out:fade={{ duration: ms(200) }}>
+                                <div class="done-check" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                                </div>
+                                <h2>Uploaded!</h2>
+                                <p>
+                                    {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
+                                </p>
+                            </div>
+                        {/if}
+                        </div>
                         </div>
                     {/if}
                 </div>
-
-                {#if isDone && lastUpload}
-                    <div class="done-overlay" in:veil={{ duration: ms(420) }} out:veil={{ duration: ms(260) }}>
-                        <div class="done-check" aria-hidden="true">
-                            <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
-                        </div>
-                        <h2>Uploaded!</h2>
-                        <p>
-                            {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
-                        </p>
-                    </div>
-                {/if}
             </div>
         {/if}
 
@@ -1782,29 +1775,34 @@
     }
 
     /* ── done ── */
-    .stage {
-        position: relative;
-    }
-
     .stage-content {
         display: grid;
         gap: 0.85rem;
     }
 
-    /* the finished tray stays put; the summary sits on a blurred, darkened veil over it */
+    .tray-wrap {
+        position: relative;
+    }
+
+    /* the finished tray stays put, blurred, with the summary over it; a filter (not a backdrop) blur
+       bleeds softly past the tray's edges instead of stopping at a box */
+    .tray {
+        transition: filter 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tray.veiled {
+        filter: blur(14px);
+    }
+
     .done-overlay {
         position: absolute;
-        inset: -0.4rem 0;
+        inset: 0;
         z-index: 30;
         display: grid;
         align-content: center;
         justify-items: center;
         gap: 0.2rem;
-        padding: 1rem;
         text-align: center;
-        backdrop-filter: blur(10px) brightness(0.55);
-        -webkit-backdrop-filter: blur(10px) brightness(0.55);
-        background-color: rgb(20 18 19 / 0.45);
     }
 
     .done-check {
@@ -1857,16 +1855,18 @@
         from { transform: translateY(6px); opacity: 0; }
     }
 
+    /* no darkening behind them, so the words carry their own shadow against bright thumbnails */
     .done-overlay h2 {
         margin: 0;
         font-size: 1.15rem;
-        text-shadow: 0 1px 8px #0008;
+        text-shadow: 0 1px 2px #000a, 0 0 12px #000c;
     }
 
     .done-overlay p {
         margin: 0;
-        color: #c9c3c5;
+        color: #ece8e9;
         font-size: 0.8rem;
+        text-shadow: 0 1px 2px #000a, 0 0 10px #000c;
     }
 
     /* the button and its replacement share one cell, so the swap crossfades in place */
@@ -2063,7 +2063,8 @@
         .tile-bar,
         .thumb,
         .title-input,
-        .visibility-chip {
+        .visibility-chip,
+        .tray {
             transition: none;
         }
 
