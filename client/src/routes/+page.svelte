@@ -1716,6 +1716,13 @@
         color: #ffd3df;
     }
 
+    /* hovering an on chip previews the plain look, so the red tint clears along with the border and text */
+    .visibility-chip.on:hover:not(:disabled) {
+        border-color: var(--color-fb-white-semi);
+        background-color: transparent;
+        color: #fff;
+    }
+
     .visibility-chip:disabled {
         cursor: not-allowed;
         opacity: 0.6;
