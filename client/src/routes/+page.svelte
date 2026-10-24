@@ -695,7 +695,6 @@
 >
 <div class="panel-inner">
     <div class="panel-head">
-        <span class="eyebrow">New upload</span>
         <div class="mode-pills" role="tablist" style={`--mode-index: ${MODES.indexOf(mode)}`}>
             <span class="mode-pill-indicator" aria-hidden="true"></span>
             {#each MODES as m}
@@ -1131,14 +1130,8 @@
     .panel-head {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-end;
         gap: 1rem;
-    }
-
-    .eyebrow {
-        color: #8a8385;
-        font-size: 0.85rem;
-        letter-spacing: 0.02em;
     }
 
     .mode-pills {
