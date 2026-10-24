@@ -1033,8 +1033,6 @@
                     <span class="meta-limits">
                         {#if mode === 'files' && effectiveLimits}
                             {files.length} / {effectiveLimits.maxcount} files
-                        {:else if mode === 'note'}
-                            {isPublic ? 'Shown in the gallery' : 'Anyone with the link'}
                         {/if}
                     </span>
                 </div>
