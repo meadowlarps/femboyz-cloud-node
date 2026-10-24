@@ -12,6 +12,9 @@
 
     type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'archive' | 'document' | 'binary'
 
+    // Keep two readable rows even for uploads with a raised file limit.
+    const FILE_ICON_LIMIT = 10
+
     // A card whose first media is slow (a big video on a slow link, or Safari
     // skipping its first frame under preload="metadata") shows up after this
     // long anyway, with the media area still shimmering until it arrives.
@@ -48,6 +51,10 @@
     let returnTimer: ReturnType<typeof setTimeout> | undefined
 
     const files = $derived(data?.files ?? [])
+    const fileIconColumns = $derived(Math.max(1, Math.ceil(Math.min(files.length, FILE_ICON_LIMIT) / 2)))
+    const previewFiles = $derived(files.slice(0, files.length > FILE_ICON_LIMIT ? FILE_ICON_LIMIT - 1 : FILE_ICON_LIMIT))
+    const fileIconRows = $derived([previewFiles.slice(0, fileIconColumns), previewFiles.slice(fileIconColumns)])
+    const remainingFileCount = $derived(files.length - previewFiles.length)
     const hasMultiple = $derived(files.length > 1)
     const label = $derived(data?.meta.title || id)
     const typeLabel = $derived(data ? buildMiniUploadTypeLabel(data) : '')
@@ -361,10 +368,22 @@
                 {:else}
                     <a class="file-stage" href={uploadUrl} aria-label={`Open ${label}`}>
                         <span class="type-badge">{typeLabel}</span>
-                        <span class="file-icons" aria-hidden="true">
-                            {#each files as file (file.index)}
-                                <span class="file-icon" data-kind={mimeKind(file.mime)}>
-                                    {mimeLabel(file.mime)}
+                        <span
+                            class="file-icons"
+                            style:--icon-columns={fileIconColumns}
+                            style:--icon-rows={files.length > 1 ? 2 : 1}
+                            aria-hidden="true"
+                        >
+                            {#each fileIconRows as row, rowIndex}
+                                <span class="file-icon-row">
+                                    {#each row as file (file.index)}
+                                        <span class="file-icon" data-kind={mimeKind(file.mime)}>
+                                            {mimeLabel(file.mime)}
+                                        </span>
+                                    {/each}
+                                    {#if rowIndex === 1 && remainingFileCount > 0}
+                                        <span class="file-icon">+{remainingFileCount}</span>
+                                    {/if}
                                 </span>
                             {/each}
                         </span>
@@ -599,6 +618,7 @@
     .file-stage {
         display: grid;
         place-items: center;
+        container-type: inline-size;
         color: inherit;
         text-decoration: none;
     }
@@ -625,23 +645,42 @@
     }
 
     .file-icons {
+        --icon-gap: clamp(0.35rem, 2cqi, 0.65rem);
+        /* Fit both the row width and the 4:3 stage below its badge. */
+        --icon-size: min(
+            5.5rem,
+            calc((100cqi - 1.5rem - (var(--icon-columns) - 1) * var(--icon-gap)) / var(--icon-columns)),
+            calc((75cqi - 4rem - (var(--icon-rows) - 1) * var(--icon-gap)) / var(--icon-rows))
+        );
         display: grid;
-        grid-template-columns: repeat(auto-fit, 3.3rem);
         place-content: center;
-        gap: 0.5rem;
+        gap: var(--icon-gap);
         width: 100%;
         padding: 3rem 0.75rem 1rem;
         box-sizing: border-box;
+    }
+
+    .file-icon-row {
+        display: flex;
+        justify-content: center;
+        gap: var(--icon-gap);
+    }
+
+    .file-icon-row:empty {
+        display: none;
     }
 
     .file-icon {
         --icon-color: #918a8d;
         display: grid;
         place-items: center;
+        flex: 0 0 var(--icon-size);
+        width: var(--icon-size);
         aspect-ratio: 1;
+        box-sizing: border-box;
         color: var(--icon-color);
         border: 1px solid currentColor;
-        font-size: 0.55rem;
+        font-size: clamp(0.55rem, calc(var(--icon-size) * 0.18), 0.85rem);
         font-weight: 800;
         letter-spacing: 0.04em;
         box-shadow: inset 0 -0.25rem 0 rgb(255 255 255 / 4%);
