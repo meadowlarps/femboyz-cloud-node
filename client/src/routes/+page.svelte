@@ -1947,6 +1947,7 @@
     }
 
     .field-hint {
+        margin-top: 0.3rem;
         color: #6a6468;
         font-size: 0.78rem;
     }
