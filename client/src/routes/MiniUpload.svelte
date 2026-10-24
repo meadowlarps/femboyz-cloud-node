@@ -51,7 +51,8 @@
     let returnTimer: ReturnType<typeof setTimeout> | undefined
 
     const files = $derived(data?.files ?? [])
-    const fileIconColumns = $derived(Math.max(1, Math.ceil(Math.min(files.length, FILE_ICON_LIMIT) / 2)))
+    const fileIconRowCount = $derived(files.length <= 1 || files.length === 3 ? 1 : 2)
+    const fileIconColumns = $derived(Math.max(1, Math.ceil(Math.min(files.length, FILE_ICON_LIMIT) / fileIconRowCount)))
     const previewFiles = $derived(files.slice(0, files.length > FILE_ICON_LIMIT ? FILE_ICON_LIMIT - 1 : FILE_ICON_LIMIT))
     const fileIconRows = $derived([previewFiles.slice(0, fileIconColumns), previewFiles.slice(fileIconColumns)])
     const remainingFileCount = $derived(files.length - previewFiles.length)
@@ -371,7 +372,7 @@
                         <span
                             class="file-icons"
                             style:--icon-columns={fileIconColumns}
-                            style:--icon-rows={files.length > 1 ? 2 : 1}
+                            style:--icon-rows={fileIconRowCount}
                             aria-hidden="true"
                         >
                             {#each fileIconRows as row, rowIndex}
