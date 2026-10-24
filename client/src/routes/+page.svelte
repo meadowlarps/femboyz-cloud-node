@@ -64,6 +64,11 @@
     let uploadError = $state('')
     let uploadResultId = $state('')
     let isUploading = $state(false)
+    // hashing small files takes a blink: "Preparing…" only shows once it has run this long
+    const PREPARING_DELAY_MS = 1000
+    // the finished bar and the last tile's tick get a beat before the done screen takes over
+    const DONE_HOLD_MS = 500
+    let preparingShown = $state(false)
     let uploadProgress = $state<UploadProgress>()
     let tokenOpen = $state(false)
     let tokenValue = $state('')
@@ -281,7 +286,7 @@
 
     function handleDragOver(event: DragEvent) {
         event.preventDefault()
-        if (!effectiveLimits || isFileLimitReached) return
+        if (!effectiveLimits || isFileLimitReached || isUploading) return
         isDragging = true
     }
 
@@ -292,7 +297,7 @@
     function handleDrop(event: DragEvent) {
         event.preventDefault()
         isDragging = false
-        if (!effectiveLimits || isFileLimitReached) return
+        if (!effectiveLimits || isFileLimitReached || isUploading) return
         processFiles(Array.from(event.dataTransfer?.files ?? []))
     }
 
@@ -467,12 +472,15 @@
 
         const token = tokenLimits ? tokenValue.trim() : undefined
         uploadStartedAt = 0
+        const preparingTimer = setTimeout(() => { preparingShown = true }, PREPARING_DELAY_MS)
         try {
             isUploading = true
             const result = await sendUpload(apiEndpoint, files, title, description, isPublic, (progress) => {
                 if (!uploadStartedAt) uploadStartedAt = performance.now()
                 uploadProgress = progress
             }, token)
+            clearTimeout(preparingTimer)
+            if (uploadShown) await new Promise((resolve) => setTimeout(resolve, ms(DONE_HOLD_MS)))
             lastUpload = { count: files.length, bytes: totalBytes, isPublic }
             // a token covers a single upload — it has to be entered again for the next one
             if (token) tokenClose()
@@ -488,6 +496,8 @@
             }
             spawnAlert('error', `Upload failed: ${uploadError}`)
         } finally {
+            clearTimeout(preparingTimer)
+            preparingShown = false
             isUploading = false
         }
     }
@@ -634,14 +644,19 @@
         return left < 1 ? '' : left < 60 ? `~${Math.ceil(left)} s` : `~${Math.ceil(left / 60)} min`
     })
 
-    // the add tile rides along in the keyed list so it glides with the others when tiles come and go
-    let trayItems = $derived<(File | null)[]>(!isFileLimitReached && !isUploading && !isDone ? [...files, null] : files)
+    // the add tile rides along in the keyed list so it glides with the others when tiles come and go;
+    // it stays (locked) through the upload and the done screen, so the tray never reshapes under them
+    let trayItems = $derived<(File | null)[]>(!isFileLimitReached ? [...files, null] : files)
+    let trayLocked = $derived(isUploading || isDone)
+    // the upload shows itself once bytes move, or once preparing has dragged on; until then the button
+    // and tiles keep their resting look, so a quick upload doesn't flash through states
+    let uploadShown = $derived(isUploading && mode === 'files' && (!!uploadProgress || preparingShown))
     let publicLabelWidth = $state(0)
     let linkLabelWidth = $state(0)
     let chipWidth = $derived(isPublic ? publicLabelWidth : linkLabelWidth)
-    let buttonLabelKey = $derived(isUploading
+    let buttonLabelKey = $derived(uploadShown
         ? (uploadProgress ? 'progress' : 'preparing')
-        : `${mode}:${files.length}`)
+        : isUploading && mode !== 'files' ? 'working' : `${mode}:${files.length}`)
 
     function thumbKind(file: File) {
         return file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'other'
@@ -669,7 +684,7 @@
     function tileState(index: number): 'idle' | 'queued' | 'active' | 'done' {
         const progress = fileProgress(index)
         if (progress && progress.total > 0 && progress.loaded >= progress.total) return 'done'
-        if (!isUploading) return 'idle'
+        if (!uploadShown) return 'idle'
         return progress && progress.loaded > 0 ? 'active' : 'queued'
     }
 
@@ -770,6 +785,7 @@
                                 <li
                                     class="tile"
                                     class:add-tile={!file}
+                                    class:locked={!file && trayLocked}
                                     class:reorderable
                                     class:reordering={key !== undefined && key === reorderKey}
                                     data-key={key}
@@ -846,7 +862,7 @@
                                             {:else}
                                                 <span>Add more</span>
                                             {/if}
-                                            <input class="file-input" type="file" id="file_input" multiple hidden onchange={addFiles} />
+                                            <input class="file-input" type="file" id="file_input" multiple hidden disabled={trayLocked} onchange={addFiles} />
                                         </label>
                                     {/if}
                                 </li>
@@ -970,7 +986,8 @@
                 <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
                 <button
                     class="upload-button"
-                    class:busy={isUploading}
+                    class:busy={uploadShown || (isUploading && mode !== 'files')}
+                    class:pending={isUploading && mode === 'files' && !uploadShown}
                     type="button"
                     title={mode === 'files' ? 'Hold to enter an upload token' : undefined}
                     aria-disabled={uploadDisabled}
@@ -981,12 +998,12 @@
                     onpointercancel={tokenHoldCancel}
                     oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
                 >
-                    {#if isUploading && mode === 'files'}
+                    {#if uploadShown}
                         <span class="upload-fill" class:indeterminate={!uploadProgress} style={uploadProgress ? `width: ${overallPercent}%` : undefined}></span>
                     {/if}
                     {#key buttonLabelKey}
-                        <span class="upload-label" class:centered={!(isUploading && mode === 'files')} in:fly={{ y: 6, duration: ms(220), easing: cubicOut }}>
-                            {#if isUploading && mode === 'files'}
+                        <span class="upload-label" class:centered={!uploadShown} in:fly={{ y: 6, duration: ms(220), easing: cubicOut }}>
+                            {#if uploadShown}
                                 <span>{uploadProgress ? `${Math.min(filesDone + 1, files.length)} of ${files.length}` : 'Preparing…'}</span>
                                 {#if uploadProgress}
                                     <small>{overallPercent}% · {formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}{etaLabel ? ` · ${etaLabel}` : ''}</small>
@@ -1500,7 +1517,12 @@
     .add-tile {
         border: 2px dashed #4b4246;
         background: none;
-        transition: border-color 0.15s, background-color 0.15s;
+        transition: border-color 0.15s, background-color 0.15s, opacity 0.3s ease-out;
+    }
+
+    .add-tile.locked {
+        opacity: 0.4;
+        pointer-events: none;
     }
 
     .add-tile:hover,
@@ -1605,6 +1627,7 @@
     }
 
     .upload-button:not(.busy):not([aria-disabled='true']):hover,
+    .upload-button.pending:hover,
     .upload-button:not(.busy):focus-visible {
         color: #060606;
         background-color: var(--color-fb-white);
@@ -1615,7 +1638,12 @@
         cursor: progress;
     }
 
-    .upload-button[aria-disabled='true']:not(.busy) {
+    /* pending: started, but too briefly to show; it keeps its resting look */
+    .upload-button.pending {
+        cursor: progress;
+    }
+
+    .upload-button[aria-disabled='true']:not(.busy):not(.pending) {
         cursor: not-allowed;
         opacity: 0.55;
     }
@@ -1625,7 +1653,14 @@
         inset: 0 auto 0 0;
         overflow: hidden;
         background: var(--color-accent);
+        transform-origin: left;
         transition: width 0.4s ease-out;
+        /* a quick upload's first progress event can already be 100%; sweep in rather than appear full */
+        animation: fill-in 0.4s ease-out;
+    }
+
+    @keyframes fill-in {
+        from { transform: scaleX(0); }
     }
 
     /* a soft sheen runs along the filled part while bytes are moving */
@@ -2033,6 +2068,7 @@
         }
 
         .upload-field.dragging .add-icon,
+        .upload-fill,
         .upload-fill::after,
         .done-check,
         .done-overlay > *,
