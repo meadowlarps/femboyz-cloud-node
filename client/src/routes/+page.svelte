@@ -1,8 +1,9 @@
 <script lang="ts">
     import { onMount, tick } from 'svelte'
-    import { fade, slide } from 'svelte/transition';
+    import { fade, fly, scale, slide } from 'svelte/transition'
     import { flip } from 'svelte/animate'
-    import { cubicInOut } from 'svelte/easing'
+    import { backOut, cubicInOut, cubicOut } from 'svelte/easing'
+    import { prefersReducedMotion } from 'svelte/motion'
     import type { PageData } from './$types'
     import {
         type UploadLimits,
@@ -25,8 +26,9 @@
 
     const GALLERY_REFRESH_MS = 30_000
     const REORDER_DRAG_THRESHOLD_PX = 4
-    const REORDER_HOLD_MS = 300             // touch: a long press anywhere on a row picks it up
+    const REORDER_HOLD_MS = 300             // touch: a long press on a tile picks it up
     const REORDER_HOLD_SLOP_PX = 8          // moving further than this before the hold fires is a scroll
+    const TRAY_COLUMNS = 3                  // matches .tray's grid-template-columns, for Up/Down
     const TOKEN_HOLD_MS = 600
     const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
@@ -75,13 +77,14 @@
     let tokenPending = $derived(tokenOpen && tokenValue.trim() !== '' && !tokenLimits)
     let isFileLimitReached = $derived(effectiveLimits ? files.length >= effectiveLimits.maxcount : false)
     let isDragging = $state(false)
-    let fileListEl = $state<HTMLUListElement>()
-    // row being dragged to reorder, and its offset from the slot it currently occupies
+    let trayEl = $state<HTMLUListElement>()
+    // tile being dragged to reorder, and its offset from the slot it currently occupies
     let reorderKey = $state<number>()
-    let reorderOffset = $state(0)
-    // armed: movement drags the row (mouse and handle at once, touch elsewhere after the long press)
-    let reorderPending: { key: number, node: HTMLElement, startY: number, startTop: number, armed: boolean } | undefined
-    let reorderPointerY = 0
+    let reorderOffset = $state({ x: 0, y: 0 })
+    // armed: movement drags the tile (mouse at once, touch after the long press)
+    let reorderPending: {
+        key: number, node: HTMLElement, startX: number, startY: number, startLeft: number, startTop: number, armed: boolean
+    } | undefined
     let reorderHoldTimer: ReturnType<typeof setTimeout> | undefined
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
@@ -203,10 +206,6 @@
         if (tokenOpen) tokenInput?.focus()
     })
 
-    $effect(() => {
-        if (title.length === 0) description = ''
-    })
-
     function tokenHoldStart(event: PointerEvent) {
         if (mode !== 'files' || isUploading || event.button !== 0) return
         tokenHoldFired = false
@@ -298,6 +297,7 @@
     }
 
     function removeFile(index: number) {
+        releaseThumb(files[index])
         files = files.filter((_, fileIndex) => fileIndex !== index)
         uploadProgress = undefined
         clearProgressTimers()
@@ -316,17 +316,19 @@
 
     function reorderStart(event: PointerEvent, file: File) {
         if (isUploading || files.length < 2 || event.button !== 0) return
-        const target = event.target as HTMLElement
-        const fromHandle = target.closest('.drag-handle') !== null
-        if (target.closest('button') && !fromHandle) return
-        const armed = event.pointerType === 'mouse' || fromHandle
+        if ((event.target as HTMLElement).closest('button')) return
+        const armed = event.pointerType === 'mouse'
+        // also keeps the browser from starting a native drag of the thumbnail image
         if (armed) event.preventDefault()
         const node = event.currentTarget as HTMLElement
         node.setPointerCapture(event.pointerId)
-        const pending = { key: fileKeys.get(file)!, node, startY: event.clientY, startTop: node.offsetTop, armed }
+        const pending = {
+            key: fileKeys.get(file)!, node, startX: event.clientX, startY: event.clientY,
+            startLeft: node.offsetLeft, startTop: node.offsetTop, armed
+        }
         reorderPending = pending
         if (armed) return
-        // touch elsewhere on the row scrolls the page, unless the finger holds still first
+        // a touch scrolls the page, unless the finger holds still first
         clearTimeout(reorderHoldTimer)
         reorderHoldTimer = setTimeout(() => {
             if (reorderPending !== pending) return
@@ -338,58 +340,77 @@
 
     // touchmove has to be non-passive to stop the page scrolling under an armed drag
     $effect(() => {
-        const list = fileListEl
-        if (!list) return
+        const tray = trayEl
+        if (!tray) return
         const block = (event: Event) => { if (reorderPending?.armed) event.preventDefault() }
-        list.addEventListener('touchmove', block, { passive: false })
-        list.addEventListener('contextmenu', block)
+        tray.addEventListener('touchmove', block, { passive: false })
+        tray.addEventListener('contextmenu', block)
         return () => {
-            list.removeEventListener('touchmove', block)
-            list.removeEventListener('contextmenu', block)
+            tray.removeEventListener('touchmove', block)
+            tray.removeEventListener('contextmenu', block)
         }
     })
 
     async function reorderMove(event: PointerEvent) {
         const pending = reorderPending
         if (!pending) return
-        reorderPointerY = event.clientY
+        const dx = event.clientX - pending.startX
+        const dy = event.clientY - pending.startY
         if (!pending.armed) {
-            if (Math.abs(event.clientY - pending.startY) > REORDER_HOLD_SLOP_PX) reorderEnd()
+            if (Math.hypot(dx, dy) > REORDER_HOLD_SLOP_PX) reorderEnd()
             return
         }
         if (reorderKey === undefined) {
-            if (Math.abs(event.clientY - pending.startY) < REORDER_DRAG_THRESHOLD_PX) return
+            if (Math.hypot(dx, dy) < REORDER_DRAG_THRESHOLD_PX) return
             reorderKey = pending.key
         }
 
-        // offsetTop ignores transforms, so rows mid-flip don't skew the comparison
+        // the dragged tile drops into the slot whose centre is nearest its own;
+        // offsetLeft/Top ignore transforms, so tiles mid-flip don't skew the comparison
         const node = pending.node
-        const top = pending.startTop + reorderPointerY - pending.startY
-        const center = top + node.offsetHeight / 2
-        const rows = Array.from(fileListEl?.querySelectorAll<HTMLElement>(':scope > li[data-key]') ?? [])
-        const from = rows.indexOf(node)
-        const to = rows.filter((row) => row !== node && row.offsetTop + row.offsetHeight / 2 < center).length
+        const x = pending.startLeft + dx + node.offsetWidth / 2
+        const y = pending.startTop + dy + node.offsetHeight / 2
+        const tiles = Array.from(trayEl?.querySelectorAll<HTMLElement>(':scope > li[data-key]') ?? [])
+        const from = tiles.indexOf(node)
+        let to = from
+        let best = Infinity
+        tiles.forEach((tile, index) => {
+            const distance = Math.hypot(
+                tile.offsetLeft + tile.offsetWidth / 2 - x,
+                tile.offsetTop + tile.offsetHeight / 2 - y
+            )
+            if (distance < best) {
+                best = distance
+                to = index
+            }
+        })
         if (from !== -1 && to !== from) {
             moveFile(from, to)
             await tick()
         }
         if (reorderPending === pending)
-            reorderOffset = pending.startTop + reorderPointerY - pending.startY - node.offsetTop
+            reorderOffset = { x: pending.startLeft + dx - node.offsetLeft, y: pending.startTop + dy - node.offsetTop }
     }
 
     function reorderEnd() {
         clearTimeout(reorderHoldTimer)
         reorderPending = undefined
         reorderKey = undefined
-        reorderOffset = 0
+        reorderOffset = { x: 0, y: 0 }
     }
 
-    function reorderKeydown(event: KeyboardEvent, index: number) {
-        if (isUploading) return
-        if (event.key === 'ArrowUp') moveFile(index, index - 1)
-        else if (event.key === 'ArrowDown') moveFile(index, index + 1)
-        else return
+    async function reorderKeydown(event: KeyboardEvent, index: number) {
+        if (isUploading || event.target !== event.currentTarget) return
+        const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -TRAY_COLUMNS, ArrowDown: TRAY_COLUMNS }[event.key]
+        if (step === undefined) return
         event.preventDefault()
+        const to = Math.max(0, Math.min(files.length - 1, index + step))
+        if (to === index) return
+        const tile = event.currentTarget as HTMLElement
+        moveFile(index, to)
+        // the keyed {#each} moves the same element, but focus can drop on the way
+        await tick()
+        tile.focus()
     }
 
     function ignoreUpload(id: string) {
@@ -445,17 +466,20 @@
         clearProgressTimers()
 
         const token = tokenLimits ? tokenValue.trim() : undefined
+        uploadStartedAt = 0
         try {
             isUploading = true
             const result = await sendUpload(apiEndpoint, files, title, description, isPublic, (progress) => {
+                if (!uploadStartedAt) uploadStartedAt = performance.now()
                 uploadProgress = progress
             }, token)
+            // the done screen keeps the tray's height, so the card doesn't collapse under the pointer
+            lastUpload = { count: files.length, bytes: totalBytes, isPublic, height: composeEl?.offsetHeight ?? 0 }
             // a token covers a single upload — it has to be entered again for the next one
             if (token) tokenClose()
             uploadResultId = result.id
             addToHistory(result.id)
             uploadHistory = getHistory()
-            spawnAlert('success', `Upload complete: ${result.id}`)
             if (isPublic) void refreshGallery()
         } catch (error) {
             uploadError = error instanceof Error ? error.message : 'Upload failed'
@@ -528,7 +552,129 @@
         if (!progress || progress.total === 0) return 0
 
         return Math.round((progress.loaded / progress.total) * 100)
-    }    
+    }
+
+    // ── motion ──
+    // Svelte transitions ignore prefers-reduced-motion on their own, so every duration goes through here
+    const ms = (duration: number) => prefersReducedMotion.current ? 0 : duration
+
+    // Animates the card's height whenever its content jumps (files picked, upload done, mode switched).
+    // Small steps are left alone: those come from the slide transitions inside, which animate themselves.
+    function smoothHeight(card: HTMLElement) {
+        const inner = card.firstElementChild as HTMLElement
+        let animation: Animation | undefined
+        let lastTarget = inner.offsetHeight
+        // by the time the observer reports, the card has already taken its new height, so remember the old one
+        let lastHeight = card.offsetHeight
+
+        const observer = new ResizeObserver(() => {
+            const style = getComputedStyle(card)
+            const chrome = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+                + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+            const target = inner.offsetHeight
+            // mid-animation the card still shows the animated height, which is where the next one starts
+            const from = animation?.playState === 'running' ? card.getBoundingClientRect().height : lastHeight
+            const jump = Math.abs(target - lastTarget)
+            lastTarget = target
+            lastHeight = target + chrome
+            if (jump < 24 || prefersReducedMotion.current) return
+
+            animation?.cancel()
+            card.style.overflow = 'clip'
+            const current = card.animate(
+                [{ height: `${from}px` }, { height: `${lastHeight}px` }],
+                { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+            )
+            animation = current
+            // a cancelled animation reports in late, after its replacement has started
+            current.onfinish = current.oncancel = () => { if (animation === current) card.style.overflow = '' }
+        })
+
+        observer.observe(inner)
+        return { destroy: () => observer.disconnect() }
+    }
+
+    // ── tray: thumbnails, totals, overall progress ──
+    const thumbUrls = new WeakMap<File, string>()
+    let uploadStartedAt = 0
+    let lastUpload = $state<{ count: number; bytes: number; isPublic: boolean; height: number } | null>(null)
+    let composeEl = $state<HTMLElement>()
+    let totalBytes = $derived(files.reduce((sum, file) => sum + file.size, 0))
+    let overallPercent = $derived(uploadProgress && uploadProgress.total > 0
+        ? Math.round((uploadProgress.loaded / uploadProgress.total) * 100) : 0)
+    let filesDone = $derived(uploadProgress
+        ? uploadProgress.files.filter((fp) => fp.total > 0 && fp.loaded >= fp.total).length : 0)
+    let etaLabel = $derived.by(() => {
+        if (!uploadProgress || !uploadStartedAt || uploadProgress.loaded === 0) return ''
+        const elapsed = (performance.now() - uploadStartedAt) / 1000
+        if (elapsed < 1) return ''
+        const left = (uploadProgress.total - uploadProgress.loaded) / (uploadProgress.loaded / elapsed)
+        return left < 1 ? '' : left < 60 ? `~${Math.ceil(left)} s` : `~${Math.ceil(left / 60)} min`
+    })
+
+    // the add tile rides along in the keyed list so it glides with the others when tiles come and go
+    let trayItems = $derived<(File | null)[]>(!isFileLimitReached && !isUploading ? [...files, null] : files)
+    let publicLabelWidth = $state(0)
+    let linkLabelWidth = $state(0)
+    let chipWidth = $derived(isPublic ? publicLabelWidth : linkLabelWidth)
+    let buttonLabelKey = $derived(isUploading
+        ? (uploadProgress ? 'progress' : 'preparing')
+        : `${mode}:${files.length}`)
+
+    function thumbKind(file: File) {
+        return file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'other'
+    }
+
+    function thumbUrl(file: File) {
+        let url = thumbUrls.get(file)
+        if (!url) {
+            url = URL.createObjectURL(file)
+            thumbUrls.set(file, url)
+        }
+        return url
+    }
+
+    function releaseThumb(file: File) {
+        const url = thumbUrls.get(file)
+        if (url) URL.revokeObjectURL(url)
+        thumbUrls.delete(file)
+    }
+
+    function fileExt(file: File) {
+        return /\.([a-z0-9]{1,5})$/i.exec(file.name)?.[1].toUpperCase() ?? 'FILE'
+    }
+
+    function tileState(index: number): 'idle' | 'queued' | 'active' | 'done' {
+        const progress = fileProgress(index)
+        if (progress && progress.total > 0 && progress.loaded >= progress.total) return 'done'
+        if (!isUploading) return 'idle'
+        return progress && progress.loaded > 0 ? 'active' : 'queued'
+    }
+
+    function trayDragLeave(event: DragEvent) {
+        const card = event.currentTarget as HTMLElement
+        if (!card.contains(event.relatedTarget as Node | null)) isDragging = false
+    }
+
+    function startNewUpload() {
+        for (const file of files) releaseThumb(file)
+        files = []
+        title = ''
+        description = ''
+        uploadResultId = ''
+        uploadProgress = undefined
+        lastUpload = null
+        clearProgressTimers()
+    }
+
+    async function copyResultLink() {
+        try {
+            await navigator.clipboard.writeText(new URL(`/${uploadResultId}`, window.location.href).href)
+            spawnAlert('success', 'Link copied')
+        } catch {
+            spawnAlert('error', 'Could not copy link')
+        }
+    }
 </script>
 
 <svelte:head>
@@ -537,189 +683,198 @@
 
 <div class="page-layout">
 <div class="upload-sidebar">
-<div class="upload-field">
-    <div class="mode-switcher" style={`--mode-index: ${MODES.indexOf(mode)}`}>
-        <span class="mode-indicator" aria-hidden="true"></span>
-        <button class="mode-tab" class:active={mode === 'files'} type="button" onclick={() => switchMode('files')}>Files</button>
-        <button class="mode-tab" class:active={mode === 'link'} type="button" onclick={() => switchMode('link')}>Link</button>
-        <button class="mode-tab" class:active={mode === 'note'} type="button" onclick={() => switchMode('note')}>Note</button>
-    </div>
-
-    <div class="field-header">
-        <div>
-            <h1>New upload</h1>
-            {#if mode === 'files'}
-                <p>Add details and choose one or more files</p>
-                {#if tokenLimits?.token}
-                    <p class="limit-note token-note">{tokenSummary(tokenLimits.token)}</p>
-                {:else if uploadLimits}
-                    <p class="limit-note">
-                        Up to {uploadLimits.maxcount} files, {displayedFileSizeLimit(uploadLimits)} each.
-                    </p>
-                {/if}
-            {:else if mode === 'note'}
-                <p>Share a piece of text</p>
-                <p class="limit-note">Up to {noteMaxLength.toLocaleString()} characters.</p>
-            {:else}
-                <p>Shorten a link</p>
-                <p>Automatically copied to clipboard</p>
-            {/if}
-        </div>
-    </div>
-
-    {#if mode === 'files'}
-        <div in:slide out:slideOut>
-            <label class="form-field">
-                <input
-                    bind:value={title}
-                    type="text"
-                    name="title"
-                    placeholder="Upload title"
-                    maxlength={effectiveLimits?.max_title_length}
-                />
-                {#if uploadLimits && title.length > 0}
-                    <span class="char-counter" class:near-limit={title.length >= uploadLimits.max_title_length * 0.85}>
-                        {title.length}/{uploadLimits.max_title_length}
-                    </span>
-                {/if}
-            </label>
-        </div>
-
-        {#if title.length > 0}
-            <div in:slide out:slideOut>
-                <label class="form-field">
-                    <textarea
-                        bind:value={description}
-                        name="description"
-                        rows="3"
-                        placeholder="Description"
-                        maxlength={uploadLimits?.max_desc_length}
-                    ></textarea>
-                    {#if uploadLimits && description.length > 0}
-                        <span class="char-counter" class:near-limit={description.length >= uploadLimits.max_desc_length * 0.85}>
-                            {description.length}/{uploadLimits.max_desc_length}
-                        </span>
-                    {/if}
-                </label>
-            </div>
-        {/if}
-
-        <ul in:slide out:slideOut class="file-list" aria-label="Selected files" bind:this={fileListEl}>
-            {#each files as file, index (fileKeys.get(file))}
-                {@const key = fileKeys.get(file)!}
-                <li
-                    in:slide
-                    out:slideOut
-                    animate:flip={{ duration: key === reorderKey ? 0 : 200 }}
-                    data-key={key}
-                    class:reorderable={files.length > 1 && !isUploading}
-                    class:reordering={key === reorderKey}
-                    style={key === reorderKey ? `transform: translateY(${reorderOffset}px)` : undefined}
-                    onpointerdown={(event) => reorderStart(event, file)}
-                    onpointermove={reorderMove}
-                    onpointerup={reorderEnd}
-                    onpointercancel={reorderEnd}
-                >
-                    {#if fileProgress(index) && !hiddenProgressIndexes.has(index)}
-                        <div transition:fade class="upload-progressbar" aria-hidden="true">
-                            <div
-                                class="upload-progressbar-value"
-                                class:done={progressPercent(index) === 100}
-                                style={`width: ${progressPercent(index)}%`}
-                            ></div>
-                        </div>
-                    {/if}
-
-                    {#if files.length > 1}
-                        <button
-                            class="drag-handle"
-                            type="button"
-                            aria-label={`Move ${file.name}, position ${index + 1} of ${files.length}. Use arrow keys to reorder`}
-                            title="Drag to reorder"
-                            disabled={isUploading}
-                            onkeydown={(event) => reorderKeydown(event, index)}
-                        >
-                            <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">
-                                <circle cx="2" cy="2" r="1.5" /><circle cx="8" cy="2" r="1.5" />
-                                <circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" />
-                                <circle cx="2" cy="14" r="1.5" /><circle cx="8" cy="14" r="1.5" />
-                            </svg>
-                        </button>
-                    {/if}
-
-                    <div class="index">
-                        <span>{index + 1}</span>
-                    </div>
-
-                    <div class="file-label">
-                        <strong>{file.name}</strong>
-                        <span>{formatFileSize(file.size)}</span>
-                    </div>
-
-                    <button
-                        class="file-action-button remove-button fb-button"
-                        type="button"
-                        onclick={() => removeFile(index)} disabled={isUploading}
-                    >
-                        Remove
-                    </button>
-                </li>
-            {/each}
-
-            {#if !isFileLimitReached}
-                <li in:slide out:slideOut>
-                    <label
-                        id="drop-area"
-                        for="file_input"
-                        class:highlight={isDragging}
-                        ondragover={handleDragOver}
-                        ondragleave={handleDragLeave}
-                        ondrop={handleDrop}
-                    >
-                        <div class="drop-text">
-                            Drag & drop files here or click to upload
-                        </div>
-                        <input
-                            class="file-input"
-                            type="file"
-                            id="file_input"
-                            multiple
-                            hidden
-                            onchange={addFiles}
-                        />
-                    </label>
-                </li>
-            {/if}
-        </ul>
-
-        {#if limitsError}
-            <p in:slide|global out:slideOut|global class="error-message">Something is wrong: {limitsError}</p>
-        {/if}
-
-        {#if fileErrors.length > 0}
-            <ul in:slide|global out:slideOut|global class="error-list" aria-label="File selection errors">
-                {#each fileErrors as error}
-                    <li>{error}</li>
-                {/each}
-            </ul>
-        {/if}
-    {:else if mode === 'note'}
-        <div in:slide out:slideOut>
-            <label class="form-field">
-                <input
-                    bind:value={title}
-                    type="text"
-                    name="title"
-                    placeholder="Note title (optional)"
-                    aria-label="Note title"
-                    maxlength={uploadLimits?.max_title_length}
+<div
+    class="upload-field"
+    class:dragging={isDragging && mode === 'files'}
+    role="region"
+    aria-label="New upload"
+    use:smoothHeight
+    ondragover={(event) => { if (mode === 'files' && !uploadResultId) handleDragOver(event) }}
+    ondragleave={trayDragLeave}
+    ondrop={(event) => { if (mode === 'files' && !uploadResultId) handleDrop(event) }}
+>
+<div class="panel-inner">
+    <div class="panel-head">
+        <span class="eyebrow">New upload</span>
+        <div class="mode-pills" role="tablist" style={`--mode-index: ${MODES.indexOf(mode)}`}>
+            <span class="mode-pill-indicator" aria-hidden="true"></span>
+            {#each MODES as m}
+                <button
+                    class="mode-pill"
+                    class:active={mode === m}
+                    role="tab"
+                    aria-selected={mode === m}
+                    type="button"
                     disabled={isUploading}
-                />
-            </label>
+                    onclick={() => switchMode(m)}
+                >{m === 'files' ? 'Files' : m === 'link' ? 'Link' : 'Note'}</button>
+            {/each}
         </div>
+    </div>
 
-        <div in:slide out:slideOut>
-            <label class="form-field">
+    {#if mode === 'files' && uploadResultId && lastUpload}
+        <div class="done" style={`min-height: ${lastUpload.height}px`} in:fly={{ y: 10, duration: ms(320), easing: cubicOut }}>
+            <div class="done-summary">
+                <div class="done-check" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                </div>
+                <h2>Uploaded!</h2>
+                <p>
+                    {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
+                </p>
+            </div>
+            <div class="result-link">
+                <a href={`/${uploadResultId}`}><span class="host">femboyz.cloud/</span><b>{uploadResultId}</b></a>
+                <button class="fb-button copy" type="button" onclick={copyResultLink}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/></svg>
+                    Copy
+                </button>
+            </div>
+            <div class="done-actions">
+                <a class="ghost-action" href={`/${uploadResultId}`}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>
+                    Open
+                </a>
+                <button class="ghost-action" type="button" onclick={startNewUpload}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                    New upload
+                </button>
+            </div>
+        </div>
+    {:else}
+    <div class="compose" bind:this={composeEl} in:fade={{ duration: ms(220) }}>
+        {#if mode !== 'link'}
+            <input
+                class="title-input"
+                bind:value={title}
+                type="text"
+                name="title"
+                placeholder={mode === 'note' ? 'Untitled note' : 'Untitled upload'}
+                aria-label="Title"
+                maxlength={effectiveLimits?.max_title_length}
+                disabled={isUploading}
+            />
+        {/if}
+
+        {#if mode === 'files'}
+            <div class="mode-body" in:fade={{ duration: ms(200) }}>
+                <textarea
+                    class="desc-input"
+                    bind:value={description}
+                    name="description"
+                    rows="1"
+                    placeholder="Description"
+                    aria-label="Description"
+                    maxlength={uploadLimits?.max_desc_length}
+                    disabled={isUploading}
+                ></textarea>
+
+                <ul class="tray" class:empty={files.length === 0} aria-label="Selected files" bind:this={trayEl}>
+                    {#each trayItems as file, index (file ? fileKeys.get(file) : 'add')}
+                        {@const key = file ? fileKeys.get(file) : undefined}
+                        {@const reorderable = !!file && files.length > 1 && !isUploading}
+                        <!-- a reorderable tile is focusable so the arrow keys can move it -->
+                        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+                        <li
+                            class="tile"
+                            class:add-tile={!file}
+                            class:reorderable
+                            class:reordering={key !== undefined && key === reorderKey}
+                            data-key={key}
+                            data-state={file ? tileState(index) : undefined}
+                            style={key !== undefined && key === reorderKey
+                                ? `transform: translate(${reorderOffset.x}px, ${reorderOffset.y}px) scale(1.05)` : undefined}
+                            tabindex={reorderable ? 0 : undefined}
+                            aria-label={reorderable && file
+                                ? `${file.name}, position ${index + 1} of ${files.length}. Use arrow keys to reorder` : undefined}
+                            animate:flip={{ duration: key !== undefined && key === reorderKey ? 0 : ms(300), easing: cubicOut }}
+                            in:scale={{ start: 0.8, duration: ms(260), easing: backOut }}
+                            out:scale={{ start: 0.85, duration: ms(160) }}
+                            onpointerdown={file ? (event) => reorderStart(event, file) : undefined}
+                            onpointermove={file ? reorderMove : undefined}
+                            onpointerup={file ? reorderEnd : undefined}
+                            onpointercancel={file ? reorderEnd : undefined}
+                            onkeydown={reorderable ? (event) => reorderKeydown(event, index) : undefined}
+                        >
+                            {#if file}
+                                {@const state = tileState(index)}
+                                {@const kind = thumbKind(file)}
+                                {#if kind === 'image'}
+                                    <img class="thumb" src={thumbUrl(file)} alt="" draggable="false" />
+                                {:else if kind === 'video'}
+                                    <video class="thumb" src={`${thumbUrl(file)}#t=0.5`} muted preload="metadata" draggable="false"></video>
+                                    <span class="kind-badge">{fileExt(file)}</span>
+                                {:else}
+                                    <div class="thumb generic"><span>{fileExt(file)}</span></div>
+                                {/if}
+
+                                {#if state === 'active'}
+                                    <div class="tile-overlay" transition:fade={{ duration: ms(180) }}>
+                                        {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
+                                        {progressPercent(index)}%
+                                    </div>
+                                    <div class="tile-bar" style={`width: ${progressPercent(index)}%`}></div>
+                                {:else if state === 'queued'}
+                                    <div class="tile-overlay muted" transition:fade={{ duration: ms(180) }}>
+                                        {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
+                                        Queued
+                                    </div>
+                                {:else if state === 'done'}
+                                    <span class="tile-done" aria-label="Uploaded" in:scale={{ start: 0.3, duration: ms(320), easing: backOut }}>
+                                        <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                                    </span>
+                                {/if}
+
+                                <div class="tile-caption">
+                                    <span class="name">{file.name}</span>
+                                    <span class="size">{formatFileSize(file.size)}</span>
+                                </div>
+
+                                {#if !isUploading}
+                                    <button class="tile-remove" type="button" aria-label={`Remove ${file.name}`} onclick={() => removeFile(index)}>
+                                        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                                    </button>
+                                {/if}
+                            {:else}
+                                <label for="file_input">
+                                    <svg class="add-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        {#if files.length === 0}
+                                            <path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                                        {:else}
+                                            <path d="M12 5v14M5 12h14"/>
+                                        {/if}
+                                    </svg>
+                                    {#if files.length === 0}
+                                        <strong>Drop files or <u>browse</u></strong>
+                                        {#if tokenLimits?.token}
+                                            <small class="token-note">{tokenSummary(tokenLimits.token)}</small>
+                                        {:else if uploadLimits}
+                                            <small>Up to {uploadLimits.maxcount} files, {displayedFileSizeLimit(uploadLimits)} each</small>
+                                        {/if}
+                                    {:else}
+                                        <span>Add more</span>
+                                    {/if}
+                                    <input class="file-input" type="file" id="file_input" multiple hidden onchange={addFiles} />
+                                </label>
+                            {/if}
+                        </li>
+                    {/each}
+                </ul>
+            </div>
+
+            {#if limitsError}
+                <p in:slide|global out:slideOut|global class="error-message">Something is wrong: {limitsError}</p>
+            {/if}
+
+            {#if fileErrors.length > 0}
+                <ul in:slide|global out:slideOut|global class="error-list" aria-label="File selection errors">
+                    {#each fileErrors as error}
+                        <li>{error}</li>
+                    {/each}
+                </ul>
+            {/if}
+        {:else if mode === 'note'}
+            <label class="form-field mode-body" in:fade={{ duration: ms(200) }}>
                 <textarea
                     class="note-input"
                     bind:value={noteText}
@@ -735,63 +890,54 @@
                     {noteText.length.toLocaleString()}/{noteMaxLength.toLocaleString()}
                 </span>
             </label>
-        </div>
-    {:else}
-        <label in:slide out:slideOut class="form-field">
-            <input bind:value={linkUrl} type="url" name="link" placeholder="https://example.com" />
-        </label>
-    {/if}
-
-    {#if uploadError}
-        <p in:slide|global out:slideOut|global class="error-message">Upload failed: {uploadError}</p>
-    {/if}
-
-    {#if uploadResultId}
-        <p in:slide|global out:slideOut|global class="success-message">
-            {mode === 'link' ? 'Short link' : mode === 'note' ? 'Note shared' : 'Uploaded'}: <a href={`/${uploadResultId}`}>{uploadResultId}</a>
-        </p>
-    {/if}
-
-    {#if mode === 'files' && tokenOpen}
-        <div in:slide out:slideOut class="token-field">
-            <div class="token-row">
-                <label class="form-field">
-                    <input
-                        bind:this={tokenInput}
-                        bind:value={tokenValue}
-                        type="text"
-                        name="upload-token"
-                        placeholder="Upload token"
-                        autocomplete="off"
-                        spellcheck="false"
-                        disabled={isUploading}
-                    />
-                </label>
-                <button class="fb-button token-close" type="button" onclick={tokenClose} disabled={isUploading} aria-label="Remove token">
-                    Remove
-                </button>
-            </div>
-            {#if tokenChecking}
-                <p class="token-status">Checking token...</p>
-            {:else if tokenError}
-                <p class="error-message">{tokenError}</p>
-            {/if}
-        </div>
-    {/if}
-
-    <div class="finalize">
-        {#if mode !== 'link'}
-            <label class="public-checkbox">
-                <input type="checkbox" bind:checked={isPublic} disabled={isUploading} />
-                <span class="checkbox-box" aria-hidden="true"></span>
-                <span class="checkbox-label">Make public</span>
-            </label>
         {:else}
-            <span></span>
+            <label class="form-field mode-body" in:fade={{ duration: ms(200) }}>
+                <input bind:value={linkUrl} type="url" name="link" placeholder="https://example.com" aria-label="Link to shorten" />
+                <span class="field-hint">The short link is copied to your clipboard.</span>
+            </label>
         {/if}
+
+        {#if uploadError}
+            <p in:slide|global out:slideOut|global class="error-message">Upload failed: {uploadError}</p>
+        {/if}
+
+        {#if uploadResultId && mode !== 'files'}
+            <p in:slide|global out:slideOut|global class="success-message">
+                {mode === 'link' ? 'Short link' : 'Note shared'}: <a href={`/${uploadResultId}`}>{uploadResultId}</a>
+            </p>
+        {/if}
+
+        {#if mode === 'files' && tokenOpen}
+            <div in:slide out:slideOut class="token-field">
+                <div class="token-row">
+                    <label class="form-field">
+                        <input
+                            bind:this={tokenInput}
+                            bind:value={tokenValue}
+                            type="text"
+                            name="upload-token"
+                            placeholder="Upload token"
+                            autocomplete="off"
+                            spellcheck="false"
+                            disabled={isUploading}
+                        />
+                    </label>
+                    <button class="fb-button token-close" type="button" onclick={tokenClose} disabled={isUploading} aria-label="Remove token">
+                        Remove
+                    </button>
+                </div>
+                {#if tokenChecking}
+                    <p class="token-status">Checking token...</p>
+                {:else if tokenError}
+                    <p class="error-message">{tokenError}</p>
+                {/if}
+            </div>
+        {/if}
+
         <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
         <button
-            class="upload-button fb-button"
+            class="upload-button"
+            class:busy={isUploading}
             type="button"
             title={mode === 'files' ? 'Hold to enter an upload token' : undefined}
             aria-disabled={uploadDisabled}
@@ -802,9 +948,75 @@
             onpointercancel={tokenHoldCancel}
             oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
         >
-            {isUploading ? 'Uploading...' : 'Upload!'}
+            {#if isUploading && mode === 'files'}
+                <span class="upload-fill" class:indeterminate={!uploadProgress} style={uploadProgress ? `width: ${overallPercent}%` : undefined}></span>
+            {/if}
+            {#key buttonLabelKey}
+                <span class="upload-label" class:centered={!(isUploading && mode === 'files')} in:fly={{ y: 6, duration: ms(220), easing: cubicOut }}>
+                    {#if isUploading && mode === 'files'}
+                        <span>{uploadProgress ? `${Math.min(filesDone + 1, files.length)} of ${files.length}` : 'Preparing…'}</span>
+                        {#if uploadProgress}
+                            <small>{overallPercent}% · {formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}{etaLabel ? ` · ${etaLabel}` : ''}</small>
+                        {/if}
+                    {:else if mode === 'files'}
+                        {#if files.length > 0}
+                            Upload {files.length} {files.length === 1 ? 'file' : 'files'} <small>· {formatFileSize(totalBytes)}</small>
+                        {:else}
+                            Upload!
+                        {/if}
+                    {:else}
+                        {isUploading ? 'Working…' : mode === 'note' ? 'Share note' : 'Shorten link'}
+                    {/if}
+                </span>
+            {/key}
         </button>
+
+        <div class="meta-row">
+            {#if mode !== 'link'}
+                {#snippet visibilityLabel(open: boolean)}
+                    {#if open}
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
+                        Public
+                    {:else}
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+                        Link access
+                    {/if}
+                {/snippet}
+                <!-- both labels, measured off-screen, so the chip can ease between their widths instead of snapping -->
+                <span class="chip-measure" aria-hidden="true">
+                    <span class="chip-content" bind:offsetWidth={publicLabelWidth}>{@render visibilityLabel(true)}</span>
+                    <span class="chip-content" bind:offsetWidth={linkLabelWidth}>{@render visibilityLabel(false)}</span>
+                </span>
+                <button
+                    class="visibility-chip"
+                    class:on={isPublic}
+                    type="button"
+                    aria-pressed={isPublic}
+                    title={isPublic ? 'Listed in the public gallery' : 'Anyone with the link can open it, but it is not listed in the gallery'}
+                    style={chipWidth ? `width: ${chipWidth}px` : undefined}
+                    disabled={isUploading}
+                    onclick={() => isPublic = !isPublic}
+                >
+                    {#key isPublic}
+                        <span class="chip-content" in:fly={{ y: 5, duration: ms(200), easing: cubicOut }}>
+                            {@render visibilityLabel(isPublic)}
+                        </span>
+                    {/key}
+                </button>
+            {:else}
+                <span></span>
+            {/if}
+            <span class="meta-limits">
+                {#if mode === 'files' && effectiveLimits}
+                    {files.length} / {effectiveLimits.maxcount} files
+                {:else if mode === 'note'}
+                    {isPublic ? 'Shown in the gallery' : 'Anyone with the link'}
+                {/if}
+            </span>
+        </div>
     </div>
+    {/if}
+</div>
 </div>
 </div>
 
@@ -885,123 +1097,780 @@
     }
 
     .upload-field {
-        display: grid;
+        position: relative;
         width: 25rem;
-        min-height: 15rem;
+        box-sizing: border-box;
+        padding: 1.1rem 1.25rem 1.1rem;
         border: 2px solid var(--color-accent);
-        padding: 0;
         background: #221f20;
-        overflow: hidden;
+        transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
     }
 
-    .mode-switcher {
-        --mode-gap: 0.75rem;
+    /* the whole card is the drop target; it glows while something is dragged over it */
+    .upload-field.dragging {
+        border-color: var(--color-fb-white);
+        box-shadow: 0 0 0 4px #c30f4555, 0 0 40px #c30f4533;
+    }
+
+    .panel-inner,
+    .compose,
+    .mode-body {
+        display: grid;
+        gap: 0.85rem;
+    }
+
+    .upload-field svg {
+        display: block;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .eyebrow {
+        color: #8a8385;
+        font-size: 0.85rem;
+        letter-spacing: 0.02em;
+    }
+
+    .mode-pills {
         position: relative;
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: var(--mode-gap);
-        margin: 1.25rem 1.25rem 0;
+        padding: 2px;
+        border: 1px solid #3b3538;
+        background: #171515;
     }
 
-    /* one accent frame that slides between the tabs, drawn over their grey borders */
-    .mode-indicator {
+    .mode-pill-indicator {
         position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: calc((100% - 2 * var(--mode-gap)) / 3);
-        box-sizing: border-box;
-        border: 2px solid var(--color-accent);
-        pointer-events: none;
-        transform: translateX(calc(var(--mode-index, 0) * (100% + var(--mode-gap))));
+        top: 2px;
+        bottom: 2px;
+        left: 2px;
+        width: calc((100% - 4px) / 3);
+        background: var(--color-accent);
+        transform: translateX(calc(var(--mode-index, 0) * 100%));
         transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
-    .mode-tab {
-        padding: 0.55rem 1rem;
+    .mode-pill {
+        position: relative;
+        padding: 0.3rem 0.8rem;
+        border: none;
         background: none;
-        border: 2px solid #4b4246;
         color: #8a8385;
-        cursor: pointer;
         font: inherit;
-        font-size: 0.88rem;
-        letter-spacing: 0.02em;
-        transition: color 0.15s, border-color 0.15s, background 0.15s;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: color 0.15s;
     }
 
-    .mode-tab:hover {
-        color: #c9c3c5;
-        background: #2a2728;
-    }
-
-    .mode-tab.active {
+    .mode-pill:hover:not(:disabled) {
         color: #f4f4f4;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-        .mode-indicator {
-            transition: none;
+    .mode-pill.active {
+        color: #fff;
+    }
+
+    .mode-pill:disabled {
+        cursor: not-allowed;
+    }
+
+    /* title edited in place as the card's heading */
+    .title-input,
+    .desc-input {
+        width: 100%;
+        box-sizing: border-box;
+        border: none;
+        background: none;
+        color: #f4f4f4;
+        font: inherit;
+        padding: 0;
+    }
+
+    /* dashed rule at rest; on focus it fades into a solid accent one */
+    .title-input {
+        margin-top: 0.15rem;
+        padding-bottom: 0.3rem;
+        border-bottom: 1px dashed #4b4246;
+        box-shadow: inset 0 -2px 0 transparent;
+        font-size: 1.35rem;
+        font-weight: 700;
+        transition: border-color 0.25s ease-out, box-shadow 0.25s ease-out;
+    }
+
+    .title-input:focus {
+        border-bottom-color: transparent;
+        box-shadow: inset 0 -2px 0 var(--color-accent);
+    }
+
+    .title-input::placeholder {
+        color: #5c5558;
+    }
+
+    .desc-input {
+        margin-top: -0.4rem;
+        resize: none;
+        field-sizing: content;
+        min-height: 1.4em;
+        max-height: 8rem;
+        color: #c9c3c5;
+        font-size: 0.85rem;
+    }
+
+    .desc-input::placeholder {
+        color: #6a6468;
+    }
+
+    .desc-input:disabled {
+        cursor: default;
+    }
+
+    /* ── tray ── */
+    .tray {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .tile {
+        position: relative;
+        aspect-ratio: 1;
+        overflow: hidden;
+        border: 1px solid #3b3538;
+        background: #191718;
+    }
+
+    .thumb {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tile:hover .thumb {
+        transform: scale(1.06);
+    }
+
+    .thumb.generic {
+        display: grid;
+        place-items: center;
+        background: #262223;
+    }
+
+    .thumb.generic span,
+    .kind-badge {
+        padding: 0.15rem 0.35rem;
+        background: #3b3420;
+        color: #f5d27a;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+    }
+
+    .kind-badge {
+        position: absolute;
+        top: 0.35rem;
+        left: 0.35rem;
+        z-index: 3;
+        padding: 0.1rem 0.3rem;
+        background: #2b3a55;
+        color: #9cc4ff;
+        font-size: 0.6rem;
+    }
+
+    .tile-caption {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 2;
+        display: grid;
+        padding: 1rem 0.4rem 0.3rem;
+        background: linear-gradient(transparent, #000c);
+        font-size: 0.68rem;
+        line-height: 1.25;
+    }
+
+    .tile-caption .name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .tile-caption .size {
+        color: #c9c3c5;
+        opacity: 0;
+        max-height: 0;
+        transition: opacity 0.15s, max-height 0.15s;
+    }
+
+    .tile:hover .tile-caption .size {
+        opacity: 1;
+        max-height: 1rem;
+    }
+
+    .tile-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0007;
+        font-size: 0.85rem;
+        font-weight: 700;
+    }
+
+    /* a non-media tile's overlay carries its own badge, stacked over the status, in place of the centred one */
+    .tile:has(.tile-overlay) .thumb.generic span {
+        visibility: hidden;
+    }
+
+    .tile-overlay {
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .tile-overlay .ext {
+        padding: 0.15rem 0.35rem;
+        background: #3b3420;
+        color: #f5d27a;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+    }
+
+    .tile-overlay.muted {
+        background: #000a;
+        color: #c9c3c5;
+        font-weight: 500;
+    }
+
+    .tile-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        z-index: 3;
+        height: 3px;
+        background: var(--color-fb-white);
+        transition: width 0.4s ease-out;
+    }
+
+    .tile-done {
+        position: absolute;
+        top: 0.35rem;
+        right: 0.35rem;
+        z-index: 3;
+        display: grid;
+        place-items: center;
+        width: 1.15rem;
+        height: 1.15rem;
+        border-radius: 50%;
+        background: #5de899;
+        color: #063;
+    }
+
+    .tile-done svg {
+        width: 0.7rem;
+        height: 0.7rem;
+        stroke-width: 3.2;
+    }
+
+    .tile-remove {
+        position: absolute;
+        top: 0.3rem;
+        right: 0.3rem;
+        z-index: 4;
+        display: grid;
+        place-items: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        border: none;
+        background: #000a;
+        color: #f4f4f4;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.15s, background-color 0.15s;
+    }
+
+    .tile:hover .tile-remove,
+    .tile-remove:focus-visible {
+        opacity: 1;
+    }
+
+    .tile-remove:hover {
+        background: var(--color-accent);
+    }
+
+    .tile-remove svg {
+        width: 0.85rem;
+        height: 0.85rem;
+    }
+
+    @media (hover: none) {
+        .tile-remove {
+            opacity: 1;
         }
     }
 
-    /* spacing via margins, not gap: slide animates margins, a parent's gap snaps shut only once the node is removed */
-    /* doubled class lifts specificity so `margin: 0` resets on .file-list / .error-message don't swallow the spacing */
-    .upload-field.upload-field > * + * {
-        margin-top: 1rem;
+    .tile.reorderable {
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+        /* iOS: a long press on an image would open its save/share menu instead of picking the tile up */
+        -webkit-touch-callout: none;
     }
 
-    .upload-field > :not(.mode-switcher) {
-        padding-left: 1.25rem;
-        padding-right: 1.25rem;
+    .tile.reorderable:focus-visible {
+        outline: 2px solid var(--color-fb-white);
+        outline-offset: 2px;
     }
 
-    .upload-field > .field-header {
-        padding-top: 0.5rem;
+    .tile.reordering {
+        z-index: 20;
+        cursor: grabbing;
+        border-color: var(--color-fb-white-semi);
+        box-shadow: 0 0.75rem 1.75rem rgba(0, 0, 0, 0.55);
+        transition: box-shadow 0.18s ease-out;
     }
 
-    .upload-field > .finalize {
-        padding-bottom: 1.25rem;
+    /* the lifted tile shows what it is, not the hover zoom */
+    .tile.reordering .thumb {
+        transform: none;
     }
 
-    #drop-area {
-        border: 2px dashed var(--color-accent);
-        width: 100%;
-        padding: 2rem 0;
+    .tile.reordering .tile-remove {
+        opacity: 0;
+    }
+
+    .add-tile {
+        border: 2px dashed #4b4246;
+        background: none;
+        transition: border-color 0.15s, background-color 0.15s;
+    }
+
+    .add-tile:hover,
+    .upload-field.dragging .add-tile {
+        border-color: #8a8385;
+        background: #ffffff08;
+    }
+
+    .add-tile label {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+        color: #8a8385;
+        font-size: 0.75rem;
         text-align: center;
         cursor: pointer;
-        transition: background-color 0.2s ease-out, transform 0.2s ease-out;
     }
 
-    #drop-area.highlight,
-    #drop-area:hover {
-        border-color: var(--color-fb-white);
-        background-color: #f0f0ff30;
-        transform: scale(1.01);
+    .add-tile svg {
+        width: 1.3rem;
+        height: 1.3rem;
     }
 
-    .drop-text {
-        opacity: 0.8;
+    /* no files yet: the add tile becomes the full-width drop zone */
+    .tray.empty .add-tile {
+        grid-column: 1 / -1;
+        aspect-ratio: auto;
+        height: 9.5rem;
+        background: repeating-linear-gradient(135deg, #ffffff05 0 10px, transparent 10px 20px);
     }
 
-    .field-header h1 {
-        margin: 0;
-        font-size: 1.5rem;
+    .tray.empty .add-tile:hover,
+    .upload-field.dragging .tray.empty .add-tile {
+        background: repeating-linear-gradient(135deg, #ffffff0a 0 10px, transparent 10px 20px);
     }
 
-    .field-header p {
-        margin: 0.35rem 0 0;
+    /* the arrow bobs while something is dragged over the card */
+    .upload-field.dragging .add-icon {
+        animation: bob 0.9s ease-in-out infinite;
+    }
+
+    @keyframes bob {
+        50% { transform: translateY(-4px); }
+    }
+
+    .tray.empty .add-tile svg {
+        width: 1.9rem;
+        height: 1.9rem;
+        color: #a9a1a4;
+        stroke-width: 1.8;
+    }
+
+    .tray.empty .add-tile strong {
+        color: #f4f4f4;
+        font-size: 0.95rem;
+    }
+
+    .tray.empty .add-tile u {
+        text-decoration-color: #8a8385;
+        text-underline-offset: 3px;
+    }
+
+    .tray.empty .add-tile small {
+        color: #8a8385;
+        font-size: 0.75rem;
+    }
+
+    .tray.empty .add-tile small.token-note,
+    .token-note {
+        color: #b7f0ce;
+    }
+
+    .file-input {
+        opacity: 0;
+        width: 0.1px;
+        height: 0.1px;
+        position: absolute;
+    }
+
+    /* ── upload button doubles as the progress bar ── */
+    .upload-button {
+        position: relative;
+        overflow: hidden;
+        width: 100%;
+        min-height: 2.9rem;
+        padding: 0;
+        border: none;
+        background: var(--color-accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        touch-action: manipulation;
+        transition: color 0.2s ease-out, background-color 0.2s ease-out;
+    }
+
+    .upload-button:not(.busy):not([aria-disabled='true']):hover,
+    .upload-button:not(.busy):focus-visible {
+        color: #060606;
+        background-color: var(--color-fb-white);
+    }
+
+    .upload-button.busy {
+        background: #3a1623;
+        cursor: progress;
+    }
+
+    .upload-button[aria-disabled='true']:not(.busy) {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
+    .upload-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        overflow: hidden;
+        background: var(--color-accent);
+        transition: width 0.4s ease-out;
+    }
+
+    /* a soft sheen runs along the filled part while bytes are moving */
+    .upload-fill::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(100deg, transparent 20%, #ffffff2e 50%, transparent 80%) no-repeat;
+        background-size: 12rem 100%;
+        animation: sheen 1.4s linear infinite;
+    }
+
+    @keyframes sheen {
+        from { background-position: -12rem 0; }
+        to { background-position: calc(100% + 12rem) 0; }
+    }
+
+    /* hashing comes before the first progress event, so there is no width to show yet */
+    .upload-fill.indeterminate {
+        width: 35%;
+        animation: indeterminate 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+    }
+
+    @keyframes indeterminate {
+        from { left: 0; }
+        to { left: 65%; }
+    }
+
+    .upload-label {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.75rem 0.9rem;
+        white-space: nowrap;
+    }
+
+    .upload-label.centered {
+        justify-content: center;
+        gap: 0.35rem;
+    }
+
+    .upload-label small {
+        font-weight: 500;
+        opacity: 0.85;
+    }
+
+    .meta-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: -0.2rem;
+        font-size: 0.75rem;
+        color: #8a8385;
+    }
+
+    /* content-box, so the measured label width is the width; padding and border sit outside it */
+    .visibility-chip {
+        box-sizing: content-box;
+        overflow: hidden;
+        transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.15s, color 0.15s, background-color 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem 0.55rem;
+        border: 1px solid #4b4246;
+        background: none;
         color: #c9c3c5;
+        font: inherit;
+        cursor: pointer;
     }
 
-    .field-header .limit-note {
-        color: #f0b7ca;
-        font-size: 0.92rem;
+    .chip-content {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        white-space: nowrap;
     }
 
+    .chip-measure {
+        position: absolute;
+        visibility: hidden;
+        pointer-events: none;
+    }
+
+    .chip-measure .chip-content {
+        position: absolute;
+    }
+
+    .visibility-chip svg,
+    .chip-measure svg {
+        width: 0.8rem;
+        height: 0.8rem;
+    }
+
+    .visibility-chip:hover:not(:disabled) {
+        border-color: var(--color-fb-white-semi);
+        color: #fff;
+    }
+
+    .visibility-chip.on {
+        border-color: #c30f45aa;
+        background: #c30f4522;
+        color: #ffd3df;
+    }
+
+    .visibility-chip:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+
+    /* ── done ── */
+    .done {
+        box-sizing: border-box;
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        gap: 0.2rem;
+        padding: 0.75rem 0 0.25rem;
+        text-align: center;
+    }
+
+    /* boxed like the link and buttons below it, so the message doesn't float loose in the card */
+    .done-summary {
+        display: grid;
+        justify-items: center;
+        gap: 0.2rem;
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 0.5rem;
+        padding: 1.1rem 1rem 1rem;
+        border: 1px solid #4b4246;
+        background: #191718;
+    }
+
+    .done-check {
+        display: grid;
+        place-items: center;
+        width: 2.8rem;
+        height: 2.8rem;
+        margin-bottom: 0.5rem;
+        border-radius: 50%;
+        background: #14301f;
+        color: #5de899;
+    }
+
+    .done-check svg {
+        width: 1.4rem;
+        height: 1.4rem;
+        stroke-width: 2.6;
+    }
+
+    /* circle pops, then the tick draws itself; the rest of the card follows in a short stagger */
+    .done-check {
+        animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .done-check path {
+        stroke-dasharray: 22;
+        stroke-dashoffset: 22;
+        animation: draw 0.35s 0.25s ease-out forwards;
+    }
+
+    .done-summary > :nth-child(n + 2),
+    .done > :nth-child(n + 2) {
+        animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .done-summary > :nth-child(2) { animation-delay: 0.1s; }
+    .done-summary > :nth-child(3) { animation-delay: 0.15s; }
+    .done > :nth-child(2) { animation-delay: 0.22s; }
+    .done > :nth-child(3) { animation-delay: 0.29s; }
+
+    @keyframes pop {
+        from { transform: scale(0.4); opacity: 0; }
+    }
+
+    @keyframes draw {
+        to { stroke-dashoffset: 0; }
+    }
+
+    @keyframes rise {
+        from { transform: translateY(6px); opacity: 0; }
+    }
+
+    .done h2 {
+        margin: 0;
+        font-size: 1.15rem;
+    }
+
+    .done p {
+        margin: 0;
+        color: #8a8385;
+        font-size: 0.8rem;
+    }
+
+    .result-link {
+        display: flex;
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #4b4246;
+        background: #171515;
+    }
+
+    .result-link a {
+        flex: 1;
+        min-width: 0;
+        padding: 0.65rem 0.75rem;
+        overflow: hidden;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-decoration: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+    }
+
+    .result-link .host {
+        color: #8a8385;
+    }
+
+    .result-link b {
+        color: #ff6b93;
+        font-weight: 600;
+    }
+
+    .result-link .copy {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0 0.85rem;
+        font-size: 0.82rem;
+    }
+
+    .result-link .copy:hover {
+        transform: none;
+    }
+
+    .result-link .copy svg {
+        width: 0.85rem;
+        height: 0.85rem;
+    }
+
+    .done-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        width: 100%;
+        margin-top: 0.5rem;
+    }
+
+    .ghost-action {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.55rem;
+        border: 1px solid #4b4246;
+        background: none;
+        color: #c9c3c5;
+        font: inherit;
+        font-size: 0.82rem;
+        text-decoration: none;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+    }
+
+    .ghost-action:hover {
+        border-color: var(--color-fb-white);
+        color: #fff;
+    }
+
+    .ghost-action svg {
+        width: 0.85rem;
+        height: 0.85rem;
+    }
+
+    /* ── note / link fields, token, messages ── */
     .form-field {
         display: grid;
-        gap: 0.45rem;
-        font-weight: 600;
+        gap: 0.35rem;
     }
 
     .form-field input,
@@ -1015,52 +1884,34 @@
         font: inherit;
     }
 
-    .form-field textarea {
-        min-height: fit-content;
-        resize: vertical;
+    .form-field input:focus,
+    .form-field textarea:focus {
+        border-color: var(--color-accent);
     }
 
     .form-field .note-input {
         min-height: 12rem;
         max-height: 60vh;
+        resize: vertical;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 0.85rem;
         line-height: 1.5;
+    }
+
+    .field-hint {
+        color: #6a6468;
+        font-size: 0.78rem;
     }
 
     .char-counter {
         display: block;
         text-align: right;
         font-size: 0.78rem;
-        font-weight: 400;
         color: #6a6468;
-        margin-top: -0.2rem;
     }
 
     .char-counter.near-limit {
         color: #f0b7ca;
-    }
-
-    .file-input {
-        opacity: 0;
-        width: 0.1px;
-        height: 0.1px;
-        position: absolute;
-    }
-
-    .file-list .file-action-button,
-    .upload-button {
-        width: fit-content;
-    }
-    
-
-    .upload-button {
-        padding-left: 2rem;
-        padding-right: 2rem;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-touch-callout: none;
-        touch-action: manipulation;
     }
 
     .token-field {
@@ -1081,16 +1932,11 @@
         color: #6a6468;
     }
 
-    .token-note {
-        color: #b7f0ce;
-    }
-
-
     .error-message,
     .success-message,
     .error-list {
         margin: 0;
-        font-size: 0.92rem;
+        font-size: 0.85rem;
     }
 
     .error-message,
@@ -1109,199 +1955,34 @@
         list-style: none;
     }
 
-    .file-list {
-        display: grid;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-    }
+    @media (prefers-reduced-motion: reduce) {
+        .mode-pill-indicator,
+        .upload-fill,
+        .tile-bar,
+        .thumb,
+        .title-input,
+        .visibility-chip {
+            transition: none;
+        }
 
-    .file-list > li + li {
-        margin-top: 0.65rem;
-    }
+        .upload-field.dragging .add-icon,
+        .upload-fill::after,
+        .done-check,
+        .done > *,
+        .done-summary > * {
+            animation: none;
+        }
 
-    .file-list li {
-        position: relative;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        border: 1px solid #3b3538;
-        padding: 0.75rem;
-        background: #191718;
-    }
+        .done-check path {
+            animation: none;
+            stroke-dashoffset: 0;
+        }
 
-    .file-list li.reorderable {
-        cursor: grab;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-touch-callout: none;
-        transition: transform 0.18s ease-out, border-color 0.18s ease-out, box-shadow 0.18s ease-out;
-    }
-
-    .file-list li.reordering {
-        z-index: 20;
-        cursor: grabbing;
-        transition: border-color 0.18s ease-out, box-shadow 0.18s ease-out;
-        border-color: var(--color-fb-white-semi);
-        box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.5);
-    }
-
-    .file-list li > .drag-handle {
-        flex: 0 0 auto;
-        display: grid;
-        place-items: center;
-        margin: -0.25rem -0.5rem -0.25rem -0.25rem;
-        padding: 0.5rem 0.35rem;
-        border: 0;
-        background: none;
-        color: #8d8589;
-        cursor: grab;
-        touch-action: none;
-    }
-
-    .file-list li > .drag-handle:hover,
-    .file-list li > .drag-handle:focus-visible {
-        background: none;
-        color: var(--color-fb-white);
-    }
-
-    .file-list li > .drag-handle svg {
-        fill: currentColor;
-    }
-
-    .file-list .file-label {
-        flex: 1 1 auto;
-        text-align: left;
-    }
-
-    .file-list strong,
-    .file-list span {
-        display: block;
-    }
-
-    .file-list strong {
-        overflow-wrap: anywhere;
-    }
-
-    .file-list span {
-        margin-top: 0.2rem;
-        color: #c9c3c5;
-        font-size: 0.9rem;
-    }
-
-    .file-list .upload-progressbar {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        z-index: 2;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.08);
-    }
-
-    .upload-progressbar-value {
-        height: 100%;
-        background: var(--color-fb-white-semi);
-        transition: width 0.5s ease-out, background-color 0.4s ease-out;
-    }
-
-    .upload-progressbar-value.done {
-        background: #5de899;
-    }
-
-    .file-list li > :not(.upload-progressbar) {
-        position: relative;
-        z-index: 5;
-    }
-
-    .file-list .file-action-button {
-        flex: 0 0 auto;
-        padding: 0.55rem 0.75rem;
-        background: rgba(51, 44, 47, 0.651);
-        backdrop-filter: blur(48px);
-        z-index: 10;
-    }
-
-    .file-list button:hover {
-        background-color: var(--color-fb-white);
-    }
-
-    .file-list button:disabled,
-    .upload-button[aria-disabled='true'] {
-        cursor: not-allowed;
-        opacity: 0.6;
-    }
-
-    .finalize {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-    }
-
-    .public-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        cursor: pointer;
-        user-select: none;
-    }
-
-    .public-checkbox input[type="checkbox"] {
-        position: absolute;
-        opacity: 0;
-        width: 0;
-        height: 0;
-        pointer-events: none;
-    }
-
-    .checkbox-box {
-        flex-shrink: 0;
-        width: 1.1rem;
-        height: 1.1rem;
-        border: 2px solid #4b4246;
-        background: #171515;
-        transition: border-color 0.15s ease-out, background-color 0.15s ease-out;
-    }
-
-    .public-checkbox:hover .checkbox-box {
-        border-color: var(--color-fb-white-semi);
-    }
-
-    .public-checkbox input:checked ~ .checkbox-box {
-        border-color: var(--color-accent);
-        background-color: var(--color-accent);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%23fff' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-        background-size: 75%;
-        background-position: center;
-        background-repeat: no-repeat;
-    }
-
-    .public-checkbox input:disabled ~ .checkbox-box,
-    .public-checkbox input:disabled ~ .checkbox-label {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .public-checkbox input:disabled ~ .checkbox-box {
-        cursor: not-allowed;
-    }
-
-    .public-checkbox:has(input:disabled) {
-        cursor: not-allowed;
-    }
-
-    .checkbox-label {
-        color: #c9c3c5;
-        font-size: 0.92rem;
-        transition: color 0.15s ease-out;
-    }
-
-    .public-checkbox:hover .checkbox-label {
-        color: var(--color-fb-white);
+        .upload-fill.indeterminate {
+            animation: none;
+            width: 100%;
+            opacity: 0.5;
+        }
     }
 
     .uploads-grid-wrap {
@@ -1434,31 +2115,9 @@
         }
     }
 
-    @media (max-width: 36rem) {
-        .file-list li {
-            align-items: stretch;
-            flex-direction: column;
-        }
-        .file-list button {
-            width: 100%;
-        }
-        .file-list .index {
+    @media (max-width: 24rem) {
+        .upload-label small {
             display: none;
-        }
-        /* a full-size touch target in the corner */
-        .file-list li > .drag-handle {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 3rem;
-            height: 3rem;
-            margin: 0;
-            padding: 0;
-            /* above .file-label, which shares z-index 5 and comes later */
-            z-index: 6;
-        }
-        .file-list li:has(> .drag-handle) .file-label {
-            padding-right: 2rem;
         }
     }
 </style>
