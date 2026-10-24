@@ -83,6 +83,12 @@
     }
 </script>
 
+{#snippet arrowIcon()}
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">
+        <path d="M4 12h16m-6-6 6 6-6 6" />
+    </svg>
+{/snippet}
+
 <section
     class="album-view"
     class:single={!hasMultiple}
@@ -145,10 +151,10 @@
 
         {#if hasMultiple}
             <button class="carousel-arrow previous" type="button" onclick={showPrevious} aria-label="Previous media">
-                &#8592;
+                {@render arrowIcon()}
             </button>
             <button class="carousel-arrow next" type="button" onclick={showNext} aria-label="Next media">
-                &#8594;
+                {@render arrowIcon()}
             </button>
         {/if}
 
@@ -286,6 +292,9 @@
         position: absolute;
         z-index: 2;
         top: 50%;
+        display: grid;
+        place-items: center;
+        box-sizing: border-box;
         width: 2.75rem;
         height: 2.75rem;
         padding: 0;
@@ -293,14 +302,17 @@
         color: #fff;
         background: rgb(27 26 26 / 78%);
         border: 1px solid rgb(255 255 255 / 25%);
-        font: inherit;
-        font-size: 1.25rem;
+        border-radius: 0;
         cursor: pointer;
         transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
     }
 
     .carousel-arrow.previous {
         left: 0.75rem;
+    }
+
+    .carousel-arrow.previous svg {
+        transform: rotate(180deg);
     }
 
     .carousel-arrow.next {
@@ -434,11 +446,6 @@
     }
 
     @media (max-width: 36rem) {
-        .carousel-arrow {
-            width: 2.35rem;
-            height: 3rem;
-        }
-
         .carousel-arrow.previous {
             left: 0.4rem;
         }
