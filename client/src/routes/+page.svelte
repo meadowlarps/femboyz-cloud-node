@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte'
+    import { onMount, tick } from 'svelte'
     import { fade, fly, scale, slide } from 'svelte/transition'
     import { flip } from 'svelte/animate'
     import { backOut, cubicInOut, cubicOut } from 'svelte/easing'
@@ -25,6 +25,10 @@
     import { spawnAlert } from '$lib/alerts'
 
     const GALLERY_REFRESH_MS = 30_000
+    const REORDER_DRAG_THRESHOLD_PX = 4
+    const REORDER_HOLD_MS = 300             // touch: a long press on a tile picks it up
+    const REORDER_HOLD_SLOP_PX = 8          // moving further than this before the hold fires is a scroll
+    const TRAY_COLUMNS = 3                  // matches .tray's grid-template-columns, for Up/Down
     const TOKEN_HOLD_MS = 600
     const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
@@ -73,6 +77,15 @@
     let tokenPending = $derived(tokenOpen && tokenValue.trim() !== '' && !tokenLimits)
     let isFileLimitReached = $derived(effectiveLimits ? files.length >= effectiveLimits.maxcount : false)
     let isDragging = $state(false)
+    let trayEl = $state<HTMLUListElement>()
+    // tile being dragged to reorder, and its offset from the slot it currently occupies
+    let reorderKey = $state<number>()
+    let reorderOffset = $state({ x: 0, y: 0 })
+    // armed: movement drags the tile (mouse at once, touch after the long press)
+    let reorderPending: {
+        key: number, node: HTMLElement, startX: number, startY: number, startLeft: number, startTop: number, armed: boolean
+    } | undefined
+    let reorderHoldTimer: ReturnType<typeof setTimeout> | undefined
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
     let hideProgressTimer: ReturnType<typeof setTimeout> | undefined
@@ -288,6 +301,116 @@
         files = files.filter((_, fileIndex) => fileIndex !== index)
         uploadProgress = undefined
         clearProgressTimers()
+    }
+
+    function moveFile(from: number, to: number) {
+        if (from === to || to < 0 || to >= files.length) return
+        const next = [...files]
+        const [file] = next.splice(from, 1)
+        next.splice(to, 0, file!)
+        files = next
+        // progress is tracked by index, so it no longer lines up
+        uploadProgress = undefined
+        clearProgressTimers()
+    }
+
+    function reorderStart(event: PointerEvent, file: File) {
+        if (isUploading || files.length < 2 || event.button !== 0) return
+        if ((event.target as HTMLElement).closest('button')) return
+        const armed = event.pointerType === 'mouse'
+        // also keeps the browser from starting a native drag of the thumbnail image
+        if (armed) event.preventDefault()
+        const node = event.currentTarget as HTMLElement
+        node.setPointerCapture(event.pointerId)
+        const pending = {
+            key: fileKeys.get(file)!, node, startX: event.clientX, startY: event.clientY,
+            startLeft: node.offsetLeft, startTop: node.offsetTop, armed
+        }
+        reorderPending = pending
+        if (armed) return
+        // a touch scrolls the page, unless the finger holds still first
+        clearTimeout(reorderHoldTimer)
+        reorderHoldTimer = setTimeout(() => {
+            if (reorderPending !== pending) return
+            pending.armed = true
+            reorderKey = pending.key
+            navigator.vibrate?.(10)
+        }, REORDER_HOLD_MS)
+    }
+
+    // touchmove has to be non-passive to stop the page scrolling under an armed drag
+    $effect(() => {
+        const tray = trayEl
+        if (!tray) return
+        const block = (event: Event) => { if (reorderPending?.armed) event.preventDefault() }
+        tray.addEventListener('touchmove', block, { passive: false })
+        tray.addEventListener('contextmenu', block)
+        return () => {
+            tray.removeEventListener('touchmove', block)
+            tray.removeEventListener('contextmenu', block)
+        }
+    })
+
+    async function reorderMove(event: PointerEvent) {
+        const pending = reorderPending
+        if (!pending) return
+        const dx = event.clientX - pending.startX
+        const dy = event.clientY - pending.startY
+        if (!pending.armed) {
+            if (Math.hypot(dx, dy) > REORDER_HOLD_SLOP_PX) reorderEnd()
+            return
+        }
+        if (reorderKey === undefined) {
+            if (Math.hypot(dx, dy) < REORDER_DRAG_THRESHOLD_PX) return
+            reorderKey = pending.key
+        }
+
+        // the dragged tile drops into the slot whose centre is nearest its own;
+        // offsetLeft/Top ignore transforms, so tiles mid-flip don't skew the comparison
+        const node = pending.node
+        const x = pending.startLeft + dx + node.offsetWidth / 2
+        const y = pending.startTop + dy + node.offsetHeight / 2
+        const tiles = Array.from(trayEl?.querySelectorAll<HTMLElement>(':scope > li[data-key]') ?? [])
+        const from = tiles.indexOf(node)
+        let to = from
+        let best = Infinity
+        tiles.forEach((tile, index) => {
+            const distance = Math.hypot(
+                tile.offsetLeft + tile.offsetWidth / 2 - x,
+                tile.offsetTop + tile.offsetHeight / 2 - y
+            )
+            if (distance < best) {
+                best = distance
+                to = index
+            }
+        })
+        if (from !== -1 && to !== from) {
+            moveFile(from, to)
+            await tick()
+        }
+        if (reorderPending === pending)
+            reorderOffset = { x: pending.startLeft + dx - node.offsetLeft, y: pending.startTop + dy - node.offsetTop }
+    }
+
+    function reorderEnd() {
+        clearTimeout(reorderHoldTimer)
+        reorderPending = undefined
+        reorderKey = undefined
+        reorderOffset = { x: 0, y: 0 }
+    }
+
+    async function reorderKeydown(event: KeyboardEvent, index: number) {
+        if (isUploading || event.target !== event.currentTarget) return
+        const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -TRAY_COLUMNS, ArrowDown: TRAY_COLUMNS }[event.key]
+        if (step === undefined) return
+        event.preventDefault()
+        const to = Math.max(0, Math.min(files.length - 1, index + step))
+        if (to === index) return
+        const tile = event.currentTarget as HTMLElement
+        moveFile(index, to)
+        // the keyed {#each} moves the same element, but focus can drop on the way
+        await tick()
+        tile.focus()
     }
 
     function ignoreUpload(id: string) {
@@ -644,23 +767,40 @@
                     disabled={isUploading}
                 ></textarea>
 
-                <ul class="tray" class:empty={files.length === 0} aria-label="Selected files">
+                <ul class="tray" class:empty={files.length === 0} aria-label="Selected files" bind:this={trayEl}>
                     {#each trayItems as file, index (file ? fileKeys.get(file) : 'add')}
+                        {@const key = file ? fileKeys.get(file) : undefined}
+                        {@const reorderable = !!file && files.length > 1 && !isUploading}
+                        <!-- a reorderable tile is focusable so the arrow keys can move it -->
+                        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
                         <li
                             class="tile"
                             class:add-tile={!file}
+                            class:reorderable
+                            class:reordering={key !== undefined && key === reorderKey}
+                            data-key={key}
                             data-state={file ? tileState(index) : undefined}
-                            animate:flip={{ duration: ms(300), easing: cubicOut }}
+                            style={key !== undefined && key === reorderKey
+                                ? `transform: translate(${reorderOffset.x}px, ${reorderOffset.y}px) scale(1.05)` : undefined}
+                            tabindex={reorderable ? 0 : undefined}
+                            aria-label={reorderable && file
+                                ? `${file.name}, position ${index + 1} of ${files.length}. Use arrow keys to reorder` : undefined}
+                            animate:flip={{ duration: key !== undefined && key === reorderKey ? 0 : ms(300), easing: cubicOut }}
                             in:scale={{ start: 0.8, duration: ms(260), easing: backOut }}
                             out:scale={{ start: 0.85, duration: ms(160) }}
+                            onpointerdown={file ? (event) => reorderStart(event, file) : undefined}
+                            onpointermove={file ? reorderMove : undefined}
+                            onpointerup={file ? reorderEnd : undefined}
+                            onpointercancel={file ? reorderEnd : undefined}
+                            onkeydown={reorderable ? (event) => reorderKeydown(event, index) : undefined}
                         >
                             {#if file}
                                 {@const state = tileState(index)}
                                 {@const kind = thumbKind(file)}
                                 {#if kind === 'image'}
-                                    <img class="thumb" src={thumbUrl(file)} alt="" />
+                                    <img class="thumb" src={thumbUrl(file)} alt="" draggable="false" />
                                 {:else if kind === 'video'}
-                                    <video class="thumb" src={`${thumbUrl(file)}#t=0.5`} muted preload="metadata"></video>
+                                    <video class="thumb" src={`${thumbUrl(file)}#t=0.5`} muted preload="metadata" draggable="false"></video>
                                     <span class="kind-badge">{fileExt(file)}</span>
                                 {:else}
                                     <div class="thumb generic"><span>{fileExt(file)}</span></div>
@@ -1285,6 +1425,36 @@
         .tile-remove {
             opacity: 1;
         }
+    }
+
+    .tile.reorderable {
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+        /* iOS: a long press on an image would open its save/share menu instead of picking the tile up */
+        -webkit-touch-callout: none;
+    }
+
+    .tile.reorderable:focus-visible {
+        outline: 2px solid var(--color-fb-white);
+        outline-offset: 2px;
+    }
+
+    .tile.reordering {
+        z-index: 20;
+        cursor: grabbing;
+        border-color: var(--color-fb-white-semi);
+        box-shadow: 0 0.75rem 1.75rem rgba(0, 0, 0, 0.55);
+        transition: box-shadow 0.18s ease-out;
+    }
+
+    /* the lifted tile shows what it is, not the hover zoom */
+    .tile.reordering .thumb {
+        transform: none;
+    }
+
+    .tile.reordering .tile-remove {
+        opacity: 0;
     }
 
     .add-tile {
