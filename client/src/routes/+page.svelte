@@ -564,6 +564,7 @@
     function smoothHeight(card: HTMLElement) {
         const inner = card.firstElementChild as HTMLElement
         let animation: Animation | undefined
+        let animationFrom = 0
         let lastTarget = inner.offsetHeight
         // by the time the observer reports, the card has already taken its new height, so remember the old one
         let lastHeight = card.offsetHeight
@@ -578,10 +579,18 @@
             const jump = Math.abs(target - lastTarget)
             lastTarget = target
             lastHeight = target + chrome
-            if (jump < 24 || prefersReducedMotion.current) return
+            if (prefersReducedMotion.current) return
+            if (jump < 24) {
+                // a running animation would otherwise end on a stale height and snap, e.g. when an error
+                // slides out during a mode switch; move its end with the content instead
+                if (animation?.playState === 'running')
+                    (animation.effect as KeyframeEffect).setKeyframes([{ height: `${animationFrom}px` }, { height: `${lastHeight}px` }])
+                return
+            }
 
             animation?.cancel()
             card.style.overflow = 'clip'
+            animationFrom = from
             const current = card.animate(
                 [{ height: `${from}px` }, { height: `${lastHeight}px` }],
                 { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
@@ -1141,6 +1150,17 @@
     .mode-body {
         display: grid;
         gap: 0.85rem;
+    }
+
+    /* spaced by margins, not gap: a grid keeps the gap of a row that has slid to nothing until the element
+       is gone, so the card would jump at the end; slide eases an element's own margin away with it.
+       Scoped `*` has no specificity, hence the extra class to beat the messages' `margin: 0` */
+    .compose {
+        gap: 0;
+    }
+
+    .panel-inner .compose > * + * {
+        margin-top: 0.85rem;
     }
 
     .upload-field svg {
