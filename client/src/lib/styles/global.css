@@ -6,6 +6,11 @@
     --color-fb-white-semi: #fff0f3bf;
 }
 
+/* No blue tap flash on mobile; buttons and links have their own states. */
+* {
+    -webkit-tap-highlight-color: transparent;
+}
+
 input,
 textarea,
 select {
