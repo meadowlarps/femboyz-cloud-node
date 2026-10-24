@@ -12,6 +12,10 @@ npm start            # NODE_ENV=prod node dist/index.js
 npm test             # vitest
 ```
 
+## CI / deployment
+
+`.github/workflows/deploy.yml` runs on every push to `main`: backend tests, client `check` + `build`, then SSH deploy to prod (`deploy/deploy.sh <sha>`). Merging a PR **is** a production deploy. PRs get no checks (the workflow only triggers on `main`), so an empty status rollup doesn't mean there's no CI. Watch it with `gh run list --workflow deploy.yml` / `gh run watch <id>`. Quick merges cancel the earlier queued runs; only the last one deploys. Manual runbook: DEPLOYMENT.md sections 10–12.
+
 ## Architecture
 
 TypeScript Node.js server.
