@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte'
 	import lostBoy from '$lib/assets/404boy.webp'
 
-	// The full-screen "lost boy" error layout, shared by +error.svelte and pages that fail
+	// The "lost boy" error layout, shared by +error.svelte and pages that fail
 	// on their own (an invalid invite link, for example).
 	let {
 		status,
@@ -37,8 +37,6 @@
 
 <style>
 	.error-page {
-		position: fixed;
-		inset: 0;
 		box-sizing: border-box;
 		display: grid;
 		grid-template-columns: minmax(14rem, 22rem) minmax(18rem, 31rem);
@@ -46,8 +44,6 @@
 		align-content: center;
 		justify-content: center;
 		gap: clamp(2rem, 6vw, 5rem);
-		padding: 1.5rem;
-		overflow: auto;
 		animation: error-fade-in 0.35s ease-out both;
 	}
 

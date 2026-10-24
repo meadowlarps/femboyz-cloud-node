@@ -68,11 +68,14 @@
 	}
 
 	.app-shell {
+		display: flex;
+		flex-direction: column;
 		min-height: 100vh;
 		min-height: 100dvh;
 	}
 
 	.site-header {
+		flex: none;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -170,8 +173,14 @@
 	}
 
 	.page-content {
+		flex: 1;
 		margin: 0;
 		padding: 2rem 1.5rem 2rem;
+	}
+
+	/* Error screens fill the space below the header and grow when content needs it. */
+	.page-content:has(> :global(.error-page)) {
+		display: grid;
 	}
 
 	.embed {
