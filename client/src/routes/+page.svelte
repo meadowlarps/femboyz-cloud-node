@@ -473,8 +473,7 @@
                 if (!uploadStartedAt) uploadStartedAt = performance.now()
                 uploadProgress = progress
             }, token)
-            // the done screen keeps the tray's height, so the card doesn't collapse under the pointer
-            lastUpload = { count: files.length, bytes: totalBytes, isPublic, height: composeEl?.offsetHeight ?? 0 }
+            lastUpload = { count: files.length, bytes: totalBytes, isPublic }
             // a token covers a single upload — it has to be entered again for the next one
             if (token) tokenClose()
             uploadResultId = result.id
@@ -494,6 +493,8 @@
     }
 
     function switchMode(next: Mode) {
+        // leaving the done screen starts over, rather than offering the same files for upload again
+        if (isDone) startNewUpload()
         mode = next
         uploadError = ''
         uploadResultId = ''
@@ -594,11 +595,23 @@
         return { destroy: () => observer.disconnect() }
     }
 
+    // the done summary's veil: blur and darkening build up together over the finished tray
+    function veil(_node: Element, { duration }: { duration: number }) {
+        return {
+            duration,
+            easing: cubicOut,
+            css: (t: number) => `backdrop-filter: blur(${t * 10}px) brightness(${1 - t * 0.45});`
+                + `-webkit-backdrop-filter: blur(${t * 10}px) brightness(${1 - t * 0.45});`
+                + `background-color: rgb(20 18 19 / ${t * 0.45})`
+        }
+    }
+
     // ── tray: thumbnails, totals, overall progress ──
     const thumbUrls = new WeakMap<File, string>()
     let uploadStartedAt = 0
-    let lastUpload = $state<{ count: number; bytes: number; isPublic: boolean; height: number } | null>(null)
-    let composeEl = $state<HTMLElement>()
+    let lastUpload = $state<{ count: number; bytes: number; isPublic: boolean } | null>(null)
+    // the finished upload stays on screen under a blurred summary until "New upload"
+    let isDone = $derived(mode === 'files' && !!uploadResultId && !!lastUpload)
     let totalBytes = $derived(files.reduce((sum, file) => sum + file.size, 0))
     let overallPercent = $derived(uploadProgress && uploadProgress.total > 0
         ? Math.round((uploadProgress.loaded / uploadProgress.total) * 100) : 0)
@@ -613,7 +626,7 @@
     })
 
     // the add tile rides along in the keyed list so it glides with the others when tiles come and go
-    let trayItems = $derived<(File | null)[]>(!isFileLimitReached && !isUploading ? [...files, null] : files)
+    let trayItems = $derived<(File | null)[]>(!isFileLimitReached && !isUploading && !isDone ? [...files, null] : files)
     let publicLabelWidth = $state(0)
     let linkLabelWidth = $state(0)
     let chipWidth = $derived(isPublic ? publicLabelWidth : linkLabelWidth)
@@ -689,9 +702,9 @@
     role="region"
     aria-label="New upload"
     use:smoothHeight
-    ondragover={(event) => { if (mode === 'files' && !uploadResultId) handleDragOver(event) }}
+    ondragover={(event) => { if (mode === 'files' && !isDone) handleDragOver(event) }}
     ondragleave={trayDragLeave}
-    ondrop={(event) => { if (mode === 'files' && !uploadResultId) handleDrop(event) }}
+    ondrop={(event) => { if (mode === 'files' && !isDone) handleDrop(event) }}
 >
 <div class="panel-inner">
     <div class="panel-head">
@@ -711,156 +724,144 @@
         </div>
     </div>
 
-    {#if mode === 'files' && uploadResultId && lastUpload}
-        <div class="done" style={`min-height: ${lastUpload.height}px`} in:fly={{ y: 10, duration: ms(320), easing: cubicOut }}>
-            <div class="done-summary">
-                <div class="done-check" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
-                </div>
-                <h2>Uploaded!</h2>
-                <p>
-                    {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
-                </p>
-            </div>
-            <div class="result-link">
-                <a href={`/${uploadResultId}`}><span class="host">femboyz.cloud/</span><b>{uploadResultId}</b></a>
-                <button class="fb-button copy" type="button" onclick={copyResultLink}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/></svg>
-                    Copy
-                </button>
-            </div>
-            <div class="done-actions">
-                <a class="ghost-action" href={`/${uploadResultId}`}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>
-                    Open
-                </a>
-                <button class="ghost-action" type="button" onclick={startNewUpload}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-                    New upload
-                </button>
-            </div>
-        </div>
-    {:else}
-    <div class="compose" bind:this={composeEl} in:fade={{ duration: ms(220) }}>
+    <div class="compose">
         {#if mode !== 'link'}
-            <input
-                class="title-input"
-                bind:value={title}
-                type="text"
-                name="title"
-                placeholder={mode === 'note' ? 'Untitled note' : 'Untitled upload'}
-                aria-label="Title"
-                maxlength={effectiveLimits?.max_title_length}
-                disabled={isUploading}
-            />
+            <div class="stage">
+                <!-- inert under the summary: the finished upload is shown, not edited -->
+                <div class="stage-content" inert={isDone}>
+                    <input
+                        class="title-input"
+                        bind:value={title}
+                        type="text"
+                        name="title"
+                        placeholder={mode === 'note' ? 'Untitled note' : 'Untitled upload'}
+                        aria-label="Title"
+                        maxlength={effectiveLimits?.max_title_length}
+                        disabled={isUploading}
+                    />
+                    {#if mode === 'files'}
+                        <div class="mode-body" in:fade={{ duration: ms(200) }}>
+                        <textarea
+                            class="desc-input"
+                            bind:value={description}
+                            name="description"
+                            rows="1"
+                            placeholder="Description"
+                            aria-label="Description"
+                            maxlength={uploadLimits?.max_desc_length}
+                            disabled={isUploading}
+                        ></textarea>
+
+                        <ul class="tray" class:empty={files.length === 0} aria-label="Selected files" bind:this={trayEl}>
+                            {#each trayItems as file, index (file ? fileKeys.get(file) : 'add')}
+                                {@const key = file ? fileKeys.get(file) : undefined}
+                                {@const reorderable = !!file && files.length > 1 && !isUploading}
+                                <!-- a reorderable tile is focusable so the arrow keys can move it -->
+                                <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+                                <li
+                                    class="tile"
+                                    class:add-tile={!file}
+                                    class:reorderable
+                                    class:reordering={key !== undefined && key === reorderKey}
+                                    data-key={key}
+                                    data-state={file ? tileState(index) : undefined}
+                                    style={key !== undefined && key === reorderKey
+                                        ? `transform: translate(${reorderOffset.x}px, ${reorderOffset.y}px) scale(1.05)` : undefined}
+                                    tabindex={reorderable ? 0 : undefined}
+                                    aria-label={reorderable && file
+                                        ? `${file.name}, position ${index + 1} of ${files.length}. Use arrow keys to reorder` : undefined}
+                                    animate:flip={{ duration: key !== undefined && key === reorderKey ? 0 : ms(300), easing: cubicOut }}
+                                    in:scale={{ start: 0.8, duration: ms(260), easing: backOut }}
+                                    out:scale={{ start: 0.85, duration: ms(160) }}
+                                    onpointerdown={file ? (event) => reorderStart(event, file) : undefined}
+                                    onpointermove={file ? reorderMove : undefined}
+                                    onpointerup={file ? reorderEnd : undefined}
+                                    onpointercancel={file ? reorderEnd : undefined}
+                                    onkeydown={reorderable ? (event) => reorderKeydown(event, index) : undefined}
+                                >
+                                    {#if file}
+                                        {@const state = tileState(index)}
+                                        {@const kind = thumbKind(file)}
+                                        {#if kind === 'image'}
+                                            <img class="thumb" src={thumbUrl(file)} alt="" draggable="false" />
+                                        {:else if kind === 'video'}
+                                            <video class="thumb" src={`${thumbUrl(file)}#t=0.5`} muted preload="metadata" draggable="false"></video>
+                                            <span class="kind-badge">{fileExt(file)}</span>
+                                        {:else}
+                                            <div class="thumb generic"><span>{fileExt(file)}</span></div>
+                                        {/if}
+
+                                        {#if state === 'active'}
+                                            <div class="tile-overlay" transition:fade={{ duration: ms(180) }}>
+                                                {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
+                                                {progressPercent(index)}%
+                                            </div>
+                                            <div class="tile-bar" style={`width: ${progressPercent(index)}%`}></div>
+                                        {:else if state === 'queued'}
+                                            <div class="tile-overlay muted" transition:fade={{ duration: ms(180) }}>
+                                                {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
+                                                Queued
+                                            </div>
+                                        {:else if state === 'done'}
+                                            <span class="tile-done" aria-label="Uploaded" in:scale={{ start: 0.3, duration: ms(320), easing: backOut }}>
+                                                <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                                            </span>
+                                        {/if}
+
+                                        <div class="tile-caption">
+                                            <span class="name">{file.name}</span>
+                                            <span class="size">{formatFileSize(file.size)}</span>
+                                        </div>
+
+                                        {#if !isUploading}
+                                            <button class="tile-remove" type="button" aria-label={`Remove ${file.name}`} onclick={() => removeFile(index)}>
+                                                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                                            </button>
+                                        {/if}
+                                    {:else}
+                                        <label for="file_input">
+                                            <svg class="add-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                                {#if files.length === 0}
+                                                    <path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                                                {:else}
+                                                    <path d="M12 5v14M5 12h14"/>
+                                                {/if}
+                                            </svg>
+                                            {#if files.length === 0}
+                                                <strong>Drop files or <u>browse</u></strong>
+                                                {#if tokenLimits?.token}
+                                                    <small class="token-note">{tokenSummary(tokenLimits.token)}</small>
+                                                {:else if uploadLimits}
+                                                    <small>Up to {uploadLimits.maxcount} files, {displayedFileSizeLimit(uploadLimits)} each</small>
+                                                {/if}
+                                            {:else}
+                                                <span>Add more</span>
+                                            {/if}
+                                            <input class="file-input" type="file" id="file_input" multiple hidden onchange={addFiles} />
+                                        </label>
+                                    {/if}
+                                </li>
+                            {/each}
+                        </ul>
+                        </div>
+                    {/if}
+                </div>
+
+                {#if isDone && lastUpload}
+                    <div class="done-overlay" in:veil={{ duration: ms(420) }} out:veil={{ duration: ms(260) }}>
+                        <div class="done-check" aria-hidden="true">
+                            <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                        </div>
+                        <h2>Uploaded!</h2>
+                        <p>
+                            {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
+                        </p>
+                    </div>
+                {/if}
+            </div>
         {/if}
 
         {#if mode === 'files'}
-            <div class="mode-body" in:fade={{ duration: ms(200) }}>
-                <textarea
-                    class="desc-input"
-                    bind:value={description}
-                    name="description"
-                    rows="1"
-                    placeholder="Description"
-                    aria-label="Description"
-                    maxlength={uploadLimits?.max_desc_length}
-                    disabled={isUploading}
-                ></textarea>
-
-                <ul class="tray" class:empty={files.length === 0} aria-label="Selected files" bind:this={trayEl}>
-                    {#each trayItems as file, index (file ? fileKeys.get(file) : 'add')}
-                        {@const key = file ? fileKeys.get(file) : undefined}
-                        {@const reorderable = !!file && files.length > 1 && !isUploading}
-                        <!-- a reorderable tile is focusable so the arrow keys can move it -->
-                        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-                        <li
-                            class="tile"
-                            class:add-tile={!file}
-                            class:reorderable
-                            class:reordering={key !== undefined && key === reorderKey}
-                            data-key={key}
-                            data-state={file ? tileState(index) : undefined}
-                            style={key !== undefined && key === reorderKey
-                                ? `transform: translate(${reorderOffset.x}px, ${reorderOffset.y}px) scale(1.05)` : undefined}
-                            tabindex={reorderable ? 0 : undefined}
-                            aria-label={reorderable && file
-                                ? `${file.name}, position ${index + 1} of ${files.length}. Use arrow keys to reorder` : undefined}
-                            animate:flip={{ duration: key !== undefined && key === reorderKey ? 0 : ms(300), easing: cubicOut }}
-                            in:scale={{ start: 0.8, duration: ms(260), easing: backOut }}
-                            out:scale={{ start: 0.85, duration: ms(160) }}
-                            onpointerdown={file ? (event) => reorderStart(event, file) : undefined}
-                            onpointermove={file ? reorderMove : undefined}
-                            onpointerup={file ? reorderEnd : undefined}
-                            onpointercancel={file ? reorderEnd : undefined}
-                            onkeydown={reorderable ? (event) => reorderKeydown(event, index) : undefined}
-                        >
-                            {#if file}
-                                {@const state = tileState(index)}
-                                {@const kind = thumbKind(file)}
-                                {#if kind === 'image'}
-                                    <img class="thumb" src={thumbUrl(file)} alt="" draggable="false" />
-                                {:else if kind === 'video'}
-                                    <video class="thumb" src={`${thumbUrl(file)}#t=0.5`} muted preload="metadata" draggable="false"></video>
-                                    <span class="kind-badge">{fileExt(file)}</span>
-                                {:else}
-                                    <div class="thumb generic"><span>{fileExt(file)}</span></div>
-                                {/if}
-
-                                {#if state === 'active'}
-                                    <div class="tile-overlay" transition:fade={{ duration: ms(180) }}>
-                                        {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
-                                        {progressPercent(index)}%
-                                    </div>
-                                    <div class="tile-bar" style={`width: ${progressPercent(index)}%`}></div>
-                                {:else if state === 'queued'}
-                                    <div class="tile-overlay muted" transition:fade={{ duration: ms(180) }}>
-                                        {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
-                                        Queued
-                                    </div>
-                                {:else if state === 'done'}
-                                    <span class="tile-done" aria-label="Uploaded" in:scale={{ start: 0.3, duration: ms(320), easing: backOut }}>
-                                        <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
-                                    </span>
-                                {/if}
-
-                                <div class="tile-caption">
-                                    <span class="name">{file.name}</span>
-                                    <span class="size">{formatFileSize(file.size)}</span>
-                                </div>
-
-                                {#if !isUploading}
-                                    <button class="tile-remove" type="button" aria-label={`Remove ${file.name}`} onclick={() => removeFile(index)}>
-                                        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-                                    </button>
-                                {/if}
-                            {:else}
-                                <label for="file_input">
-                                    <svg class="add-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                        {#if files.length === 0}
-                                            <path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
-                                        {:else}
-                                            <path d="M12 5v14M5 12h14"/>
-                                        {/if}
-                                    </svg>
-                                    {#if files.length === 0}
-                                        <strong>Drop files or <u>browse</u></strong>
-                                        {#if tokenLimits?.token}
-                                            <small class="token-note">{tokenSummary(tokenLimits.token)}</small>
-                                        {:else if uploadLimits}
-                                            <small>Up to {uploadLimits.maxcount} files, {displayedFileSizeLimit(uploadLimits)} each</small>
-                                        {/if}
-                                    {:else}
-                                        <span>Add more</span>
-                                    {/if}
-                                    <input class="file-input" type="file" id="file_input" multiple hidden onchange={addFiles} />
-                                </label>
-                            {/if}
-                        </li>
-                    {/each}
-                </ul>
-            </div>
-
             {#if limitsError}
                 <p in:slide|global out:slideOut|global class="error-message">Something is wrong: {limitsError}</p>
             {/if}
@@ -933,88 +934,114 @@
             </div>
         {/if}
 
-        <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
-        <button
-            class="upload-button"
-            class:busy={isUploading}
-            type="button"
-            title={mode === 'files' ? 'Hold to enter an upload token' : undefined}
-            aria-disabled={uploadDisabled}
-            onclick={uploadClick}
-            onpointerdown={tokenHoldStart}
-            onpointerup={tokenHoldCancel}
-            onpointerleave={tokenHoldCancel}
-            onpointercancel={tokenHoldCancel}
-            oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
-        >
-            {#if isUploading && mode === 'files'}
-                <span class="upload-fill" class:indeterminate={!uploadProgress} style={uploadProgress ? `width: ${overallPercent}%` : undefined}></span>
-            {/if}
-            {#key buttonLabelKey}
-                <span class="upload-label" class:centered={!(isUploading && mode === 'files')} in:fly={{ y: 6, duration: ms(220), easing: cubicOut }}>
-                    {#if isUploading && mode === 'files'}
-                        <span>{uploadProgress ? `${Math.min(filesDone + 1, files.length)} of ${files.length}` : 'Preparing…'}</span>
-                        {#if uploadProgress}
-                            <small>{overallPercent}% · {formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}{etaLabel ? ` · ${etaLabel}` : ''}</small>
-                        {/if}
-                    {:else if mode === 'files'}
-                        {#if files.length > 0}
-                            Upload {files.length} {files.length === 1 ? 'file' : 'files'} <small>· {formatFileSize(totalBytes)}</small>
-                        {:else}
-                            Upload!
-                        {/if}
-                    {:else}
-                        {isUploading ? 'Working…' : mode === 'note' ? 'Share note' : 'Shorten link'}
-                    {/if}
-                </span>
-            {/key}
-        </button>
-
-        <div class="meta-row">
-            {#if mode !== 'link'}
-                {#snippet visibilityLabel(open: boolean)}
-                    {#if open}
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
-                        Public
-                    {:else}
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
-                        Link access
-                    {/if}
-                {/snippet}
-                <!-- both labels, measured off-screen, so the chip can ease between their widths instead of snapping -->
-                <span class="chip-measure" aria-hidden="true">
-                    <span class="chip-content" bind:offsetWidth={publicLabelWidth}>{@render visibilityLabel(true)}</span>
-                    <span class="chip-content" bind:offsetWidth={linkLabelWidth}>{@render visibilityLabel(false)}</span>
-                </span>
+        <!-- the upload button and its meta row give way to the finished upload's link and actions -->
+        <div class="action-slot">
+            {#if isDone}
+                <div class="result" in:fly={{ y: 8, duration: ms(320), delay: ms(120), easing: cubicOut }} out:fade={{ duration: ms(150) }}>
+                    <div class="result-link">
+                        <a href={`/${uploadResultId}`}><span class="host">femboyz.cloud/</span><b>{uploadResultId}</b></a>
+                        <button class="fb-button copy" type="button" onclick={copyResultLink}>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/></svg>
+                            Copy
+                        </button>
+                    </div>
+                    <div class="done-actions">
+                        <a class="ghost-action" href={`/${uploadResultId}`}>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>
+                            Open
+                        </a>
+                        <button class="ghost-action" type="button" onclick={startNewUpload}>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                            New upload
+                        </button>
+                    </div>
+                </div>
+            {:else}
+                <div class="action-default" in:fade={{ duration: ms(220), delay: ms(100) }} out:fade={{ duration: ms(150) }}>
+                <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
                 <button
-                    class="visibility-chip"
-                    class:on={isPublic}
+                    class="upload-button"
+                    class:busy={isUploading}
                     type="button"
-                    aria-pressed={isPublic}
-                    title={isPublic ? 'Listed in the public gallery' : 'Anyone with the link can open it, but it is not listed in the gallery'}
-                    style={chipWidth ? `width: ${chipWidth}px` : undefined}
-                    disabled={isUploading}
-                    onclick={() => isPublic = !isPublic}
+                    title={mode === 'files' ? 'Hold to enter an upload token' : undefined}
+                    aria-disabled={uploadDisabled}
+                    onclick={uploadClick}
+                    onpointerdown={tokenHoldStart}
+                    onpointerup={tokenHoldCancel}
+                    onpointerleave={tokenHoldCancel}
+                    onpointercancel={tokenHoldCancel}
+                    oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
                 >
-                    {#key isPublic}
-                        <span class="chip-content" in:fly={{ y: 5, duration: ms(200), easing: cubicOut }}>
-                            {@render visibilityLabel(isPublic)}
+                    {#if isUploading && mode === 'files'}
+                        <span class="upload-fill" class:indeterminate={!uploadProgress} style={uploadProgress ? `width: ${overallPercent}%` : undefined}></span>
+                    {/if}
+                    {#key buttonLabelKey}
+                        <span class="upload-label" class:centered={!(isUploading && mode === 'files')} in:fly={{ y: 6, duration: ms(220), easing: cubicOut }}>
+                            {#if isUploading && mode === 'files'}
+                                <span>{uploadProgress ? `${Math.min(filesDone + 1, files.length)} of ${files.length}` : 'Preparing…'}</span>
+                                {#if uploadProgress}
+                                    <small>{overallPercent}% · {formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}{etaLabel ? ` · ${etaLabel}` : ''}</small>
+                                {/if}
+                            {:else if mode === 'files'}
+                                {#if files.length > 0}
+                                    Upload {files.length} {files.length === 1 ? 'file' : 'files'} <small>· {formatFileSize(totalBytes)}</small>
+                                {:else}
+                                    Upload!
+                                {/if}
+                            {:else}
+                                {isUploading ? 'Working…' : mode === 'note' ? 'Share note' : 'Shorten link'}
+                            {/if}
                         </span>
                     {/key}
                 </button>
-            {:else}
-                <span></span>
+
+                <div class="meta-row">
+                    {#if mode !== 'link'}
+                        {#snippet visibilityLabel(open: boolean)}
+                            {#if open}
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
+                                Public
+                            {:else}
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+                                Link access
+                            {/if}
+                        {/snippet}
+                        <!-- both labels, measured off-screen, so the chip can ease between their widths instead of snapping -->
+                        <span class="chip-measure" aria-hidden="true">
+                            <span class="chip-content" bind:offsetWidth={publicLabelWidth}>{@render visibilityLabel(true)}</span>
+                            <span class="chip-content" bind:offsetWidth={linkLabelWidth}>{@render visibilityLabel(false)}</span>
+                        </span>
+                        <button
+                            class="visibility-chip"
+                            class:on={isPublic}
+                            type="button"
+                            aria-pressed={isPublic}
+                            title={isPublic ? 'Listed in the public gallery' : 'Anyone with the link can open it, but it is not listed in the gallery'}
+                            style={chipWidth ? `width: ${chipWidth}px` : undefined}
+                            disabled={isUploading}
+                            onclick={() => isPublic = !isPublic}
+                        >
+                            {#key isPublic}
+                                <span class="chip-content" in:fly={{ y: 5, duration: ms(200), easing: cubicOut }}>
+                                    {@render visibilityLabel(isPublic)}
+                                </span>
+                            {/key}
+                        </button>
+                    {:else}
+                        <span></span>
+                    {/if}
+                    <span class="meta-limits">
+                        {#if mode === 'files' && effectiveLimits}
+                            {files.length} / {effectiveLimits.maxcount} files
+                        {:else if mode === 'note'}
+                            {isPublic ? 'Shown in the gallery' : 'Anyone with the link'}
+                        {/if}
+                    </span>
+                </div>
+                </div>
             {/if}
-            <span class="meta-limits">
-                {#if mode === 'files' && effectiveLimits}
-                    {files.length} / {effectiveLimits.maxcount} files
-                {:else if mode === 'note'}
-                    {isPublic ? 'Shown in the gallery' : 'Anyone with the link'}
-                {/if}
-            </span>
         </div>
     </div>
-    {/if}
 </div>
 </div>
 </div>
@@ -1695,27 +1722,29 @@
     }
 
     /* ── done ── */
-    .done {
-        box-sizing: border-box;
+    .stage {
+        position: relative;
+    }
+
+    .stage-content {
+        display: grid;
+        gap: 0.85rem;
+    }
+
+    /* the finished tray stays put; the summary sits on a blurred, darkened veil over it */
+    .done-overlay {
+        position: absolute;
+        inset: -0.4rem 0;
+        z-index: 30;
         display: grid;
         align-content: center;
         justify-items: center;
         gap: 0.2rem;
-        padding: 0.75rem 0 0.25rem;
+        padding: 1rem;
         text-align: center;
-    }
-
-    /* boxed like the link and buttons below it, so the message doesn't float loose in the card */
-    .done-summary {
-        display: grid;
-        justify-items: center;
-        gap: 0.2rem;
-        width: 100%;
-        box-sizing: border-box;
-        margin-bottom: 0.5rem;
-        padding: 1.1rem 1rem 1rem;
-        border: 1px solid #4b4246;
-        background: #191718;
+        backdrop-filter: blur(10px) brightness(0.55);
+        -webkit-backdrop-filter: blur(10px) brightness(0.55);
+        background-color: rgb(20 18 19 / 0.45);
     }
 
     .done-check {
@@ -1746,15 +1775,15 @@
         animation: draw 0.35s 0.25s ease-out forwards;
     }
 
-    .done-summary > :nth-child(n + 2),
-    .done > :nth-child(n + 2) {
+    .done-overlay > :nth-child(n + 2),
+    .result > * {
         animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
-    .done-summary > :nth-child(2) { animation-delay: 0.1s; }
-    .done-summary > :nth-child(3) { animation-delay: 0.15s; }
-    .done > :nth-child(2) { animation-delay: 0.22s; }
-    .done > :nth-child(3) { animation-delay: 0.29s; }
+    .done-overlay > :nth-child(2) { animation-delay: 0.1s; }
+    .done-overlay > :nth-child(3) { animation-delay: 0.15s; }
+    .result > :nth-child(1) { animation-delay: 0.2s; }
+    .result > :nth-child(2) { animation-delay: 0.27s; }
 
     @keyframes pop {
         from { transform: scale(0.4); opacity: 0; }
@@ -1768,15 +1797,36 @@
         from { transform: translateY(6px); opacity: 0; }
     }
 
-    .done h2 {
+    .done-overlay h2 {
         margin: 0;
         font-size: 1.15rem;
+        text-shadow: 0 1px 8px #0008;
     }
 
-    .done p {
+    .done-overlay p {
         margin: 0;
-        color: #8a8385;
+        color: #c9c3c5;
         font-size: 0.8rem;
+    }
+
+    /* the button and its replacement share one cell, so the swap crossfades in place */
+    .action-slot {
+        display: grid;
+    }
+
+    .action-slot > * {
+        grid-area: 1 / 1;
+    }
+
+    .action-default,
+    .result {
+        display: grid;
+        gap: 0.85rem;
+        align-content: start;
+    }
+
+    .result {
+        gap: 0.5rem;
     }
 
     .result-link {
@@ -1830,8 +1880,6 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 0.5rem;
-        width: 100%;
-        margin-top: 0.5rem;
     }
 
     .ghost-action {
@@ -1961,8 +2009,8 @@
         .upload-field.dragging .add-icon,
         .upload-fill::after,
         .done-check,
-        .done > *,
-        .done-summary > * {
+        .done-overlay > *,
+        .result > * {
             animation: none;
         }
 
