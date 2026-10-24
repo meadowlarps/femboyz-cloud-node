@@ -1,6 +1,7 @@
 <script lang="ts">
-    import { onMount } from 'svelte'
+    import { onMount, tick } from 'svelte'
     import { fade, slide } from 'svelte/transition';
+    import { flip } from 'svelte/animate'
     import { cubicInOut } from 'svelte/easing'
     import type { PageData } from './$types'
     import {
@@ -23,6 +24,9 @@
     import { spawnAlert } from '$lib/alerts'
 
     const GALLERY_REFRESH_MS = 30_000
+    const REORDER_DRAG_THRESHOLD_PX = 4
+    const REORDER_HOLD_MS = 300             // touch: a long press anywhere on a row picks it up
+    const REORDER_HOLD_SLOP_PX = 8          // moving further than this before the hold fires is a scroll
     const TOKEN_HOLD_MS = 600
     const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
@@ -71,6 +75,14 @@
     let tokenPending = $derived(tokenOpen && tokenValue.trim() !== '' && !tokenLimits)
     let isFileLimitReached = $derived(effectiveLimits ? files.length >= effectiveLimits.maxcount : false)
     let isDragging = $state(false)
+    let fileListEl = $state<HTMLUListElement>()
+    // row being dragged to reorder, and its offset from the slot it currently occupies
+    let reorderKey = $state<number>()
+    let reorderOffset = $state(0)
+    // armed: movement drags the row (mouse and handle at once, touch elsewhere after the long press)
+    let reorderPending: { key: number, node: HTMLElement, startY: number, startTop: number, armed: boolean } | undefined
+    let reorderPointerY = 0
+    let reorderHoldTimer: ReturnType<typeof setTimeout> | undefined
     let isPublic = $state(false)
     let hiddenProgressIndexes = $state(new Set<number>())
     let hideProgressTimer: ReturnType<typeof setTimeout> | undefined
@@ -291,6 +303,95 @@
         clearProgressTimers()
     }
 
+    function moveFile(from: number, to: number) {
+        if (from === to || to < 0 || to >= files.length) return
+        const next = [...files]
+        const [file] = next.splice(from, 1)
+        next.splice(to, 0, file!)
+        files = next
+        // progress is tracked by index, so it no longer lines up
+        uploadProgress = undefined
+        clearProgressTimers()
+    }
+
+    function reorderStart(event: PointerEvent, file: File) {
+        if (isUploading || files.length < 2 || event.button !== 0) return
+        const target = event.target as HTMLElement
+        const fromHandle = target.closest('.drag-handle') !== null
+        if (target.closest('button') && !fromHandle) return
+        const armed = event.pointerType === 'mouse' || fromHandle
+        if (armed) event.preventDefault()
+        const node = event.currentTarget as HTMLElement
+        node.setPointerCapture(event.pointerId)
+        const pending = { key: fileKeys.get(file)!, node, startY: event.clientY, startTop: node.offsetTop, armed }
+        reorderPending = pending
+        if (armed) return
+        // touch elsewhere on the row scrolls the page, unless the finger holds still first
+        clearTimeout(reorderHoldTimer)
+        reorderHoldTimer = setTimeout(() => {
+            if (reorderPending !== pending) return
+            pending.armed = true
+            reorderKey = pending.key
+            navigator.vibrate?.(10)
+        }, REORDER_HOLD_MS)
+    }
+
+    // touchmove has to be non-passive to stop the page scrolling under an armed drag
+    $effect(() => {
+        const list = fileListEl
+        if (!list) return
+        const block = (event: Event) => { if (reorderPending?.armed) event.preventDefault() }
+        list.addEventListener('touchmove', block, { passive: false })
+        list.addEventListener('contextmenu', block)
+        return () => {
+            list.removeEventListener('touchmove', block)
+            list.removeEventListener('contextmenu', block)
+        }
+    })
+
+    async function reorderMove(event: PointerEvent) {
+        const pending = reorderPending
+        if (!pending) return
+        reorderPointerY = event.clientY
+        if (!pending.armed) {
+            if (Math.abs(event.clientY - pending.startY) > REORDER_HOLD_SLOP_PX) reorderEnd()
+            return
+        }
+        if (reorderKey === undefined) {
+            if (Math.abs(event.clientY - pending.startY) < REORDER_DRAG_THRESHOLD_PX) return
+            reorderKey = pending.key
+        }
+
+        // offsetTop ignores transforms, so rows mid-flip don't skew the comparison
+        const node = pending.node
+        const top = pending.startTop + reorderPointerY - pending.startY
+        const center = top + node.offsetHeight / 2
+        const rows = Array.from(fileListEl?.querySelectorAll<HTMLElement>(':scope > li[data-key]') ?? [])
+        const from = rows.indexOf(node)
+        const to = rows.filter((row) => row !== node && row.offsetTop + row.offsetHeight / 2 < center).length
+        if (from !== -1 && to !== from) {
+            moveFile(from, to)
+            await tick()
+        }
+        if (reorderPending === pending)
+            reorderOffset = pending.startTop + reorderPointerY - pending.startY - node.offsetTop
+    }
+
+    function reorderEnd() {
+        clearTimeout(reorderHoldTimer)
+        reorderPending = undefined
+        reorderKey = undefined
+        reorderOffset = 0
+    }
+
+    function reorderKeydown(event: KeyboardEvent, index: number) {
+        if (isUploading) return
+        if (event.key === 'ArrowUp') moveFile(index, index - 1)
+        else if (event.key === 'ArrowDown') moveFile(index, index + 1)
+        else return
+        event.preventDefault()
+    }
+
     function ignoreUpload(id: string) {
         removeFromHistory(id)
         uploadHistory = getHistory()
@@ -503,9 +604,22 @@
             </div>
         {/if}
 
-        <ul in:slide out:slideOut class="file-list" aria-label="Selected files">
+        <ul in:slide out:slideOut class="file-list" aria-label="Selected files" bind:this={fileListEl}>
             {#each files as file, index (fileKeys.get(file))}
-                <li in:slide out:slideOut>
+                {@const key = fileKeys.get(file)!}
+                <li
+                    in:slide
+                    out:slideOut
+                    animate:flip={{ duration: key === reorderKey ? 0 : 200 }}
+                    data-key={key}
+                    class:reorderable={files.length > 1 && !isUploading}
+                    class:reordering={key === reorderKey}
+                    style={key === reorderKey ? `transform: translateY(${reorderOffset}px)` : undefined}
+                    onpointerdown={(event) => reorderStart(event, file)}
+                    onpointermove={reorderMove}
+                    onpointerup={reorderEnd}
+                    onpointercancel={reorderEnd}
+                >
                     {#if fileProgress(index) && !hiddenProgressIndexes.has(index)}
                         <div transition:fade class="upload-progressbar" aria-hidden="true">
                             <div
@@ -514,6 +628,23 @@
                                 style={`width: ${progressPercent(index)}%`}
                             ></div>
                         </div>
+                    {/if}
+
+                    {#if files.length > 1}
+                        <button
+                            class="drag-handle"
+                            type="button"
+                            aria-label={`Move ${file.name}, position ${index + 1} of ${files.length}. Use arrow keys to reorder`}
+                            title="Drag to reorder"
+                            disabled={isUploading}
+                            onkeydown={(event) => reorderKeydown(event, index)}
+                        >
+                            <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">
+                                <circle cx="2" cy="2" r="1.5" /><circle cx="8" cy="2" r="1.5" />
+                                <circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" />
+                                <circle cx="2" cy="14" r="1.5" /><circle cx="8" cy="14" r="1.5" />
+                            </svg>
+                        </button>
                     {/if}
 
                     <div class="index">
@@ -1001,6 +1132,45 @@
         background: #191718;
     }
 
+    .file-list li.reorderable {
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        transition: transform 0.18s ease-out, border-color 0.18s ease-out, box-shadow 0.18s ease-out;
+    }
+
+    .file-list li.reordering {
+        z-index: 20;
+        cursor: grabbing;
+        transition: border-color 0.18s ease-out, box-shadow 0.18s ease-out;
+        border-color: var(--color-fb-white-semi);
+        box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.5);
+    }
+
+    .file-list li > .drag-handle {
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        margin: -0.25rem -0.5rem -0.25rem -0.25rem;
+        padding: 0.5rem 0.35rem;
+        border: 0;
+        background: none;
+        color: #8d8589;
+        cursor: grab;
+        touch-action: none;
+    }
+
+    .file-list li > .drag-handle:hover,
+    .file-list li > .drag-handle:focus-visible {
+        background: none;
+        color: var(--color-fb-white);
+    }
+
+    .file-list li > .drag-handle svg {
+        fill: currentColor;
+    }
+
     .file-list .file-label {
         flex: 1 1 auto;
         text-align: left;
@@ -1274,6 +1444,21 @@
         }
         .file-list .index {
             display: none;
+        }
+        /* a full-size touch target in the corner */
+        .file-list li > .drag-handle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 3rem;
+            height: 3rem;
+            margin: 0;
+            padding: 0;
+            /* above .file-label, which shares z-index 5 and comes later */
+            z-index: 6;
+        }
+        .file-list li:has(> .drag-handle) .file-label {
+            padding-right: 2rem;
         }
     }
 </style>
