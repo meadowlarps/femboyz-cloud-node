@@ -489,6 +489,9 @@
 
     // the add tile rides along in the keyed list so it glides with the others when tiles come and go
     let trayItems = $derived<(File | null)[]>(!isFileLimitReached && !isUploading ? [...files, null] : files)
+    let publicLabelWidth = $state(0)
+    let linkLabelWidth = $state(0)
+    let chipWidth = $derived(isPublic ? publicLabelWidth : linkLabelWidth)
     let buttonLabelKey = $derived(isUploading
         ? (uploadProgress ? 'progress' : 'preparing')
         : `${mode}:${files.length}`)
@@ -662,10 +665,16 @@
                                 {/if}
 
                                 {#if state === 'active'}
-                                    <div class="tile-overlay" transition:fade={{ duration: ms(180) }}>{progressPercent(index)}%</div>
+                                    <div class="tile-overlay" transition:fade={{ duration: ms(180) }}>
+                                        {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
+                                        {progressPercent(index)}%
+                                    </div>
                                     <div class="tile-bar" style={`width: ${progressPercent(index)}%`}></div>
                                 {:else if state === 'queued'}
-                                    <div class="tile-overlay muted" transition:fade={{ duration: ms(180) }}>Queued</div>
+                                    <div class="tile-overlay muted" transition:fade={{ duration: ms(180) }}>
+                                        {#if kind === 'other'}<span class="ext">{fileExt(file)}</span>{/if}
+                                        Queued
+                                    </div>
                                 {:else if state === 'done'}
                                     <span class="tile-done" aria-label="Uploaded" in:scale={{ start: 0.3, duration: ms(320), easing: backOut }}>
                                         <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
@@ -820,24 +829,33 @@
 
         <div class="meta-row">
             {#if mode !== 'link'}
+                {#snippet visibilityLabel(open: boolean)}
+                    {#if open}
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
+                        Public
+                    {:else}
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+                        Link access
+                    {/if}
+                {/snippet}
+                <!-- both labels, measured off-screen, so the chip can ease between their widths instead of snapping -->
+                <span class="chip-measure" aria-hidden="true">
+                    <span class="chip-content" bind:offsetWidth={publicLabelWidth}>{@render visibilityLabel(true)}</span>
+                    <span class="chip-content" bind:offsetWidth={linkLabelWidth}>{@render visibilityLabel(false)}</span>
+                </span>
                 <button
                     class="visibility-chip"
                     class:on={isPublic}
                     type="button"
                     aria-pressed={isPublic}
                     title={isPublic ? 'Listed in the public gallery' : 'Anyone with the link can open it, but it is not listed in the gallery'}
+                    style={chipWidth ? `width: ${chipWidth}px` : undefined}
                     disabled={isUploading}
                     onclick={() => isPublic = !isPublic}
                 >
                     {#key isPublic}
                         <span class="chip-content" in:fly={{ y: 5, duration: ms(200), easing: cubicOut }}>
-                            {#if isPublic}
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
-                                Public
-                            {:else}
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
-                                Link access
-                            {/if}
+                            {@render visibilityLabel(isPublic)}
                         </span>
                     {/key}
                 </button>
@@ -1035,20 +1053,20 @@
         padding: 0;
     }
 
-    /* dashed rule at rest; on focus an accent line grows out from the middle over it */
+    /* dashed rule at rest; on focus it fades into a solid accent one */
     .title-input {
         margin-top: 0.15rem;
         padding-bottom: 0.3rem;
         border-bottom: 1px dashed #4b4246;
-        background: linear-gradient(var(--color-accent), var(--color-accent)) no-repeat center bottom / 0% 2px;
+        box-shadow: inset 0 -2px 0 transparent;
         font-size: 1.35rem;
         font-weight: 700;
-        transition: background-size 0.35s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s;
+        transition: border-color 0.25s ease-out, box-shadow 0.25s ease-out;
     }
 
     .title-input:focus {
         border-bottom-color: transparent;
-        background-size: 100% 2px;
+        box-shadow: inset 0 -2px 0 var(--color-accent);
     }
 
     .title-input::placeholder {
@@ -1107,7 +1125,7 @@
     .thumb.generic {
         display: grid;
         place-items: center;
-        background: repeating-linear-gradient(135deg, #2a2627 0 8px, #262223 8px 16px);
+        background: #262223;
     }
 
     .thumb.generic span,
@@ -1166,18 +1184,31 @@
         position: absolute;
         inset: 0;
         z-index: 1;
-        display: grid;
-        place-items: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         background: #0007;
         font-size: 0.85rem;
         font-weight: 700;
     }
 
-    /* keep the type badge readable over the queued veil */
-    .thumb.generic span {
-        position: relative;
-        z-index: 2;
-        margin-bottom: 2.2rem;
+    /* a non-media tile's overlay carries its own badge, stacked over the status, in place of the centred one */
+    .tile:has(.tile-overlay) .thumb.generic span {
+        visibility: hidden;
+    }
+
+    .tile-overlay {
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .tile-overlay .ext {
+        padding: 0.15rem 0.35rem;
+        background: #3b3420;
+        color: #f5d27a;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
     }
 
     .tile-overlay.muted {
@@ -1262,8 +1293,8 @@
 
     .add-tile:hover,
     .upload-field.dragging .add-tile {
-        border-color: var(--color-accent);
-        background: #c30f4512;
+        border-color: #8a8385;
+        background: #ffffff08;
     }
 
     .add-tile label {
@@ -1290,8 +1321,12 @@
         grid-column: 1 / -1;
         aspect-ratio: auto;
         height: 9.5rem;
-        border-color: #c30f4599;
-        background: repeating-linear-gradient(135deg, #c30f450a 0 10px, transparent 10px 20px);
+        background: repeating-linear-gradient(135deg, #ffffff05 0 10px, transparent 10px 20px);
+    }
+
+    .tray.empty .add-tile:hover,
+    .upload-field.dragging .tray.empty .add-tile {
+        background: repeating-linear-gradient(135deg, #ffffff0a 0 10px, transparent 10px 20px);
     }
 
     /* the arrow bobs while something is dragged over the card */
@@ -1306,7 +1341,7 @@
     .tray.empty .add-tile svg {
         width: 1.9rem;
         height: 1.9rem;
-        color: var(--color-accent);
+        color: #a9a1a4;
         stroke-width: 1.8;
     }
 
@@ -1316,13 +1351,12 @@
     }
 
     .tray.empty .add-tile u {
-        color: #ff6b93;
-        text-decoration-color: #ff6b9366;
+        text-decoration-color: #8a8385;
         text-underline-offset: 3px;
     }
 
     .tray.empty .add-tile small {
-        color: #f0b7ca;
+        color: #8a8385;
         font-size: 0.75rem;
     }
 
@@ -1438,7 +1472,11 @@
         color: #8a8385;
     }
 
+    /* content-box, so the measured label width is the width; padding and border sit outside it */
     .visibility-chip {
+        box-sizing: content-box;
+        overflow: hidden;
+        transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.15s, color 0.15s, background-color 0.15s;
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
@@ -1448,16 +1486,27 @@
         color: #c9c3c5;
         font: inherit;
         cursor: pointer;
-        transition: border-color 0.15s, color 0.15s, background-color 0.15s;
     }
 
     .chip-content {
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
+        white-space: nowrap;
     }
 
-    .visibility-chip svg {
+    .chip-measure {
+        position: absolute;
+        visibility: hidden;
+        pointer-events: none;
+    }
+
+    .chip-measure .chip-content {
+        position: absolute;
+    }
+
+    .visibility-chip svg,
+    .chip-measure svg {
         width: 0.8rem;
         height: 0.8rem;
     }
@@ -1721,7 +1770,8 @@
         .upload-fill,
         .tile-bar,
         .thumb,
-        .title-input {
+        .title-input,
+        .visibility-chip {
             transition: none;
         }
 
