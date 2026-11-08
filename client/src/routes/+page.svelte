@@ -1134,7 +1134,8 @@
 
     .upload-sidebar {
         position: sticky;
-        top: 9.5rem;
+        /* header margin (1.5rem) + header (6rem + 1.5rem padding) + page padding (2rem), so the card never jumps */
+        top: 11rem;
         align-self: flex-start;
         flex-shrink: 0;
     }
