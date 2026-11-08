@@ -1154,7 +1154,7 @@
     /* the whole card is the drop target; it glows while something is dragged over it */
     .upload-field.dragging {
         border-color: var(--color-fb-white);
-        box-shadow: 0 0 0 4px #c30f4555, 0 0 40px #c30f4533;
+        box-shadow: 0 0 40px #c30f4533;
     }
 
     .panel-inner,
