@@ -81,6 +81,8 @@
     let tokenHoldFired = false
     let effectiveLimits = $derived(tokenLimits ?? uploadLimits)
     let tokenPending = $derived(tokenOpen && tokenValue.trim() !== '' && !tokenLimits)
+    // Past this many slots a dot row gets too long, so the counter falls back to "n / max files"
+    const MAX_COUNT_DOTS = 12
     let isFileLimitReached = $derived(effectiveLimits ? files.length >= effectiveLimits.maxcount : false)
     let isDragging = $state(false)
     let trayEl = $state<HTMLUListElement>()
@@ -1051,7 +1053,15 @@
                     {/if}
                     <span class="meta-limits">
                         {#if mode === 'files' && effectiveLimits}
-                            {files.length} / {effectiveLimits.maxcount} files
+                            {#if effectiveLimits.maxcount <= MAX_COUNT_DOTS}
+                                <span class="count-dots" role="img" aria-label="{files.length} of {effectiveLimits.maxcount} files">
+                                    {#each { length: effectiveLimits.maxcount }, i}
+                                        <span class="count-dot" class:filled={i < files.length}></span>
+                                    {/each}
+                                </span>
+                            {:else}
+                                {files.length} / {effectiveLimits.maxcount} files
+                            {/if}
                         {/if}
                     </span>
                 </div>
@@ -1719,6 +1729,26 @@
         color: #8a8385;
     }
 
+    .count-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .count-dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        box-sizing: border-box;
+        border: 1px solid #6a6468;
+        transition: background-color 0.15s, border-color 0.15s;
+    }
+
+    .count-dot.filled {
+        background-color: #c30f45;
+        border-color: #c30f45;
+    }
+
     /* content-box, so the measured label width is the width; padding and border sit outside it */
     .visibility-chip {
         box-sizing: content-box;
@@ -2070,6 +2100,7 @@
         .thumb,
         .title-input,
         .visibility-chip,
+        .count-dot,
         .tray {
             transition: none;
         }
