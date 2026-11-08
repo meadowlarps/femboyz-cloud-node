@@ -20,31 +20,29 @@
 
 <div class="app-shell" class:embed>
 	{#if !embed}
-	<header class="site-header" class:home>
+	<header class="site-header">
 		<a class="brand" href="/" aria-label="Go to home">
 			<img class="logo-img" src={logo} alt="femboyz.cloud">
 		</a>
 
 		{#if home}
-			<div class="header-buttons">
-				<a class="header-button" href={mailUrl}>
+			<nav class="header-buttons" aria-label="Main navigation">
+				<a class="header-button" href={mailUrl} aria-label="Mail">
 					<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
 						<rect x="3" y="5" width="18" height="14" rx="1" />
 						<path d="m3.5 6 8.5 7 8.5-7" />
 					</svg>
 					<span>Mail</span>
 				</a>
-				<a class="header-button icon-only" href="/account" aria-label="Account" title="Account">
+				<a class="header-button" href="/account" aria-label="Account">
 					<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
 						<circle cx="12" cy="8.5" r="3.5" />
 						<path d="M5 19.5c.8-3.3 3.6-5.5 7-5.5s6.2 2.2 7 5.5" />
 					</svg>
+					<span>Account</span>
 				</a>
-			</div>
+			</nav>
 		{/if}
-		<nav class="nav-links" aria-label="Main navigation">
-			<a href="/">Home</a>
-		</nav>
 	</header>
 	{/if}
 
@@ -74,40 +72,58 @@
 		min-height: 100dvh;
 	}
 
+	/* one strip over a hairline, inset to the page content's edges; the logo fills its height */
 	.site-header {
 		flex: none;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		min-height: 6rem;
-		padding: 0 1.5rem;
-		padding-top: 1.2rem;
-		border: none;
-		background: none;
+		gap: 0.75rem;
+		height: 6rem;
+		margin: 1.5rem 1.5rem 0;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid #3a3437;
 	}
 
-	/* mail and account, at the right end of the header, top-aligned with the logo */
+	.brand {
+		display: block;
+		height: 100%;
+		margin-right: auto;
+	}
+
+	.logo-img {
+		display: block;
+		height: 100%;
+		aspect-ratio: 655 / 256;
+		object-fit: cover;
+		object-position: 92% center;
+		transition: filter 0.25s ease-out;
+	}
+
+	/* flush with the edges, so it brightens instead of scaling */
+	.brand:hover .logo-img,
+	.brand:focus-visible .logo-img {
+		filter: brightness(1.12);
+	}
+
+	.brand:focus-visible {
+		outline: none;
+	}
+
 	.header-buttons {
 		display: flex;
 		gap: 0.75rem;
-		flex: none;
-		align-self: flex-start;
-		margin-left: auto;
 	}
 
 	/* line icon and label: no fill, gray border; border, icon and label turn white on hover */
 	.header-button {
-		flex: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		gap: 0.6rem;
-		min-width: 10rem;
+		width: 9rem;
 		height: 3.25rem;
 		box-sizing: border-box;
 		color: #9e9699;
-		background: none;
 		border: 1px solid #5b5357;
 		font-size: 0.95rem;
 		letter-spacing: 0.02em;
@@ -115,60 +131,10 @@
 		transition: color 0.2s ease-out, border-color 0.2s ease-out;
 	}
 
-	/* account is just the icon, in a square */
-	.header-button.icon-only {
-		flex: none;
-		min-width: 0;
-		aspect-ratio: 1;
-	}
-
 	.header-button:hover,
 	.header-button:focus-visible {
 		color: #fff;
 		border-color: #fff;
-		outline: none;
-	}
-
-	.brand {
-		display: block;
-		width: 17.91rem;
-	}
-
-	.brand .logo-img {
-		width: 100%;
-		transition: filter 0.35s ease-out, transform 0.25s ease;
-	}
-
-	.brand:hover .logo-img {
-		transform: scale(1.03);
-	}
-
-	.logo-img {
-		max-width: 100%;
-		height: 7rem;
-		object-fit: cover;
-		object-position: 93% center;
-	}
-
-	.nav-links {
-		display: none;
-		align-items: center;
-		gap: 0.75rem;
-		font-size: 0.95rem;
-		font-weight: 500;
-	}
-
-	.nav-links a {
-		padding: 0.5rem 0.65rem;
-		border-radius: 0.375rem;
-		text-decoration: none;
-		color: #475466;
-	}
-
-	.nav-links a:hover,
-	.nav-links a:focus-visible {
-		color: #111827;
-		background: #eef2f6;
 		outline: none;
 	}
 
@@ -193,41 +159,35 @@
 
 	@media (max-width: 42rem) {
 		.site-header {
-			padding: 0 1rem;
+			height: 4.5rem;
+			margin: 1rem 1rem 0;
+			padding-bottom: 1rem;
+			gap: 0.5rem;
 		}
 
 		.page-content {
 			padding: 1.5rem 1rem 2rem;
 		}
 
-		/* a smaller logo gives the page the room */
-		.site-header {
-			min-height: 0;
-			padding-top: 1rem;
-		}
-
-		.brand {
-			width: 11.5rem;
-		}
-
-		.logo-img {
-			height: 4.5rem;
-		}
-
-		/* home stacks the logo over the buttons, which fill the column like the upload card */
-		.site-header.home {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 0.75rem;
-		}
-
 		.header-buttons {
-			align-self: stretch;
-			margin-left: 0;
+			gap: 0.5rem;
 		}
 
+		/* icon-only squares */
 		.header-button {
-			min-width: 0;
+			width: 3rem;
+			height: 3rem;
+		}
+
+		.header-button span {
+			display: none;
+		}
+	}
+
+	/* too narrow for the full logo next to the buttons: just the cat */
+	@media (max-width: 21rem) {
+		.logo-img {
+			aspect-ratio: 1;
 		}
 	}
 </style>
