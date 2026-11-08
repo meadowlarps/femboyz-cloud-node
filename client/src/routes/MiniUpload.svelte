@@ -264,10 +264,31 @@
         onmouseleave={handleCardLeave}
     >
         {#if error}
+            <!-- the spacer gives the card its usual height; the message is centred over all of it -->
+            <div class="skeleton-spacer" aria-hidden="true">
+                <div class="skeleton-stage"></div>
+                <div class="skeleton-info"></div>
+            </div>
             <div class="state-box error" in:fade={{ duration: 300 }}>
                 <strong>{id}</strong>
                 <span>{error}</span>
             </div>
+            {#if onIgnore}
+                <button
+                    class="remove-btn"
+                    type="button"
+                    aria-label={`Remove ${id} from this list`}
+                    title="Remove from this list"
+                    onclick={() => onIgnore(id)}
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                    </svg>
+                </button>
+            {/if}
         {:else}
             {#if !revealed}
                 <!-- Always laid over the card: an outroing element stops updating, so one that
@@ -484,11 +505,12 @@
     }
 
     .state-box {
+        position: absolute;
+        inset: 0;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        aspect-ratio: 4 / 3;
         padding: 0.75rem;
         color: #8a8385;
         font-size: 0.8rem;
@@ -498,6 +520,48 @@
     .state-box.error {
         gap: 0.35rem;
         color: #ffb3c7;
+    }
+
+    .remove-btn {
+        position: absolute;
+        z-index: 2;
+        top: 0.5rem;
+        right: 0.5rem;
+        display: grid;
+        place-items: center;
+        width: 1.9rem;
+        height: 1.9rem;
+        padding: 0.35rem;
+        color: #8a8385;
+        background: transparent;
+        border: 0;
+        border-radius: 0.2rem;
+        cursor: pointer;
+        transition: color 120ms ease, background 120ms ease, transform 100ms ease;
+    }
+
+    .remove-btn:hover {
+        color: #ffb3c7;
+        background: #2b2729;
+    }
+
+    .remove-btn:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+    }
+
+    .remove-btn:active {
+        transform: scale(0.85);
+    }
+
+    .remove-btn svg {
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
     }
 
     /* two classes so it beats .preview-stage's own background */
