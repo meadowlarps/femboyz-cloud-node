@@ -1134,8 +1134,9 @@
 
     .upload-sidebar {
         position: sticky;
-        /* header margin (1.5rem) + header (6rem + 1.5rem padding) + page padding (2rem), so the card never jumps */
-        top: 11rem;
+        /* the header scrolls away, so the card pins near the viewport top; it sits lower than this
+           at scroll 0, so it only starts sticking once scrolled past and never jumps */
+        top: 2rem;
         align-self: flex-start;
         flex-shrink: 0;
     }
