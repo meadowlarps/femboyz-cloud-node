@@ -152,7 +152,7 @@ test("hash mismatch on first (only) file → 400", async () => {
     const data = Buffer.from("real data")
     const tampered = makeXMeta([{ filename: "a.txt", data }])
     tampered.files[0]!.sha256 = sha256(Buffer.from("different data"))
-    await expectRejectsClean(parse(stream(data), tampered), { statusCode: 400, message: expect.stringContaining("Hash mismatch") })
+    await expectRejectsClean(parse(stream(data), tampered), { statusCode: 400, message: expect.stringContaining("failed its checksum") })
 })
 
 test("hash mismatch on second file, first file valid → 400", async () => {
@@ -161,7 +161,7 @@ test("hash mismatch on second file, first file valid → 400", async () => {
     const xmeta = makeXMeta([{ filename: "a.txt", data: a }, { filename: "b.txt", data: b }])
     xmeta.files[1]!.sha256 = sha256(Buffer.from("wrong"))
     const body = Buffer.concat([a, b])
-    await expectRejectsClean(parse(stream(body), xmeta), { statusCode: 400, message: expect.stringContaining("Hash mismatch for b.txt") })
+    await expectRejectsClean(parse(stream(body), xmeta), { statusCode: 400, message: expect.stringContaining("\"b.txt\" failed its checksum") })
 })
 
 test("correct hash but bytes field understates file size → hash mismatch (bytes field tampered)", async () => {
@@ -178,21 +178,21 @@ test("correct hash but bytes field understates file size → hash mismatch (byte
 test("empty stream when files expected → 400 stream ended early", async () => {
     const data = Buffer.from("some content")
     const xmeta = makeXMeta([{ filename: "a.txt", data }])
-    await expectRejectsClean(parse(Readable.from([]), xmeta), { statusCode: 400, message: expect.stringContaining("Stream ended early") })
+    await expectRejectsClean(parse(Readable.from([]), xmeta), { statusCode: 400, message: expect.stringContaining("Upload was cut off") })
 })
 
 test("stream ends mid-file (partial body) → 400 stream ended early", async () => {
     const data = Buffer.allocUnsafe(200).fill(0x42)
     const xmeta = makeXMeta([{ filename: "a.bin", data }])
     // only send first 100 bytes
-    await expectRejectsClean(parse(stream(data.subarray(0, 100)), xmeta), { statusCode: 400, message: expect.stringContaining("Stream ended early") })
+    await expectRejectsClean(parse(stream(data.subarray(0, 100)), xmeta), { statusCode: 400, message: expect.stringContaining("Upload was cut off") })
 })
 
 test("stream too long: extra bytes after all declared files → 400", async () => {
     const data = Buffer.from("exact content")
     const xmeta = makeXMeta([{ filename: "a.txt", data }])
     const extra = Buffer.concat([data, Buffer.from(" extra")])
-    await expectRejectsClean(parse(stream(extra), xmeta), { statusCode: 400, message: expect.stringContaining("Stream too long") })
+    await expectRejectsClean(parse(stream(extra), xmeta), { statusCode: 400, message: expect.stringContaining("longer than declared") })
 })
 
 test("stream too long: extra chunk arrives after all files complete → 400", async () => {
@@ -201,12 +201,12 @@ test("stream too long: extra chunk arrives after all files complete → 400", as
     const xmeta = makeXMeta([{ filename: "a.txt", data: a }, { filename: "b.txt", data: b }])
     // deliver correct body, then send a third rogue chunk
     const rogue = Buffer.from("injected")
-    await expectRejectsClean(parse(stream(Buffer.concat([a, b]), rogue), xmeta), { statusCode: 400, message: expect.stringContaining("Stream too long") })
+    await expectRejectsClean(parse(stream(Buffer.concat([a, b]), rogue), xmeta), { statusCode: 400, message: expect.stringContaining("longer than declared") })
 })
 
 test("xmeta declares more bytes than stream contains → 400 stream ended early", async () => {
     const data = Buffer.from("short")
     const xmeta = makeXMeta([{ filename: "a.txt", data }])
     xmeta.files[0]!.bytes = 9999  // lie about size
-    await expectRejectsClean(parse(stream(data), xmeta), { statusCode: 400, message: expect.stringContaining("Stream ended early") })
+    await expectRejectsClean(parse(stream(data), xmeta), { statusCode: 400, message: expect.stringContaining("Upload was cut off") })
 })

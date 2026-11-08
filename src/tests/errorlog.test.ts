@@ -72,10 +72,10 @@ test("log query parsing applies bounds and defaults", () => {
     expect(parseErrorLogQuery({})).toEqual({ page: 1, limit: 20, search: "", status: "all", sort: "newest" })
     expect(parseErrorLogQuery({ page: "3", limit: "50", search: "  ECONNREFUSED  ", status: "5xx", sort: "oldest" }))
         .toEqual({ page: 3, limit: 50, search: "ECONNREFUSED", status: "5xx", sort: "oldest" })
-    expect(() => parseErrorLogQuery({ page: 0 })).toThrow("Invalid log query")
-    expect(() => parseErrorLogQuery({ limit: 101 })).toThrow("Invalid log query")
-    expect(() => parseErrorLogQuery({ status: "2xx" })).toThrow("Invalid log query")
-    expect(() => parseErrorLogQuery({ search: "x".repeat(201) })).toThrow("Invalid log query")
+    expect(() => parseErrorLogQuery({ page: 0 })).toThrow("Invalid filters.")
+    expect(() => parseErrorLogQuery({ limit: 101 })).toThrow("Invalid filters.")
+    expect(() => parseErrorLogQuery({ status: "2xx" })).toThrow("Invalid filters.")
+    expect(() => parseErrorLogQuery({ search: "x".repeat(201) })).toThrow("Invalid filters.")
 })
 
 test("a full handler line lifts the structured error fields", () => {

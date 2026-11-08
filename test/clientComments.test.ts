@@ -51,9 +51,9 @@ test('extractApiError prefers JSON error messages', async () => {
     assert.equal(await extractApiError(response), 'Upload not found')
 })
 
-test('extractApiError falls back to status code', async () => {
+test('extractApiError falls back to a sentence for the status', async () => {
     const response = new Response('nope', { status: 500 })
-    assert.equal(await extractApiError(response), '500')
+    assert.equal(await extractApiError(response), 'Server error.')
 })
 
 test('fetchUploadComments requests the upload comments endpoint', async () => {

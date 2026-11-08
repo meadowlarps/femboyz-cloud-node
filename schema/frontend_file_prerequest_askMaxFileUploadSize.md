@@ -66,5 +66,5 @@ With a valid `X-Upload-Token`, the numeric fields are the token's effective limi
 
 | Status | Error Response Body | Description |
 | :--- | :--- | :--- |
-| `403 Forbidden` | `{"error": "Token unknown"}` (`revoked` / `expired` / `exhausted`) | The supplied `X-Upload-Token` can't be used. Logged to `token_uses`. |
-| `500 Internal Server Error` | `{"error": "Internal server error"}` | Unexpected server failure. |
+| `403 Forbidden` | `{"error": "Token expired."}` (one message per reason, see `frontend_upload_token.md`) | The supplied `X-Upload-Token` can't be used. Logged to `token_uses`. |
+| `500 Internal Server Error` | `{"error": "Server error."}` | Unexpected server failure. |

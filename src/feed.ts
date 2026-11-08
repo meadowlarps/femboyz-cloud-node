@@ -4,6 +4,7 @@ import { getDB } from "./database.js"
 import { scope } from "./logger.js"
 import { StorageDBUploadInstanceSchema, type StorageDBUploadInstance } from "./schema.js"
 import { shutdownUnexpectedly } from "./utils.js"
+import { httpError } from "./httpError.js"
 
 const scopelog = scope("feed")
 const FEED_DEFAULT_RANGE_SIZE = 20
@@ -43,7 +44,7 @@ export async function feed_init(): Promise<void> {
 export function feed_query_parse(value: unknown): FeedQueryRange {
     const result = FEED_QUERY_SCHEMA.safeParse(value)
     if (!result.success)
-        throw Object.assign(new Error("Invalid feed query"), { statusCode: 400 })
+        throw httpError(400, "Invalid feed range.")
     return result.data
 }
 

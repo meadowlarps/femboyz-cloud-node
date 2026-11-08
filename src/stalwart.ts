@@ -1,5 +1,6 @@
 import { envs } from "./config.js"
 import { errorFileLogger, scope } from "./logger.js"
+import { httpError } from "./httpError.js"
 
 const scopelog = scope("stalwart")
 
@@ -182,7 +183,7 @@ export async function stalwart_new_senders_change(add: string[], remove_ids: str
 const SIEVE_SAFE_ADDRESS = /^[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/
 
 export function sieve_redirect_script(address: string, keep_copy: boolean): string {
-    if (!SIEVE_SAFE_ADDRESS.test(address)) throw Object.assign(new Error("Address not usable for redirect"), { statusCode: 400 })
+    if (!SIEVE_SAFE_ADDRESS.test(address)) throw httpError(400, "Address can't be used for forwarding.")
     return [
         ...(keep_copy ? [`require ["copy"];`] : []),
         `# femboyz: managed by femboyz-cloud-node, edits are overwritten.`,

@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { spawnAlert } from '$lib/alerts'
+    import { NETWORK_ERROR, parseRetryAfter, statusText, waitText } from '$lib/apiError'
+    import { accountCodeText } from '$lib/account/api'
     import { formatFileSize } from '$lib/upload/uploader'
     import LogsView from './LogsView.svelte'
     import TokensView from './TokensView.svelte'
@@ -103,26 +105,32 @@
     }
 
     async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-        const response = await fetch(`${apiEndpoint}${path}`, {
-            ...init,
-            headers: { ...init.headers, Authorization: `Bearer ${adminKey}` }
-        })
-        const body = await response.json().catch(() => ({})) as { error?: string }
+        let response: Response
+        try {
+            response = await fetch(`${apiEndpoint}${path}`, {
+                ...init,
+                headers: { ...init.headers, Authorization: `Bearer ${adminKey}` }
+            })
+        } catch {
+            throw new AdminRequestError(0, NETWORK_ERROR)
+        }
+        const body = await response.json().catch(() => ({})) as { error?: string; message?: string }
 
         if (response.status === 401) {
-            signOut('The admin key was rejected.')
-            throw new AdminRequestError(401, 'Unauthorized')
+            signOut('Wrong admin key.')
+            throw new AdminRequestError(401, 'Wrong admin key.')
         }
         if (response.status === 429) {
-            const seconds = Number(response.headers.get('Retry-After'))
-            const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.max(1, Math.ceil(seconds / 60)) : 15
-            throw new AdminRequestError(429, `Too many failed attempts. Try again in ~${minutes}m.`)
+            const wait = waitText(parseRetryAfter(response.headers.get('Retry-After')))
+            throw new AdminRequestError(429, `Too many wrong admin keys. ${wait}`)
         }
         if (!response.ok) {
-            const message = response.status === 503
-                ? 'AUTH_ADMIN_KEY is not configured on the API server.'
-                : body.error ?? `Request failed (${response.status})`
-            throw new AdminRequestError(response.status, message)
+            // upload/token routes send a sentence; account routes send a code (+ sometimes a sentence)
+            const code = body.error ?? ''
+            const message = /^[a-z0-9_]+$/.test(code)
+                ? (code === 'bad_request' || code === 'server_error' ? body.message : accountCodeText(code)) ?? body.message
+                : code || body.message
+            throw new AdminRequestError(response.status, message ?? statusText(response.status))
         }
         return body as T
     }

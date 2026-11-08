@@ -5,6 +5,7 @@ import { read } from '$app/server'
 import regularFontUrl from '$lib/server/upload/assets/DejaVuSans.ttf?url'
 import boldFontUrl from '$lib/server/upload/assets/DejaVuSans-Bold.ttf?url'
 import { fetchUpload, type FileData, type UploadData } from '$lib/upload/downloader'
+import { ApiError, errorText } from '$lib/apiError'
 import {
     MAX_OG_SOURCE_BYTES,
     canNormalizeLeadImage,
@@ -76,8 +77,8 @@ export const GET: RequestHandler = async ({ params, fetch, request, url }) => {
     try {
         upload = await fetchUpload(params.id, apiEndpoint, fetch, forwarded)
     } catch (err) {
-        const status = err instanceof Error ? parseInt(err.message) : NaN
-        throw error(isNaN(status) ? 500 : status, 'Upload not found')
+        const status = err instanceof ApiError && err.status >= 400 ? err.status : 502
+        throw error(status, status === 404 ? 'Upload not found' : errorText(err))
     }
 
     if (!hasGeneratedCard(upload)) throw error(404, 'Preview not found')

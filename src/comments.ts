@@ -4,6 +4,7 @@ import type { FastifyRequest } from "fastify"
 import { envs } from "./config.js"
 import { getDB } from "./database.js"
 import { scope } from "./logger.js"
+import { httpError, issueMessage } from "./httpError.js"
 import {
     ClientUuidSchema,
     CommentCreateSchema,
@@ -17,6 +18,7 @@ import {
 } from "./schema.js"
 
 const scopelog = scope("comments")
+const COMMENT_LABELS = { content: "Comment", id_reply_to: "Reply target" }
 const COMMENT_ID_ATTEMPTS = 8
 const COMMENT_ID_DIGITS = "0123456789"
 
@@ -36,11 +38,11 @@ function isDuplicateKeyError(err: unknown): boolean {
 function parseClientUuid(request: FastifyRequest): string {
     const header = request.headers["x-client-uuid"]
     if (typeof header !== "string")
-        throw Object.assign(new Error("Invalid client UUID"), { statusCode: 400 })
+        throw httpError(400, "Invalid client ID. Reload the page.")
 
     const parsed = ClientUuidSchema.safeParse(header)
     if (!parsed.success)
-        throw Object.assign(new Error("Invalid client UUID"), { statusCode: 400 })
+        throw httpError(400, "Invalid client ID. Reload the page.")
 
     return parsed.data
 }
@@ -166,12 +168,12 @@ async function insertCommentDocument(
 export async function createComment(request: FastifyRequest, uploadId: string): Promise<CommentPublic> {
     const input = CommentCreateSchema.safeParse(request.body)
     if (!input.success)
-        throw Object.assign(new Error("Invalid comment"), { statusCode: 400 })
+        throw httpError(400, issueMessage(input.error.issues, COMMENT_LABELS, "Invalid comment."))
 
     const clientUuid = parseClientUuid(request)
 
     if (!await publicUploadExists(uploadId))
-        throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+        throw httpError(404, "Upload not found.")
 
     const comments = getDB().collection(envs.MDB_COLLECTION_COMMENTS)
     if (input.data.id_reply_to !== undefined) {
@@ -180,7 +182,7 @@ export async function createComment(request: FastifyRequest, uploadId: string): 
             id_upload_pub: uploadId
         }, { projection: { _id: 1 } }).catch(err => databaseError("check parent comment", err))
         if (!parent)
-            throw Object.assign(new Error("Invalid parent comment"), { statusCode: 400 })
+            throw httpError(400, "Reply target not found.")
     }
 
     const document: CommentInstanceDB = CommentInstanceSchemaDB.parse({
@@ -206,11 +208,11 @@ export async function updateCommentReaction(
     commentId: string
 ): Promise<CommentPublic> {
     if (!CommentIdSchema.safeParse(commentId).success)
-        throw Object.assign(new Error("Invalid comment"), { statusCode: 400 })
+        throw httpError(400, "Invalid comment ID.")
 
     const input = CommentReactionUpdateSchema.safeParse(request.body)
     if (!input.success)
-        throw Object.assign(new Error("Invalid reaction"), { statusCode: 400 })
+        throw httpError(400, "Invalid reaction.")
 
     const clientUuid = parseClientUuid(request)
     const comments = getDB().collection(envs.MDB_COLLECTION_COMMENTS)
@@ -220,10 +222,10 @@ export async function updateCommentReaction(
         { projection: { _id: 0, id_upload_pub: 1 } }
     ).catch(err => databaseError(`fetch comment ${commentId}`, err))
     if (!existing)
-        throw Object.assign(new Error("Comment not found"), { statusCode: 404 })
+        throw httpError(404, "Comment not found.")
 
     if (!await publicUploadExists(String(existing.id_upload_pub)))
-        throw Object.assign(new Error("Comment not found"), { statusCode: 404 })
+        throw httpError(404, "Comment not found.")
 
     const updated = await comments.findOneAndUpdate(
         { id_comment_pub: commentId },
@@ -232,7 +234,7 @@ export async function updateCommentReaction(
     ).catch(err => databaseError(`update reaction on comment ${commentId}`, err))
 
     if (!updated)
-        throw Object.assign(new Error("Comment not found"), { statusCode: 404 })
+        throw httpError(404, "Comment not found.")
 
     return toPublic(updated, commentId)
 }

@@ -107,7 +107,7 @@ await fetch("/api/v2/udstream", {
 
 1. **Storage Capacity Pre-Check**: Checks `Content-Length` against remaining disk headroom; rejects with `507` if insufficient.
 2. **Header Parse & Validation**: Base64 decodes `X-Meta` and validates against `XMetaFilesSchema` (Zod); rejects with `400` on failure.
-2a. **Token Reservation** (only with `X-Upload-Token`): atomically spends one token use; rejects with `403 {"error": "Token <reason>"}` if unknown/revoked/expired/exhausted.
+2a. **Token Reservation** (only with `X-Upload-Token`): atomically spends one token use; rejects with `403 {"error": "<message>"}` if unknown/revoked/expired/exhausted (see `frontend_upload_token.md`).
 2b. **Limit Check**: file count, each file's `bytes`, and the total are checked against the effective limits (env defaults or the token's limits, capped by free storage); rejects with `400`. If a token was reserved it is released.
 3. **Stream Chunking**: Iterates the incoming binary stream, slicing exact `bytes` count for each entry in `files`.
 4. **Integrity Hash Verification**: Computes SHA-256 incrementally on each chunk; rejects with `400` if calculated hash does not match `sha256`.
@@ -138,6 +138,7 @@ await fetch("/api/v2/udstream", {
 
 | Status | Error Body | Cause |
 | :--- | :--- | :--- |
-| `400 Bad Request` | `{"error": "Bad request"}` | Malformed `X-Meta` JSON, failed Zod validation, SHA-256 digest mismatch, stream truncated or byte length mismatch. |
-| `507 Insufficient Storage` | `{"error": "Storage limit exceeded"}` | Upload payload exceeds current available server storage capacity. |
-| `500 Internal Server Error` | `{"error": "Internal server error"}` | Filesystem or database failure during persistence. |
+| `400 Bad Request` | `{"error": "\"a.png\" failed its checksum. Retry the upload."}`, … | Malformed `X-Meta` JSON, failed Zod validation, SHA-256 digest mismatch, stream truncated or byte length mismatch. |
+| `413 Content Too Large` | `{"error": "Too many files (max 10)."}`, … | Upload over the file count, per-file or total size limit. |
+| `507 Insufficient Storage` | `{"error": "Server storage is full."}` | Upload payload exceeds current available server storage capacity. |
+| `500 Internal Server Error` | `{"error": "Server error."}` | Filesystem or database failure during persistence. |

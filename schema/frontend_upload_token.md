@@ -26,20 +26,20 @@ Only `/api/v2/maxfsize` and `/api/v2/udstream` read it. Link uploads ignore it.
 
 ## Rejections
 
-`403 {"error": "Token <reason>"}` where reason is one of:
+`403 {"error": "<message>"}` (readable, see `frontend_errors.md`), by reason:
 
-| Reason | Cause |
-| :--- | :--- |
-| `unknown` | No token with this value |
-| `revoked` | Admin revoked it |
-| `expired` | `expires_at` is in the past |
-| `exhausted` | `uses_count >= uses_max` |
+| Reason | Cause | `error` |
+| :--- | :--- | :--- |
+| `unknown` | No token with this value | Unknown token. |
+| `revoked` | Admin revoked it | Token revoked. |
+| `expired` | `expires_at` is in the past | Token expired. |
+| `exhausted` | `uses_count >= uses_max` | Token used up. |
 
 ## Guess Blocking
 
 Every `unknown` token (on the prerequest or the upload) counts as a failed guess for the caller's IP. After `UPLOAD_TOKEN_MAX_FAILS` (default 20) guesses within `UPLOAD_TOKEN_BLOCK_MINUTES` (default 15), the IP is blocked for that long:
 
-`429 {"error": "Too many wrong tokens"}` + `Retry-After: <seconds>`
+`429 {"error": "Too many wrong tokens."}` + `Retry-After: <seconds>`
 
 - The check runs **before** any token lookup, so while blocked even a valid token is refused.
 - Requests **without** a token are unaffected.
@@ -65,7 +65,7 @@ All require `Authorization: Bearer <AUTH_ADMIN_KEY>`.
 | Method | Path | Body / Query | Response |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v2/admin/tokens` | — | `{ items: Token[] }` newest first, each with derived `status` |
-| `POST` | `/api/v2/admin/tokens` | `{ token?, label?, limits: { max_files, max_bytes }, uses_max?, expires_at? }`. `token` = custom value (8–64 `[A-Za-z0-9_-]`, trimmed); random when omitted | `201` created `Token`, `409 {"error": "Token value already exists"}` for a taken custom value |
+| `POST` | `/api/v2/admin/tokens` | `{ token?, label?, limits: { max_files, max_bytes }, uses_max?, expires_at? }`. `token` = custom value (8–64 `[A-Za-z0-9_-]`, trimmed); random when omitted | `201` created `Token`, `409 {"error": "Token value already taken."}` for a taken custom value |
 | `PATCH` | `/api/v2/admin/tokens/:id` | any of `label`, `limits`, `uses_max`, `expires_at`, `revoked` | updated `Token`, `404` if missing |
 | `DELETE` | `/api/v2/admin/tokens/:id` | — | `{ deleted: true, id }`. The usage log is kept. |
 | `GET` | `/api/v2/admin/tokens/:id/uses` | `page` (1), `limit` (20, max 100) | `{ items: TokenUse[], page, pageSize, total, totalPages }` newest first |

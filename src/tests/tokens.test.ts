@@ -67,7 +67,7 @@ test("upload limit check enforces count, per-file and total size", () => {
     expect(upload_limits_check([file(100), file(50)], limits)).toBeNull()
     expect(upload_limits_check([file(1), file(1), file(1)], limits)).toMatch(/Too many files/)
     expect(upload_limits_check([file(101, "big.bin")], limits)).toMatch(/big\.bin/)
-    expect(upload_limits_check([file(100), file(100)], limits)).toMatch(/total limit/)
+    expect(upload_limits_check([file(100), file(100)], limits)).toMatch(/max 150 B total/)
 })
 
 test("limits info exposes remaining uses and raw nullable limits", () => {

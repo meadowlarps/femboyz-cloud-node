@@ -1,5 +1,6 @@
 import { ERROR_LOG_PATH, errorFileLogger, scope }       from "./logger.js"
 import { shutdownUnexpectedly }                         from "./utils.js"
+import { clientStatus, httpError, issueMessage, publicErrorMessage } from "./httpError.js"
 import { NoteUploadSchema, XMetaFilesSchema, type XMetaFiles, type StorageDBUploadInstance, type UploadTokenDB } from "./schema.js"
 import { receiveUploadReturnID,
     receiveLinkReturnID,
@@ -39,7 +40,8 @@ import { token_create,
     token_update,
     token_use_log,
     token_uses_list,
-    upload_limits_check }                               from "./tokens.js"
+    upload_limits_check,
+    type TokenRejectReason }                           from "./tokens.js"
 import type { IncomingMessage, OutgoingHttpHeaders }    from "http"
 import      fs              from "node:fs/promises"
 import type { ContentTypeParserDoneFunction }           from "fastify/types/content-type-parser.js"
@@ -121,7 +123,7 @@ export async function startServer() {
 
 function notFoundHandler(request: FastifyRequest, reply: FastifyReply) {
     scopelog.warn("404 — route not found")
-    reply.status(404).send({ error: "Not found" })
+    reply.status(404).send({ error: "There's nothing at this address." })
 }
 
 async function pongHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -227,7 +229,7 @@ export async function uploadsBatchHandler(request: FastifyRequest, reply: Fastif
 export async function viewedUploadHandler(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string }
     if (!await incrementUploadView(id))
-        throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+        throw httpError(404, UPLOAD_NOT_FOUND)
     reply.status(204).send()
 }
 
@@ -240,7 +242,7 @@ export async function getUploadCommentsHandler(request: FastifyRequest, reply: F
     const { uploadId } = request.params as { uploadId: string }
     const comments = await getCommentsByUploadID(uploadId)
     if (!comments)
-        throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+        throw httpError(404, UPLOAD_NOT_FOUND)
     reply.send(comments)
 }
 
@@ -248,7 +250,7 @@ export async function getCommentHandler(request: FastifyRequest, reply: FastifyR
     const { commentId } = request.params as { commentId: string }
     const comment = await getCommentByID(commentId)
     if (!comment)
-        throw Object.assign(new Error("Comment not found"), { statusCode: 404 })
+        throw httpError(404, "Comment not found.")
     reply.send(comment)
 }
 
@@ -263,12 +265,12 @@ export async function adminAuthHandler(request: FastifyRequest, reply: FastifyRe
     const blockedMs = authBlockRemainingMs(request.ip)
     if (blockedMs > 0) {
         reply.header("Retry-After", String(Math.ceil(blockedMs / 1000)))
-        throw Object.assign(new Error("Too many failed admin auth attempts"), { statusCode: 429 })
+        throw httpError(429, "Too many wrong admin keys.")
     }
 
     const status = adminAuthStatus(request.headers.authorization, envs.AUTH_ADMIN_KEY)
     if (status === 503)
-        throw Object.assign(new Error("Admin key is not configured"), { statusCode: 503 })
+        throw httpError(503, "AUTH_ADMIN_KEY isn't configured.")
     if (status === 401) {
         const { blocked, blockedUntil } = registerAuthFailure(request.ip)
         if (blocked) {
@@ -277,7 +279,7 @@ export async function adminAuthHandler(request: FastifyRequest, reply: FastifyRe
             scopelog.warn(summary)
             errorFileLogger.error(summary)
         }
-        throw Object.assign(new Error("Invalid admin key"), { statusCode: 401 })
+        throw httpError(401, "Wrong admin key.")
     }
     clearAuthFailures(request.ip)
 }
@@ -297,7 +299,7 @@ async function adminUploadsHandler(request: FastifyRequest, reply: FastifyReply)
 async function adminDeleteUploadHandler(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string }
     const result = await deleteUploadByID(id)
-    if (!result) throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+    if (!result) throw httpError(404, UPLOAD_NOT_FOUND)
     reply.send(result)
 }
 
@@ -314,20 +316,20 @@ async function admin_tokens_list_handle(request: FastifyRequest, reply: FastifyR
 async function admin_tokens_create_handle(request: FastifyRequest, reply: FastifyReply) {
     const result = await token_create(request.body)
     // sent directly: errorHandler would flatten 409 into a generic "Bad request"
-    if (!result.ok) return reply.status(409).send({ error: "Token value already exists" })
+    if (!result.ok) return reply.status(409).send({ error: "Token value already taken." })
     reply.status(201).send(result.token)
 }
 
 async function admin_tokens_update_handle(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string }
     const token = await token_update(id, request.body)
-    if (!token) throw Object.assign(new Error("Token not found"), { statusCode: 404 })
+    if (!token) throw httpError(404, "Token not found.")
     reply.send(token)
 }
 
 async function admin_tokens_delete_handle(request: FastifyRequest, reply: FastifyReply) {
     const { id } = request.params as { id: string }
-    if (!await token_delete(id)) throw Object.assign(new Error("Token not found"), { statusCode: 404 })
+    if (!await token_delete(id)) throw httpError(404, "Token not found.")
     reply.send({ deleted: true, id })
 }
 
@@ -340,14 +342,14 @@ async function getUploadHandler(request: FastifyRequest, reply: FastifyReply) {
     const { id, fid } = request.params as { id: string; fid?: string }
 
     const upload = await getUploadByID(id)
-    if (!upload) throw Object.assign(new Error("Upload not found"), { statusCode: 404 })
+    if (!upload) throw httpError(404, UPLOAD_NOT_FOUND)
 
     if (fid !== undefined) {
-        if (upload.type === "link" || upload.type === "note") throw Object.assign(new Error("Not found"), { statusCode: 404 })
+        if (upload.type === "link" || upload.type === "note") throw httpError(404, "Upload has no files.")
         const fidNum = parseInt(fid, 10)
-        if (isNaN(fidNum) || fidNum < 0) throw Object.assign(new Error("Invalid file index"), { statusCode: 400 })
+        if (isNaN(fidNum) || fidNum < 0) throw httpError(400, "Invalid file index.")
         const file = upload.files[fidNum]
-        if (!file) throw Object.assign(new Error("File not found"), { statusCode: 404 })
+        if (!file) throw httpError(404, "File not found.")
 
         const { dl } = request.query as { dl?: string }
         const wantsDownload = dl === "1"
@@ -436,7 +438,7 @@ async function ulinkHandler(request: FastifyRequest, reply: FastifyReply) {
 async function unoteHandler(request: FastifyRequest, reply: FastifyReply) {
     const result = NoteUploadSchema.safeParse(request.body)
     if (!result.success)
-        throw Object.assign(new Error(`Invalid note: ${JSON.stringify(result.error.issues)}`), { statusCode: 400 })
+        throw httpError(400, issueMessage(result.error.issues, NOTE_LABELS, "Invalid note."), JSON.stringify(result.error.issues))
     const id = await receiveNoteReturnID(request, result.data)
 
     reply.send({ message: "Unote successful", id: id })
@@ -518,12 +520,12 @@ function token_reply_blocked(request: FastifyRequest, reply: FastifyReply) {
         .status(429)
         .header("Retry-After", String(Math.ceil(blocked_ms / 1000)))
         .header("Cache-Control", "no-store")
-        .send({ error: "Too many wrong tokens" })
+        .send({ error: "Too many wrong tokens." })
 }
 
 // Token rejections skip errorHandler on purpose: the client needs the reason, and token_use_log already wrote it down.
-function token_reply_rejected(reply: FastifyReply, reason: string) {
-    return reply.status(403).header("Cache-Control", "no-store").send({ error: `Token ${reason}` })
+function token_reply_rejected(reply: FastifyReply, reason: TokenRejectReason) {
+    return reply.status(403).header("Cache-Control", "no-store").send({ error: TOKEN_REJECT_MESSAGES[reason] })
 }
 
 // ---- UPLOAD PAGE ----
@@ -614,6 +616,26 @@ function escapeHtml(str: string): string {
 
 // ---- HELPERS ----
 
+const UPLOAD_NOT_FOUND = "Upload not found."
+const STORAGE_FULL = "Server storage is full."
+
+const TOKEN_REJECT_MESSAGES: Record<TokenRejectReason, string> = {
+    unknown: "Unknown token.",
+    revoked: "Token revoked.",
+    expired: "Token expired.",
+    exhausted: "Token used up."
+}
+
+const NOTE_LABELS = { "meta.title": "Title", text: "Note" }
+const XMETA_LABELS = {
+    "meta.title": "Title",
+    "meta.desc": "Description",
+    files: "File list",
+    "files.*.filename": "File name",
+    "files.*.sha256": "File hash",
+    "files.*.bytes": "File size"
+}
+
 const ulinkVal: RouteShorthandOptions = {
     schema: {
         body: { 
@@ -658,18 +680,18 @@ const udstreamVal: RouteShorthandOptions = {
         // changed x-meta header from stringfied JSON to base64 encoded JSON 
         // to avoid issues with special characters in headers and to allow larger metadata
         if (!isThereEnoughStorageFor(parseInt(request.headers["content-length"] as string)))
-            throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
+            throw httpError(507, STORAGE_FULL)
 
         const raw = Buffer.from(request.headers["x-meta"] as string, "base64").toString("utf-8")
 
         let parsed: string
         try { parsed = JSON.parse(raw) }
-        catch { throw Object.assign( new Error(`Invalid x-meta header, JSON parse failed: ${raw}`), {statusCode: 400}) }
+        catch { throw httpError(400, "X-Meta header isn't valid JSON.", raw.slice(0, 500)) }
 
         const result = XMetaFilesSchema.safeParse(parsed)
         if (!result.success)
-            throw Object.assign(
-                new Error(`Invalid x-meta header, validation failed: ${JSON.stringify(result.error.issues)}`), {statusCode: 400})
+            throw httpError(400, issueMessage(result.error.issues, XMETA_LABELS, "Invalid X-Meta header."),
+                JSON.stringify(result.error.issues))
         const xmeta = result.data
         const declared_bytes = xmeta.files.reduce((sum, file) => sum + file.bytes, 0)
 
@@ -698,14 +720,14 @@ const udstreamVal: RouteShorthandOptions = {
                     files: xmeta.files.length, bytes: declared_bytes, ...token_log_context(request)
                 })
             }
-            throw Object.assign(new Error(`Upload limits exceeded: ${violation}`), { statusCode: 400 })
+            throw httpError(413, violation)
         }
 
         // the check above is a cheap early reject; this claims the space so concurrent uploads can't overbook it
         const reserve_bytes = parseInt(request.headers["content-length"] as string)
         if (!storage_reserve(reserve_bytes)) {
             if (request.upload_token) await token_release(request.upload_token.id_token)
-            throw Object.assign(new Error("Storage limit exceeded"), { statusCode: 507 })
+            throw httpError(507, STORAGE_FULL)
         }
         request.storage_reserved = reserve_bytes
         request.xmeta = xmeta
@@ -722,27 +744,7 @@ function errorHandler(err: FastifyError, request: FastifyRequest, reply: Fastify
     status < 500 ? scopelog.warn(`${status} — ${err.message} from ${request.ip}`) : scopelog.error(`${status} — ${err.message} from ${request.ip}`)
     errorFileLogger.error({ err }, `${err.message} - "${status}" on "${request.method}" "${request.url}" from "${request.ip}"`)
 
-    const clientMessage =
-        status === 429 ? "Too many failed attempts"
-        : status === 400 || status > 404 && status < 500 ? "Bad request"
-        : status === 401 ? "Unauthorized"
-        : status === 403 ? "Forbidden"
-        : status === 404 ? "Not found"
-        : status === 503 ? "Service unavailable"
-        : status === 507 ? "Storage limit exceeded"
-        : "Internal server error"
-
-    const clientStatus =
-        status === 429 ? 429
-        : status === 400 || status > 404 && status < 500 ? 400
-        : status === 401 ? 401
-        : status === 403 ? 403
-        : status === 404 ? 404
-        : status === 503 ? 503
-        : status === 507 ? 507
-        : 500
-
-    reply.status(clientStatus).send({ error: clientMessage })
+    reply.status(clientStatus(status)).send({ error: publicErrorMessage(err, status) })
 }
 
 function udstreamContentTypeParser(request: FastifyRequest, payload: IncomingMessage, done: ContentTypeParserDoneFunction) {

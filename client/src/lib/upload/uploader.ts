@@ -1,4 +1,5 @@
 import { createSHA256 } from 'hash-wasm'
+import { ApiError, apiErrorFromResponse, apiErrorFromXhr, apiFetch, BAD_RESPONSE, NETWORK_ERROR } from '../apiError.js'
 
 export type UploadTokenInfo = {
     label: string
@@ -22,12 +23,13 @@ export const UPLOAD_TOKEN_MIN_LENGTH = 8
 /** Fallback for servers that don't report `max_note_length`. */
 export const NOTE_MAX_LENGTH_DEFAULT = 100_000
 
-export class UploadTokenError extends Error {}
+/** The upload token was refused (403) or this IP tried too many wrong ones (429). */
+export class UploadTokenError extends ApiError {}
 
-function tokenBlockedMessage(retryAfter: string | null) {
-    const seconds = Number(retryAfter)
-    const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.max(1, Math.ceil(seconds / 60)) : 15
-    return `Too many wrong tokens. Try again in ~${minutes}m.`
+function tokenError(error: ApiError): ApiError {
+    return error.status === 403 || error.status === 429
+        ? new UploadTokenError(error.status, error.message, error.retryAfterS)
+        : error
 }
 
 export type UploadResult = {
@@ -72,24 +74,16 @@ export async function fetchUploadLimits(
     forwarded: Record<string, string> = {},
     token?: string
 ) {
-    const response = await fetcher(`${apiEndpoint.replace(/\/$/, '')}/api/v2/maxfsize`, {
+    const response = await apiFetch(fetcher, `${apiEndpoint.replace(/\/$/, '')}/api/v2/maxfsize`, {
         headers: token ? { ...forwarded, 'X-Upload-Token': token } : forwarded
     })
 
-    if (response.status === 429) {
-        throw new UploadTokenError(tokenBlockedMessage(response.headers.get('Retry-After')))
-    }
-
-    if (response.status === 403) {
-        const body = await response.json().catch(() => null) as { error?: string } | null
-        throw new UploadTokenError(body?.error ?? 'Token rejected')
-    }
-
     if (!response.ok) {
-        throw new Error(`Request failed with ${response.status}`)
+        const error = await apiErrorFromResponse(response)
+        throw token ? tokenError(error) : error
     }
 
-    return await response.json() as UploadLimits
+    return await response.json().catch(() => { throw new ApiError(response.status, BAD_RESPONSE) }) as UploadLimits
 }
 
 export function formatFileSize(bytes: number) {
@@ -109,7 +103,7 @@ export async function sendUpload(
     token?: string
 ) {
     if (files.length === 0) {
-        throw new Error('Select at least one file')
+        throw new Error('Select at least one file.')
     }
 
     const xmeta: XMetaFiles = {
@@ -181,44 +175,36 @@ function uploadWithProgress(
         }
 
         xhr.onload = () => {
-            if (xhr.status === 429) {
-                reject(new UploadTokenError(tokenBlockedMessage(xhr.getResponseHeader('Retry-After'))))
-                return
-            }
-            if (xhr.status === 403) {
-                reject(new UploadTokenError(parseErrorMessage(xhr.responseText) ?? 'Token rejected'))
-                return
-            }
             if (xhr.status < 200 || xhr.status >= 300) {
-                reject(new Error(`Upload failed with ${xhr.status}`))
+                const error = apiErrorFromXhr(xhr)
+                reject(token ? tokenError(error) : error)
                 return
             }
 
             try {
                 resolve(JSON.parse(xhr.responseText) as UploadResult)
             } catch {
-                reject(new Error('Upload response was not valid JSON'))
+                reject(new ApiError(xhr.status, BAD_RESPONSE))
             }
         }
 
-        xhr.onerror = () => reject(new Error('Upload network error'))
-        xhr.onabort = () => reject(new Error('Upload aborted'))
+        // the connection dropped, or a proxy cut it off without an HTTP answer (often a body size limit)
+        xhr.onerror = () => reject(new ApiError(0, NETWORK_ERROR))
+        xhr.onabort = () => reject(new ApiError(0, 'Upload cancelled.'))
         xhr.send(body)
     })
 }
 
 export async function sendLinkUpload(apiEndpoint: string, link: string): Promise<UploadResult> {
-    const response = await fetch(`${apiEndpoint.replace(/\/$/, '')}/api/v2/ulink`, {
+    const response = await apiFetch(fetch, `${apiEndpoint.replace(/\/$/, '')}/api/v2/ulink`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'link', link })
     })
 
-    if (!response.ok) {
-        throw new Error(`Upload failed with ${response.status}`)
-    }
+    if (!response.ok) throw await apiErrorFromResponse(response)
 
-    return await response.json() as UploadResult
+    return await response.json().catch(() => { throw new ApiError(response.status, BAD_RESPONSE) }) as UploadResult
 }
 
 export async function sendNoteUpload(
@@ -227,26 +213,15 @@ export async function sendNoteUpload(
     title: string,
     is_public = false
 ): Promise<UploadResult> {
-    const response = await fetch(`${apiEndpoint.replace(/\/$/, '')}/api/v2/unote`, {
+    const response = await apiFetch(fetch, `${apiEndpoint.replace(/\/$/, '')}/api/v2/unote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'note', is_public, meta: { title }, text })
     })
 
-    if (!response.ok) {
-        throw new Error(`Upload failed with ${response.status}`)
-    }
+    if (!response.ok) throw await apiErrorFromResponse(response)
 
-    return await response.json() as UploadResult
-}
-
-function parseErrorMessage(text: string) {
-    try {
-        const body = JSON.parse(text) as { error?: unknown }
-        return typeof body.error === 'string' ? body.error : undefined
-    } catch {
-        return undefined
-    }
+    return await response.json().catch(() => { throw new ApiError(response.status, BAD_RESPONSE) }) as UploadResult
 }
 
 function createUploadProgress(files: File[], loaded: number, total: number): UploadProgress {

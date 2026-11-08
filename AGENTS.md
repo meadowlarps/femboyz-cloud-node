@@ -45,6 +45,7 @@ TypeScript Node.js server.
 | `src/emailcodes.ts` | 4-digit email codes: HMAC storage, attempts, send limits    |
 | `src/stalwart.ts`  | Stalwart JMAP management client: mailboxes, quota, redirect Sieve, new-sender list |
 | `src/mailer.ts`    | nodemailer to Stalwart as noreply@, mail templates            |
+| `src/httpError.ts` | `httpError()`, readable client messages for every error, status mapping |
 | `src/utils.ts`     | Shared helpers                                                |
 
 ## API routes
@@ -87,6 +88,7 @@ Full specs live in `schema/`. Don't duplicate them here.
 - Link upload (`POST /api/v2/ulink`): JSON `{ "type": "link", "link": "..." }`; the server HEAD-pings the URL first.
 - Note upload (`POST /api/v2/unote`): `schema/frontend_note_upload.md`. Text lives in MongoDB.
 - View tracking (`POST /api/v2/viewed/:id`): `schema/frontend_upload_viewed.md`.
+- Errors: `schema/frontend_errors.md`. `{ "error": "<readable sentence>" }`; throw `httpError(status, publicMessage, detail?)`, never a bare `Error` with a `statusCode` (its message would be replaced by a generic one). Client: `client/src/lib/apiError.ts`.
 - Accounts: `schema/frontend_account_{login,signup,settings,admin}.md`, `schema/mongo_{user,account_request,invite}.md`.
 
 ## Storage

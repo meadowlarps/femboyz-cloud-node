@@ -3,6 +3,7 @@ import fs, { type FileHandle } from "node:fs/promises"
 import path from "node:path"
 import type { XMetaFiles } from "./schema.js"
 import { filesize } from "filesize"
+import { httpError } from "./httpError.js"
 
 // enough for libmagic to identify nearly every format
 export const HEAD_BYTES = 64 * 1024
@@ -47,8 +48,8 @@ export async function parseUploadStream(
             const computed_hash = hash.digest("hex")
             const xfile = xfiles[curr_file_idx]!
             if (computed_hash !== xfile.sha256)
-                throw Object.assign(
-                    new Error(`Hash mismatch for ${xfile.filename}:\nGOT:      ${computed_hash}\nEXPECTED: ${xfile.sha256}`), { statusCode: 400 })
+                throw httpError(400, `"${xfile.filename}" failed its checksum. Retry the upload.`,
+                    `got ${computed_hash}, expected ${xfile.sha256}`)
             files.push({ tmp_path: curr_path, head: Buffer.concat(curr_head) })
             curr_file_idx++
             if (curr_file_idx < xfiles.length) await openNext()
@@ -66,9 +67,7 @@ export async function parseUploadStream(
 
             while (progress < packet.length) {
                 if (curr_file_idx >= xfiles.length)
-                    throw Object.assign(
-                        new Error("Stream too long: received more bytes than declared"),
-                        { statusCode: 400 })
+                    throw httpError(400, "Upload longer than declared.")
 
                 const take = Math.min(curr_file_bytes_left, packet.length - progress)
                 const chunk = packet.subarray(progress, progress + take)
@@ -86,11 +85,8 @@ export async function parseUploadStream(
         }
 
         if (curr_file_idx !== xfiles.length)
-            throw Object.assign(
-                new Error(`Stream ended early:` +
-                    `received ${curr_file_idx}/${xfiles.length} files`
-                    + `, ${filesize(total_bytes)}/${filesize(total_declared_bytes)}`),
-                { statusCode: 400 })
+            throw httpError(400, "Upload was cut off.",
+                `received ${curr_file_idx}/${xfiles.length} files, ${filesize(total_bytes)}/${filesize(total_declared_bytes)}`)
     } catch (err) {
         await (fh as FileHandle | null)?.close().catch(() => {})
         await Promise.all(created.map(p => fs.rm(p, { force: true }).catch(() => {})))

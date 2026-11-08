@@ -7,6 +7,7 @@ import { envs } from "./config.js"
 import { authlimit_create } from "./authlimit.js"
 import { getDB } from "./database.js"
 import { errorFileLogger, scope } from "./logger.js"
+import { httpError, issueMessage } from "./httpError.js"
 import {
     TokenUseSchemaDB,
     UPLOAD_TOKEN_REGEX,
@@ -110,13 +111,13 @@ export function token_limits_effective(token: UploadTokenDB | null, free_bytes: 
 
 export function upload_limits_check(files: XMetaFiles["files"], limits: UploadLimitsEffective): string | null {
     if (files.length > limits.max_files)
-        return `Too many files: ${files.length}/${limits.max_files}`
+        return `Too many files (max ${limits.max_files}).`
     const oversized = files.find(file => file.bytes > limits.max_bytes_per_file)
     if (oversized)
-        return `File "${oversized.filename}" exceeds per-file limit of ${limits.max_bytes_per_file} bytes`
+        return `"${oversized.filename}" is too large (max ${filesize(limits.max_bytes_per_file)} per file).`
     const total = files.reduce((sum, file) => sum + file.bytes, 0)
     if (total > limits.max_bytes_total)
-        return `Upload of ${total} bytes exceeds total limit of ${limits.max_bytes_total} bytes`
+        return `Upload too large (max ${filesize(limits.max_bytes_total)} total).`
     return null
 }
 
@@ -239,10 +240,19 @@ export async function token_use_log(entry: Omit<TokenUseDB, "when">): Promise<vo
 
 // ---- ADMIN ----
 
+const TOKEN_LABELS = {
+    token: "Token value",
+    label: "Label",
+    "limits.max_files": "File limit",
+    "limits.max_bytes": "Size limit",
+    uses_max: "Use limit",
+    expires_at: "Expiry date"
+}
+
 function token_body_parse<T>(schema: z.ZodType<T>, body: unknown): T {
     const result = schema.safeParse(body)
     if (!result.success)
-        throw Object.assign(new Error(`Invalid token body: ${JSON.stringify(result.error.issues)}`), { statusCode: 400 })
+        throw httpError(400, issueMessage(result.error.issues, TOKEN_LABELS, "Invalid token settings."), JSON.stringify(result.error.issues))
     return result.data
 }
 
@@ -305,7 +315,7 @@ export async function token_update(id_token: string, body: unknown) {
     const update: Document = { ...input }
     if (input.expires_at !== undefined) update.expires_at = token_date_normalize(input.expires_at)
     if (Object.keys(update).length === 0)
-        throw Object.assign(new Error("Empty token update"), { statusCode: 400 })
+        throw httpError(400, "Nothing to update.")
 
     const document = await tokens_collection()
         .findOneAndUpdate({ id_token }, { $set: update }, { returnDocument: "after", projection: { _id: 0 } })
@@ -328,7 +338,7 @@ export async function token_delete(id_token: string): Promise<boolean> {
 export async function token_uses_list(id_token: string, query: unknown) {
     const parsed = TokenUsesQuerySchema.safeParse(query)
     if (!parsed.success)
-        throw Object.assign(new Error("Invalid token uses query"), { statusCode: 400 })
+        throw httpError(400, "Invalid filters.")
     const { page, limit } = parsed.data
 
     const [documents, total] = await Promise.all([

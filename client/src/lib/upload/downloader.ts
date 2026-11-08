@@ -1,3 +1,5 @@
+import { apiErrorFromResponse, apiFetch } from '../apiError.js'
+
 export type UploadData = {
     id: string
     type: 'files' | 'album' | 'playlist' | 'link' | 'note'
@@ -36,13 +38,11 @@ export async function fetchUpload(
     fetcher: typeof fetch = fetch,
     forwarded: Record<string, string> = {}
 ): Promise<UploadData> {
-    const response = await fetcher(`${apiEndpoint.replace(/\/$/, '')}/${id}`, {
+    const response = await apiFetch(fetcher, `${apiEndpoint.replace(/\/$/, '')}/${id}`, {
         headers: { Accept: 'application/json', ...forwarded }
     })
 
-    if (!response.ok) {
-        throw new Error(`${response.status}`)
-    }
+    if (!response.ok) throw await apiErrorFromResponse(response)
 
     return await response.json() as UploadData
 }
@@ -66,13 +66,11 @@ export async function fetchUploads(
 
     for (let start = 0; start < ids.length; start += UPLOADS_BATCH_MAX_IDS) {
         const chunk = ids.slice(start, start + UPLOADS_BATCH_MAX_IDS)
-        const response = await fetcher(
+        const response = await apiFetch(fetcher, 
             `${apiEndpoint.replace(/\/$/, '')}/api/v2/uploads?ids=${chunk.map(encodeURIComponent).join(',')}`
         )
 
-        if (!response.ok) {
-            throw new Error(`${response.status}`)
-        }
+        if (!response.ok) throw await apiErrorFromResponse(response)
 
         const result = await response.json() as UploadsBatch
         batch.items.push(...result.items)
@@ -87,12 +85,10 @@ export async function markUploadViewed(
     apiEndpoint: string,
     fetcher: typeof fetch = fetch
 ): Promise<void> {
-    const response = await fetcher(
+    const response = await apiFetch(fetcher, 
         `${apiEndpoint.replace(/\/$/, '')}/api/v2/viewed/${encodeURIComponent(id)}`,
         { method: 'POST' }
     )
 
-    if (!response.ok) {
-        throw new Error(`${response.status}`)
-    }
+    if (!response.ok) throw await apiErrorFromResponse(response)
 }

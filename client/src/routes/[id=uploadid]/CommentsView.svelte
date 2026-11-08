@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { errorText } from '$lib/apiError'
     import { onMount } from 'svelte'
     import { spawnAlert } from '$lib/alerts'
     import {
@@ -62,7 +63,7 @@
         try {
             client_uuid = getOrCreateClientUuid()
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Could not initialize comments'
+            const message = errorText(err, "Comments unavailable.")
             spawnAlert('error', message)
         }
     })
@@ -103,10 +104,10 @@
             try {
                 writeCommentReaction(comment.id, desired)
             } catch {
-                spawnAlert('error', 'Could not save reaction for reload')
+                spawnAlert('error', "Reaction saved, but not remembered locally.")
             }
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to update reaction'
+            const message = `Reaction not saved: ${errorText(err)}`
             spawnAlert('error', message)
         } finally {
             const next = { ...reaction_pending }
@@ -154,7 +155,7 @@
             reply_to = undefined
             highlighted_comment_id = undefined
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to post comment'
+            const message = `Comment not posted: ${errorText(err)}`
             spawnAlert('error', message)
         } finally {
             submit_pending = false

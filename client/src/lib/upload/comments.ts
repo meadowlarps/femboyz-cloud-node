@@ -1,3 +1,5 @@
+import { ApiError, apiErrorFromResponse, apiFetch, BAD_RESPONSE } from '../apiError.js'
+
 export type CommentStat = {
     up: number
     down: number
@@ -71,18 +73,9 @@ function isCommentPublic(value: unknown): value is CommentPublic {
         && typeof stat.eyes === 'number'
 }
 
+/** The readable error a failed response carries, or a sentence for its status. */
 export async function extractApiError(response: Response): Promise<string> {
-    const fallback = String(response.status)
-    try {
-        const body = await response.json() as unknown
-        if (body && typeof body === 'object' && 'error' in body) {
-            const error = (body as { error: unknown }).error
-            if (typeof error === 'string' && error.length > 0) return error
-        }
-    } catch {
-        // Response body was not JSON.
-    }
-    return fallback
+    return (await apiErrorFromResponse(response)).message
 }
 
 async function readApiJson<T>(
@@ -90,11 +83,11 @@ async function readApiJson<T>(
     validate: (value: unknown) => value is T
 ): Promise<T> {
     if (!response.ok)
-        throw new Error(await extractApiError(response))
+        throw await apiErrorFromResponse(response)
 
-    const body = await response.json() as unknown
+    const body = await response.json().catch(() => null) as unknown
     if (!validate(body))
-        throw new Error('Invalid API response')
+        throw new ApiError(response.status, BAD_RESPONSE)
 
     return body
 }
@@ -109,7 +102,7 @@ export function getOrCreateClientUuid(
 
     const created = uuidGen()
     if (!isClientUuid(created))
-        throw new Error('Invalid generated client UUID')
+        throw new Error("Comments unavailable. Reload the page.")
 
     store.setItem(CLIENT_UUID_STORAGE_KEY, created)
     return created
@@ -148,7 +141,7 @@ export function writeCommentReaction(
     storage?: StorageLike
 ): void {
     if (!isCommentId(commentId) || !isReactionState(state))
-        throw new Error('Invalid comment reaction')
+        throw new Error("Couldn't save reaction.")
 
     const store = storage ?? defaultStorage()
     const reactions = readCommentReactions(store)
@@ -162,7 +155,7 @@ export async function fetchUploadComments(
     fetcher: typeof fetch = fetch,
     forwarded: Record<string, string> = {}
 ): Promise<CommentPublic[]> {
-    const response = await fetcher(
+    const response = await apiFetch(fetcher,
         joinApiPath(apiEndpoint, `/api/v2/uploads/${encodeURIComponent(uploadId)}/comments`),
         { headers: { Accept: 'application/json', ...forwarded } }
     )
@@ -181,9 +174,9 @@ export async function createUploadComment(
     fetcher: typeof fetch = fetch
 ): Promise<CommentPublic> {
     if (!isClientUuid(clientUuid))
-        throw new Error('Invalid client UUID')
+        throw new Error("Comments not ready. Reload the page.")
 
-    const response = await fetcher(
+    const response = await apiFetch(fetcher,
         joinApiPath(apiEndpoint, `/api/v2/uploads/${encodeURIComponent(uploadId)}/comments`),
         {
             method: 'POST',
@@ -197,11 +190,11 @@ export async function createUploadComment(
     )
 
     if (response.status !== 201)
-        throw new Error(await extractApiError(response))
+        throw await apiErrorFromResponse(response)
 
-    const comment = await response.json() as unknown
+    const comment = await response.json().catch(() => null) as unknown
     if (!isCommentPublic(comment))
-        throw new Error('Invalid API response')
+        throw new ApiError(response.status, BAD_RESPONSE)
 
     return comment
 }
@@ -214,13 +207,13 @@ export async function updateCommentReaction(
     fetcher: typeof fetch = fetch
 ): Promise<CommentPublic> {
     if (!isCommentId(commentId))
-        throw new Error('Invalid comment id')
+        throw new Error("Invalid comment.")
     if (!isClientUuid(clientUuid))
-        throw new Error('Invalid client UUID')
+        throw new Error("Comments not ready. Reload the page.")
     if (!isReactionState(state))
-        throw new Error('Invalid reaction state')
+        throw new Error("Invalid reaction.")
 
-    const response = await fetcher(
+    const response = await apiFetch(fetcher,
         joinApiPath(apiEndpoint, `/api/v2/comments/${encodeURIComponent(commentId)}/reactions`),
         {
             method: 'PUT',
@@ -238,6 +231,6 @@ export async function updateCommentReaction(
 
 function defaultStorage(): StorageLike {
     if (typeof localStorage === 'undefined')
-        throw new Error('Storage is unavailable')
+        throw new Error("Local storage is blocked.")
     return localStorage
 }

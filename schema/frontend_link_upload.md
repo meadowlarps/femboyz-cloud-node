@@ -53,5 +53,6 @@ Canonical protocol specification for creating URL redirect uploads.
 
 | Status | Error Body | Cause |
 | :--- | :--- | :--- |
-| `400 Bad Request` | `{"error": "Bad request"}` | Invalid JSON schema, malformed URL, or target link failed server `HEAD` verification. |
-| `500 Internal Server Error` | `{"error": "Internal server error"}` | Database insertion failure. |
+| `400 Bad Request` | `{"error": "Invalid link. Use http://, https:// or www."}` | Invalid JSON or schema, malformed URL. |
+| `422 Unprocessable Content` | `{"error": "Link unreachable."}` | The target link failed the server `HEAD` check (unreachable or 4xx). |
+| `500 Internal Server Error` | `{"error": "Server error."}` | Database insertion failure. |

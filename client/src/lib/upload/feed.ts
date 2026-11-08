@@ -1,4 +1,5 @@
 import type { UploadData } from './downloader.js'
+import { apiErrorFromResponse, apiFetch } from '../apiError.js'
 
 /** Feed items carry the same public fields as an upload, minus the `public` flag. */
 export type FeedItem = Omit<UploadData, 'public'>
@@ -20,14 +21,12 @@ export async function fetchFeed(
     fetcher: typeof fetch = fetch,
     forwarded: Record<string, string> = {}
 ): Promise<FeedResponse> {
-    const response = await fetcher(
+    const response = await apiFetch(fetcher, 
         `${apiEndpoint.replace(/\/$/, '')}/api/v2/feed?s=${start}&e=${end}`,
         { headers: forwarded }
     )
 
-    if (!response.ok) {
-        throw new Error(`Request failed with ${response.status}`)
-    }
+    if (!response.ok) throw await apiErrorFromResponse(response)
 
     return await response.json() as FeedResponse
 }

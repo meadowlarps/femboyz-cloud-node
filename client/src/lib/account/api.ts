@@ -1,3 +1,5 @@
+import { NETWORK_ERROR, parseRetryAfter, statusText, waitText } from '$lib/apiError'
+
 // Account pages talk to /oidc and /api on their own origin: nginx routes them to the API in
 // production, the Vite proxy does in dev. The session cookie is HttpOnly and never seen here.
 
@@ -5,7 +7,9 @@ export class AccountApiError extends Error {
     constructor(
         public status: number,
         public code: string,
-        public retryAfterS: number | null = null
+        public retryAfterS: number | null = null,
+        /** The server's own readable sentence, sent alongside generic codes like `bad_request`. */
+        public serverMessage: string | null = null
     ) {
         super(code)
     }
@@ -18,11 +22,10 @@ export async function accountFetch<T>(path: string, init: { method?: string; bod
         headers: init.body === undefined ? {} : { 'Content-Type': 'application/json' },
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
     })
-    const body = (await response.json().catch(() => ({}))) as { error?: string; retry_after_s?: number }
+    const body = (await response.json().catch(() => ({}))) as { error?: string; message?: string; retry_after_s?: number }
     if (!response.ok) {
-        const header = Number(response.headers.get('Retry-After'))
-        const retry = body.retry_after_s ?? (Number.isFinite(header) && header > 0 ? header : null)
-        throw new AccountApiError(response.status, body.error ?? `http_${response.status}`, retry)
+        const retry = body.retry_after_s ?? parseRetryAfter(response.headers.get('Retry-After'))
+        throw new AccountApiError(response.status, body.error ?? `http_${response.status}`, retry, body.message ?? null)
     }
     return body as T
 }
@@ -30,12 +33,6 @@ export async function accountFetch<T>(path: string, init: { method?: string; bod
 /** Where to send someone without a site session; `back` is the path to return to. */
 export function sessionStartUrl(back = '/account'): string {
     return `/api/v2/account/session/start?return=${encodeURIComponent(back)}`
-}
-
-function waitText(seconds: number | null): string {
-    if (!seconds) return 'Try again later.'
-    if (seconds < 90) return `Try again in ${seconds}s.`
-    return `Try again in ~${Math.ceil(seconds / 60)} min.`
 }
 
 const MESSAGES: Record<string, string> = {
@@ -64,13 +61,29 @@ const MESSAGES: Record<string, string> = {
     requests_full: "We're not taking new requests right now. Try again later.",
     not_signed_in: 'Your session ended. Sign in again.',
     bad_origin: 'Request blocked. Reload the page and try again.',
-    server_error: 'Something went wrong on our side.'
+    already_decided: 'Already decided.',
+    not_found: "Not found. Reload the list.",
+    empty_update: 'Nothing to save.',
+    invalid_body: "Some fields are invalid.",
+    invalid_query: 'Invalid filters.',
+    access_denied: 'Sign-in cancelled.',
+    unauthorized: 'Sign in required.',
+    forbidden: "Not allowed."
+}
+
+/** Codes whose meaning is vague enough that the server's own sentence, when it sent one, says more. */
+const GENERIC_CODES = new Set(['bad_request', 'server_error', 'unauthorized', 'forbidden', 'not_found'])
+
+/** Readable text for an account API code, or null when the code isn't one we know. */
+export function accountCodeText(code: string, retryAfterS: number | null = null): string | null {
+    if (code === 'rate_limited' || code === 'code_limit') return `Too many attempts. ${waitText(retryAfterS)}`
+    if (code === 'code_cooldown') return `Wait before asking for another code. ${waitText(retryAfterS)}`
+    return MESSAGES[code] ?? null
 }
 
 export function accountErrorText(error: unknown): string {
-    if (!(error instanceof AccountApiError)) return 'Network error. Check your connection.'
-    if (error.code === 'rate_limited' || error.code === 'code_limit')
-        return `Too many attempts. ${waitText(error.retryAfterS)}`
-    if (error.code === 'code_cooldown') return `Wait before asking for another code. ${waitText(error.retryAfterS)}`
-    return MESSAGES[error.code] ?? `Request failed (${error.status}).`
+    if (!(error instanceof AccountApiError)) return NETWORK_ERROR
+    if (error.serverMessage && GENERIC_CODES.has(error.code)) return error.serverMessage
+    if (error.code === 'server_error') return statusText(error.status)
+    return accountCodeText(error.code, error.retryAfterS) ?? error.serverMessage ?? statusText(error.status)
 }
