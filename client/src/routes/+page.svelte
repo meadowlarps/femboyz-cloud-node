@@ -863,13 +863,12 @@
 
                         {#if isDone && lastUpload}
                             <div class="done-overlay" out:fade={{ duration: ms(200) }}>
-                                <div class="done-check" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                                <div class="done-head">
+                                    <div class="done-check" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>
+                                    </div>
+                                    <h2>Uploaded!</h2>
                                 </div>
-                                <h2>Uploaded!</h2>
-                                <p>
-                                    {lastUpload.count} {lastUpload.count === 1 ? 'file' : 'files'} · {formatFileSize(lastUpload.bytes)} · {lastUpload.isPublic ? 'public' : 'link access'}
-                                </p>
                             </div>
                         {/if}
                         </div>
@@ -1518,6 +1517,11 @@
         pointer-events: none;
     }
 
+    /* the finished upload can't take more files: the add tile goes, but keeps its cell so its row stays */
+    .tray.veiled .add-tile {
+        visibility: hidden;
+    }
+
     .add-tile:hover,
     .upload-field.dragging .add-tile {
         border-color: #8a8385;
@@ -1801,28 +1805,34 @@
         display: grid;
         align-content: center;
         justify-items: center;
-        gap: 0.2rem;
+        gap: 0.35rem;
         text-align: center;
+    }
+
+    .done-head {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
     }
 
     .done-check {
         display: grid;
         place-items: center;
-        width: 2.8rem;
-        height: 2.8rem;
-        margin-bottom: 0.5rem;
-        border-radius: 50%;
-        background: #1d4a30;
+        flex: none;
+        width: 1.6rem;
+        height: 1.6rem;
         color: #7af0ad;
     }
 
     .done-check svg {
-        width: 1.4rem;
-        height: 1.4rem;
+        width: 1.6rem;
+        height: 1.6rem;
+        /* no circle behind it: the tick carries its own glow against the blurred files */
+        filter: drop-shadow(0 0 3px #7af0adcc) drop-shadow(0 0 16px #7af0ad99);
         stroke-width: 2.6;
     }
 
-    /* circle pops, then the tick draws itself; the rest of the card follows in a short stagger */
+    /* the mark pops, then the tick draws itself; the rest of the card follows in a short stagger */
     .done-check {
         animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
@@ -1833,13 +1843,12 @@
         animation: draw 0.35s 0.25s ease-out forwards;
     }
 
-    .done-overlay > :nth-child(n + 2),
+    .done-head h2,
     .result > * {
         animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
-    .done-overlay > :nth-child(2) { animation-delay: 0.1s; }
-    .done-overlay > :nth-child(3) { animation-delay: 0.15s; }
+    .done-head h2 { animation-delay: 0.1s; }
     .result > :nth-child(1) { animation-delay: 0.2s; }
     .result > :nth-child(2) { animation-delay: 0.27s; }
 
@@ -1862,12 +1871,6 @@
         text-shadow: 0 1px 2px #000a, 0 0 12px #000c;
     }
 
-    .done-overlay p {
-        margin: 0;
-        color: #ece8e9;
-        font-size: 0.8rem;
-        text-shadow: 0 1px 2px #000a, 0 0 10px #000c;
-    }
 
     /* the button and its replacement share one cell, so the swap crossfades in place */
     .action-slot {
@@ -2072,7 +2075,7 @@
         .upload-fill,
         .upload-fill::after,
         .done-check,
-        .done-overlay > *,
+        .done-head h2,
         .result > * {
             animation: none;
         }
