@@ -60,9 +60,9 @@ test("admin query parsing applies bounds and defaults", () => {
     expect(parseAdminQuery({})).toEqual({ page: 1, limit: 20, search: "", type: "all", sort: "newest" })
     expect(parseAdminQuery({ page: "2", limit: "50", search: "  1.2.3.4  ", type: "album", sort: "largest" }))
         .toEqual({ page: 2, limit: 50, search: "1.2.3.4", type: "album", sort: "largest" })
-    expect(() => parseAdminQuery({ page: 0 })).toThrow("Invalid admin query")
-    expect(() => parseAdminQuery({ limit: 101 })).toThrow("Invalid admin query")
-    expect(() => parseAdminQuery({ search: "x".repeat(201) })).toThrow("Invalid admin query")
+    expect(() => parseAdminQuery({ page: 0 })).toThrow("Invalid filters.")
+    expect(() => parseAdminQuery({ limit: 101 })).toThrow("Invalid filters.")
+    expect(() => parseAdminQuery({ search: "x".repeat(201) })).toThrow("Invalid filters.")
 })
 
 test("admin pipeline escapes search and uses deterministic pagination sorts", () => {

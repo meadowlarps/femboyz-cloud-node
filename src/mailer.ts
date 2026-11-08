@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer"
 import { envs, site_origin } from "./config.js"
 import { errorFileLogger, scope } from "./logger.js"
+import { httpError } from "./httpError.js"
 
 const scopelog = scope("mailer")
 
@@ -11,7 +12,7 @@ let transport: Transporter | null = null
 // Without SMTP_HOST (dev) messages are only logged, codes and links included.
 function transport_get(): Transporter | null {
     if (!envs.SMTP_HOST) {
-        if (process.env.NODE_ENV === "prod") throw Object.assign(new Error("SMTP_HOST is required in production"), { statusCode: 503 })
+        if (process.env.NODE_ENV === "prod") throw httpError(503, "Email unavailable.", "SMTP_HOST is required in production")
         return null
     }
     transport ??= nodemailer.createTransport({
@@ -45,7 +46,7 @@ export async function mail_send(message: MailMessage): Promise<void> {
         const reason = err instanceof Error ? err.message : String(err)
         scopelog.error(`Failed to send "${message.subject}" to ${message.to}: ${reason}`)
         errorFileLogger.error({ err }, `Failed to send mail "${message.subject}" to ${message.to}`)
-        throw Object.assign(new Error("Mail delivery failed"), { statusCode: 502 })
+        throw httpError(502, "Couldn't send email.")
     }
 }
 

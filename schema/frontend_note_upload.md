@@ -55,5 +55,5 @@ Lists (`GET /api/v2/feed`, `GET /api/v2/uploads`, admin uploads) never carry the
 
 | Status | Error Body | Cause |
 | :--- | :--- | :--- |
-| `400 Bad Request` | `{"error": "Bad request"}` | Invalid JSON, blank text, text or title over the limit. |
-| `500 Internal Server Error` | `{"error": "Internal server error"}` | Database insertion failure. |
+| `400 Bad Request` | `{"error": "Note is empty."}`, `{"error": "Note too long (max 100000)."}`, … | Invalid JSON, blank text, text or title over the limit. |
+| `500 Internal Server Error` | `{"error": "Server error."}` | Database insertion failure. |

@@ -22,7 +22,7 @@ test('rejects when the view request fails', async () => {
 
     await assert.rejects(
         markUploadViewed('missing', '', fetcher),
-        { message: '404' }
+        { name: 'ApiError', status: 404, message: "Not found." }
     )
 })
 
@@ -56,5 +56,13 @@ test('splits batches larger than the server cap into chunks of 100', async () =>
 test('rejects when the batch request fails', async () => {
     const fetcher = (async () => new Response(null, { status: 400 })) as typeof fetch
 
-    await assert.rejects(fetchUploads(['x'], '', fetcher), { message: '400' })
+    await assert.rejects(fetchUploads(['x'], '', fetcher), { status: 400, message: 'Invalid request.' })
+})
+
+test('surfaces the server error message and turns network failures into readable text', async () => {
+    const failing = (async () => Response.json({ error: 'List between 1 and 100 upload IDs.' }, { status: 400 })) as typeof fetch
+    await assert.rejects(fetchUploads(['x'], '', failing), { status: 400, message: 'List between 1 and 100 upload IDs.' })
+
+    const offline = (async () => { throw new TypeError('Failed to fetch') }) as typeof fetch
+    await assert.rejects(fetchUploads(['x'], '', offline), { status: 0, message: "Can't reach the server." })
 })

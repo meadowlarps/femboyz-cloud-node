@@ -1,5 +1,6 @@
 import { open } from "node:fs/promises"
 import * as z from "zod"
+import { httpError } from "./httpError.js"
 
 const ErrorLogQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
@@ -56,7 +57,7 @@ const IGNORED_ERR_KEYS = new Set(["type", "message", "stack", "statusCode"])
 export function parseErrorLogQuery(value: unknown): ErrorLogQuery {
     const result = ErrorLogQuerySchema.safeParse(value)
     if (!result.success)
-        throw Object.assign(new Error("Invalid log query"), { statusCode: 400 })
+        throw httpError(400, "Invalid filters.")
     return result.data
 }
 

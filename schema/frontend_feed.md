@@ -127,4 +127,4 @@ The public feed explicitly omits internal storage and client privacy fields:
 
 | Status | Error Response Body | Trigger Condition |
 | :--- | :--- | :--- |
-| `400 Bad Request` | `{"error": "Bad request"}` | `s < 0`, `e <= s`, `e - s > 100`, or non-integer query values. |
+| `400 Bad Request` | `{"error": "Invalid feed range."}` | `s < 0`, `e <= s`, `e - s > 100`, or non-integer query values. |

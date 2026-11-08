@@ -5,6 +5,7 @@ import * as z from "zod"
 import { envs, site_origin } from "./config.js"
 import { authlimit_create } from "./authlimit.js"
 import { errorFileLogger, scope } from "./logger.js"
+import { clientStatus, publicErrorMessage } from "./httpError.js"
 import {
     AccountError,
     email_normalize,
@@ -134,13 +135,18 @@ function account_error_handler(err: FastifyError | AccountError, request: Fastif
         return reply.status(err.statusCode).send({ error: err.code, ...err.extra })
     }
     const status = err.statusCode ?? 500
+    // `message` is a readable sentence the client shows when it has nothing better for the code
+    const message = publicErrorMessage(err, status)
     if (status >= 500) {
         scopelog.error(`${status} — ${err.message} on ${route}`)
         errorFileLogger.error({ err }, `${err.message} - "${status}" on "${route}" from "${request.ip}"`)
-        return reply.status(status === 502 || status === 503 ? status : 500).send({ error: "server_error" })
+        return reply.status(clientStatus(status)).send({ error: "server_error", message })
     }
     scopelog.warn(`${status} — ${err.message} on ${route} from ${request.ip}`)
-    return reply.status(status === 415 || status === 413 ? status : 400).send({ error: "bad_request" })
+    // keeps 401/429 from the admin key check intact, so the admin page can sign out or wait
+    const code = status === 401 ? "unauthorized" : status === 403 ? "forbidden" : status === 404 ? "not_found"
+        : status === 429 ? "rate_limited" : "bad_request"
+    return reply.status(clientStatus(status)).send({ error: code, message })
 }
 
 // ---- REGISTRATION ----

@@ -133,8 +133,8 @@ test("feed refreshes an upload from MongoDB and removes it when it becomes priva
 test("feed query defaults to 20 items and rejects invalid ranges", () => {
     expect(feed_query_parse({})).toEqual({ start: 0, end: 20 })
     expect(feed_query_parse({ s: "20" })).toEqual({ start: 20, end: 40 })
-    expect(() => feed_query_parse({ s: "20", e: "20" })).toThrow("Invalid feed query")
-    expect(() => feed_query_parse({ s: "0", e: "101" })).toThrow("Invalid feed query")
+    expect(() => feed_query_parse({ s: "20", e: "20" })).toThrow("Invalid feed range.")
+    expect(() => feed_query_parse({ s: "0", e: "101" })).toThrow("Invalid feed range.")
 })
 
 test("feed endpoint returns safe paginated upload metadata", async () => {
@@ -210,5 +210,5 @@ test("viewed endpoint rejects an unknown upload", async () => {
     const reply = {} as FastifyReply
 
     await expect(viewedUploadHandler(request, reply))
-        .rejects.toMatchObject({ statusCode: 404, message: "Upload not found" })
+        .rejects.toMatchObject({ statusCode: 404, message: "Upload not found." })
 })

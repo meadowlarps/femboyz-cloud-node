@@ -3,6 +3,7 @@ import type { Document } from "mongodb"
 import * as z from "zod"
 import { envs } from "./config.js"
 import { authlimit_create } from "./authlimit.js"
+import { httpError } from "./httpError.js"
 
 const AdminQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
@@ -48,7 +49,7 @@ export function _resetAuthFailures() {
 export function parseAdminQuery(value: unknown): AdminQuery {
     const result = AdminQuerySchema.safeParse(value)
     if (!result.success)
-        throw Object.assign(new Error("Invalid admin query"), { statusCode: 400 })
+        throw httpError(400, "Invalid filters.", JSON.stringify(result.error.issues))
     return result.data
 }
 

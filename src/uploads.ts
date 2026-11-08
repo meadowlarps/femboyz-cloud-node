@@ -9,6 +9,7 @@ import { envs } from "./config.js"
 import { buildAdminPipeline, cleanupUnreferencedFiles, withStorageMutationLock, type AdminQuery } from "./admin.js"
 import { randomInt } from "node:crypto"
 import { feed_update_upload, feed_upload_add, feed_upload_remove } from "./feed.js"
+import { httpError } from "./httpError.js"
 
 const scopelog = scope("uploads")
 const magic = await WASMagic.create()
@@ -41,7 +42,7 @@ export function parseUploadIDsQuery(query: unknown): string[] {
         ? [...new Set(raw.split(",").map(id => id.trim()).filter(id => id !== ""))]
         : []
     if (ids.length === 0 || ids.length > UPLOAD_BATCH_MAX_IDS || ids.some(id => id.length > 32))
-        throw Object.assign(new Error(`ids must list 1–${UPLOAD_BATCH_MAX_IDS} upload IDs`), { statusCode: 400 })
+        throw httpError(400, `List between 1 and ${UPLOAD_BATCH_MAX_IDS} upload IDs.`)
     return ids
 }
 
@@ -192,16 +193,16 @@ export async function receiveLinkReturnID(request: FastifyRequest): Promise<stri
     const body = request.body as { type: string, link: string }
 
     // ping site to check if link is alive
+    let status: number
     try {
-        const res = await fetch(body.link, { method: "HEAD", redirect: "manual" })
-        if (res.status >= 400 && res.status < 500) {
-            throw Object.assign(new Error(`Link is not reachable, status code: ${res.status}`), { statusCode: 404 })
-        }
+        status = (await fetch(body.link, { method: "HEAD", redirect: "manual" })).status
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         scopelog.error(`Failed to reach provided link: ${message}`)
-        throw Object.assign(new Error("Provided link is not reachable"), { statusCode: 404 })
+        throw httpError(422, "Link unreachable.", message)
     }
+    if (status >= 400 && status < 500)
+        throw httpError(422, `Link returned HTTP ${status}.`)
 
     const mongoDocument: StorageDBUploadInstance = {
         id_pub: id_pub,

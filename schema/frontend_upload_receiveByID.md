@@ -139,6 +139,6 @@ The server supports HTTP byte-range requests for audio/video seeking and downloa
 
 | Status | Error Body | Cause |
 | :--- | :--- | :--- |
-| `400 Bad Request` | `{"error": "Bad request"}` | Invalid `:fid` format (non-integer or negative). |
-| `404 Not Found` | `{"error": "Not found"}` | Upload `:id` does not exist, `:fid` out of range, or attempting to fetch `:fid` on a `link` upload. |
+| `400 Bad Request` | `{"error": "Invalid file index."}` | Invalid `:fid` format (non-integer or negative). |
+| `404 Not Found` | `{"error": "Upload not found."}` (or "File not found.", "Upload has no files.") | Upload `:id` does not exist, `:fid` out of range, or attempting to fetch `:fid` on a `link` upload. |
 | `416 Range Not Satisfiable` | *(Empty)* | Requested HTTP `Range` is out of bounds for the target file. |

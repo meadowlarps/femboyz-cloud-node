@@ -5,6 +5,7 @@ import { shutdownUnexpectedly } from "./utils.js"
 import { createReadStream } from "node:fs"
 import fs from "fs/promises"
 import path from "path"
+import { httpError } from "./httpError.js"
 
 const scopelog = scope("storage")
 const storageDir = envs.STORAGE_DIR || "./storage"
@@ -49,8 +50,8 @@ export async function commitFile(tmpPath: string, filename: string, bytes: numbe
         return
     }
     if (storageUsage + bytes > storageLimit) {
-        const message = `Storage limit exceeded. Cannot write file '${filename}' of size ${filesize(bytes)}`
-        throw Object.assign(new Error(message), { statusCode: 507 })
+        throw httpError(507, "Server storage is full.",
+            `cannot write file '${filename}' of size ${filesize(bytes)}`)
     }
     filesInStorage256.add(filename)     // add to set before renaming to prevent race conditions
     storageUsage += bytes

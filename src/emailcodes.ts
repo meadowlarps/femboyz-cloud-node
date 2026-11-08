@@ -2,6 +2,7 @@ import { createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto"
 import { envs } from "./config.js"
 import { getDB } from "./database.js"
 import { scope } from "./logger.js"
+import { httpError } from "./httpError.js"
 import { mail_email_code, mail_send } from "./mailer.js"
 import { account_lock } from "./accountLock.js"
 
@@ -43,7 +44,7 @@ function codes_collection() {
 
 // The subject and address are part of the MAC, so a code only ever proves that one pairing.
 export function code_hmac(code: string, address_key: string, subject: CodeSubject): string {
-    if (!envs.EMAIL_CODE_SECRET) throw Object.assign(new Error("EMAIL_CODE_SECRET is not configured"), { statusCode: 503 })
+    if (!envs.EMAIL_CODE_SECRET) throw httpError(503, "Email codes unavailable.", "EMAIL_CODE_SECRET is not configured")
     return createHmac("sha256", envs.EMAIL_CODE_SECRET).update(`${code}\n${address_key}\n${subject}`).digest("hex")
 }
 

@@ -4,6 +4,7 @@ import { fetchUploadComments, type CommentPublic } from '$lib/upload/comments'
 import { env } from '$env/dynamic/private'
 import { fetchUpload } from '$lib/upload/downloader'
 import { forwardedHeaders } from '$lib/upload/forwarded'
+import { ApiError, errorText } from '$lib/apiError'
 import { buildUploadPreview } from '$lib/upload/preview'
 
 export const load: PageServerLoad = async ({ params, fetch, request, url }) => {
@@ -12,8 +13,9 @@ export const load: PageServerLoad = async ({ params, fetch, request, url }) => {
     try {
         upload = await fetchUpload(params.id, apiEndpoint, fetch, forwardedHeaders(request))
     } catch (err) {
-        const status = err instanceof Error ? parseInt(err.message) : NaN
-        throw error(isNaN(status) ? 500 : status, 'Upload not found')
+        // 404 is the only status the visitor can do something about; anything else is our failure
+        const status = err instanceof ApiError && err.status >= 400 ? err.status : 502
+        throw error(status, status === 404 ? 'Upload not found' : errorText(err))
     }
 
     if (upload.type === 'link' && upload.link) {
@@ -28,7 +30,7 @@ export const load: PageServerLoad = async ({ params, fetch, request, url }) => {
     const comments = upload.public
         ? await fetchUploadComments(params.id, apiEndpoint, fetch, forwardedHeaders(request))
             .catch(() => {
-                throw error(502, 'Comments unavailable')
+                throw error(502, "Comments unavailable.")
             })
         : []
 

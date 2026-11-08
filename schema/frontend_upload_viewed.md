@@ -37,5 +37,5 @@ Background metadata fetches for main-page upload cards never invoke this endpoin
 | Status | Body | Cause |
 | :--- | :--- | :--- |
 | `204 No Content` | None | The view was counted and the feed was refreshed. |
-| `404 Not Found` | `{"error":"Not found"}` | No upload exists with the supplied ID. |
-| `500 Internal Server Error` | `{"error":"Internal server error"}` | MongoDB update or feed refresh failed. |
+| `404 Not Found` | `{"error":"Upload not found."}` | No upload exists with the supplied ID. |
+| `500 Internal Server Error` | `{"error":"Server error."}` | MongoDB update or feed refresh failed. |

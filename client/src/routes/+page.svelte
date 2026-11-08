@@ -23,6 +23,7 @@
     import { fetchUploads } from '$lib/upload/downloader'
     import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
     import { spawnAlert } from '$lib/alerts'
+    import { errorText } from '$lib/apiError'
 
     const GALLERY_REFRESH_MS = 30_000
     const REORDER_DRAG_THRESHOLD_PX = 4
@@ -151,11 +152,11 @@
             historyData = data
             if (missing.length > 0) {
                 const errors = { ...historyErrors }
-                for (const id of missing) errors[id] = '404'
+                for (const id of missing) errors[id] = 'Deleted or expired'
                 historyErrors = errors
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed'
+            const message = errorText(error, "Failed to load")
             const errors = { ...historyErrors }
             for (const id of ids) {
                 errors[id] = message
@@ -199,7 +200,7 @@
                 if (tokenValue.trim() === token) tokenLimits = limits
             } catch (error) {
                 if (tokenValue.trim() === token)
-                    tokenError = error instanceof Error ? error.message : 'Token check failed'
+                    tokenError = errorText(error, "Token check failed.")
             } finally {
                 tokenChecking = false
             }
@@ -431,7 +432,7 @@
             const page = await fetchFeed(apiEndpoint, start, start + FEED_PAGE_SIZE)
             galleryPages = [...galleryPages, page]
         } catch (error) {
-            galleryError = error instanceof Error ? error.message : 'Failed to load feed'
+            galleryError = errorText(error, 'Something went wrong.')
         } finally {
             galleryLoading = false
         }
@@ -489,7 +490,7 @@
             uploadHistory = getHistory()
             if (isPublic) void refreshGallery()
         } catch (error) {
-            uploadError = error instanceof Error ? error.message : 'Upload failed'
+            uploadError = errorText(error, 'Something went wrong.')
             if (error instanceof UploadTokenError) {
                 tokenLimits = null
                 tokenError = error.message
@@ -527,7 +528,7 @@
                 spawnAlert('error', `Short link created but could not be copied: ${shortUrl}`)
             }
         } catch (error) {
-            uploadError = error instanceof Error ? error.message : 'Upload failed'
+            uploadError = errorText(error, 'Something went wrong.')
             spawnAlert('error', `Upload failed: ${uploadError}`)
         } finally {
             isUploading = false
@@ -547,7 +548,7 @@
             spawnAlert('success', `Note shared: ${result.id}`)
             if (isPublic) void refreshGallery()
         } catch (error) {
-            uploadError = error instanceof Error ? error.message : 'Upload failed'
+            uploadError = errorText(error, 'Something went wrong.')
             spawnAlert('error', `Upload failed: ${uploadError}`)
         } finally {
             isUploading = false
@@ -881,7 +882,7 @@
 
         {#if mode === 'files'}
             {#if limitsError}
-                <p in:slide|global out:slideOut|global class="error-message">Something is wrong: {limitsError}</p>
+                <p in:slide|global out:slideOut|global class="error-message">Upload limits unavailable: {limitsError}</p>
             {/if}
 
             {#if fileErrors.length > 0}
@@ -1088,7 +1089,7 @@
 
     {#if galleryPages.length === 0}
         {#if galleryError}
-            <p class="error-message">Could not load the public gallery: {galleryError}</p>
+            <p class="error-message">Gallery unavailable: {galleryError}</p>
             <button class="fb-button fb-button-ghost gallery-more" type="button" onclick={() => loadGalleryPage(0)}>
                 Try again
             </button>
