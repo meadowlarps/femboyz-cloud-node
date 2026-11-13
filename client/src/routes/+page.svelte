@@ -1090,7 +1090,7 @@
 {#if galleryRevealed}
 <section class="gallery-section" aria-label="Public gallery" transition:fade={{ duration: 400 }}>
     <div class="gallery-header">
-        <h2>Gallery</h2>
+        <h2>Public Gallery</h2>
         {#if galleryPages.length > 0}
             <span class="gallery-count">{galleryTotal} {galleryTotal === 1 ? 'upload' : 'uploads'}</span>
         {/if}
