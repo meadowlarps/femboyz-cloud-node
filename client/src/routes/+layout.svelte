@@ -2,6 +2,7 @@
 	import '$lib/styles/global.css'
 	import favicon from '$lib/assets/favicon.webp'
 	import logo from '$lib/assets/logo.webp'
+	import logoMini from '$lib/assets/logo-mini.webp'
 	import AlertStack from '$lib/AlertStack.svelte'
 	import { page } from '$app/state'
 	import { env } from '$env/dynamic/public'
@@ -22,7 +23,11 @@
 	{#if !embed}
 	<header class="site-header">
 		<a class="brand" href="/" aria-label="Go to home">
-			<img class="logo-img" src={logo} alt="femboyz.cloud">
+			<picture>
+				<!-- keep in sync with the 21rem media query below -->
+				<source media="(max-width: 21rem)" srcset={logoMini}>
+				<img class="logo-img" src={logo} alt="femboyz.cloud">
+			</picture>
 		</a>
 
 		{#if home}
@@ -78,7 +83,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		height: 6rem;
+		height: 4rem;
 		margin: 1.5rem 1.5rem 0;
 		padding-bottom: 1.5rem;
 		border-bottom: 1px solid #3a3437;
@@ -87,15 +92,23 @@
 	.brand {
 		display: block;
 		height: 100%;
+		min-width: 0;
 		margin-right: auto;
+	}
+
+	/* no box of its own, so the img still sizes against .brand */
+	picture {
+		display: contents;
 	}
 
 	.logo-img {
 		display: block;
 		height: 100%;
-		aspect-ratio: 655 / 256;
-		object-fit: cover;
-		object-position: 92% center;
+		max-width: 100%;
+		aspect-ratio: 1024 / 256;
+		/* scales down when the header is too narrow, so the full logo stays visible */
+		object-fit: contain;
+		object-position: 96% center;
 		transition: filter 0.25s ease-out;
 	}
 
@@ -159,7 +172,7 @@
 
 	@media (max-width: 42rem) {
 		.site-header {
-			height: 4.5rem;
+			height: 3rem;
 			margin: 1rem 1rem 0;
 			padding-bottom: 1rem;
 			gap: 0.5rem;
@@ -184,7 +197,7 @@
 		}
 	}
 
-	/* too narrow for the full logo next to the buttons: just the cat */
+	/* too narrow for the full logo next to the buttons: the square cat (logo-mini) */
 	@media (max-width: 21rem) {
 		.logo-img {
 			aspect-ratio: 1;
