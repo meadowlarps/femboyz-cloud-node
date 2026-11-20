@@ -9,6 +9,7 @@
     import { formatFileSize } from '$lib/upload/uploader'
     import CopyLinkButton from '$lib/CopyLinkButton.svelte'
     import ViewIcon from '$lib/ViewIcon.svelte'
+    import DeleteIcon from '$lib/DeleteIcon.svelte'
 
     type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'archive' | 'document' | 'binary'
 
@@ -281,12 +282,7 @@
                     title="Remove from this list"
                     onclick={() => onIgnore(id)}
                 >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M3 6h18" />
-                        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6M14 11v6" />
-                    </svg>
+                    <DeleteIcon />
                 </button>
             {/if}
         {:else}
@@ -434,6 +430,19 @@
                         <time datetime={data.when}>{dateLabel}</time>
                     </div>
                 </footer>
+
+                <!-- last in the card so tabbing reaches it after the card's links, once focus-within has shown it -->
+                {#if onIgnore}
+                    <button
+                        class="hide-btn"
+                        type="button"
+                        aria-label={`Remove ${label} from this list`}
+                        title="Remove from this list"
+                        onclick={() => onIgnore(id)}
+                    >
+                        <DeleteIcon />
+                    </button>
+                {/if}
             </div>
             {/if}
         {/if}
@@ -554,14 +563,64 @@
         transform: scale(0.85);
     }
 
-    .remove-btn svg {
-        width: 100%;
-        height: 100%;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 2;
-        stroke-linecap: round;
-        stroke-linejoin: round;
+    /* Over the preview, opposite the type badge; shown while the card is hovered or focused. */
+    .hide-btn {
+        position: absolute;
+        z-index: 4;
+        top: 0.5rem;
+        right: 0.5rem;
+        display: grid;
+        place-items: center;
+        width: 1.9rem;
+        height: 1.9rem;
+        padding: 0.35rem;
+        color: #d6cfd1;
+        background: rgb(23 21 21 / 75%);
+        border: 1px solid rgb(255 255 255 / 25%);
+        border-radius: 0.2rem;
+        backdrop-filter: blur(0.25rem);
+        cursor: pointer;
+        opacity: 0;
+        transform: translateY(-0.25rem) scale(0.9);
+        pointer-events: none;
+        transition:
+            opacity 160ms ease-out,
+            transform 160ms ease-out,
+            color 120ms ease,
+            background 120ms ease,
+            border-color 120ms ease;
+    }
+
+    .mini-card:hover .hide-btn,
+    .mini-card:focus-within .hide-btn {
+        opacity: 1;
+        transform: none;
+        pointer-events: auto;
+    }
+
+    .hide-btn:hover {
+        color: #ffb3c7;
+        background: #2b2729;
+        border-color: #ffb3c7;
+    }
+
+    .hide-btn:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+    }
+
+    .mini-card .hide-btn:active {
+        transform: scale(0.85);
+        transition-duration: 100ms;
+    }
+
+    /* no hover on touch screens: keep it on show */
+    @media (hover: none) {
+        .hide-btn {
+            opacity: 1;
+            transform: none;
+            pointer-events: auto;
+        }
     }
 
     /* two classes so it beats .preview-stage's own background */
@@ -825,6 +884,13 @@
         .media-link img,
         .media-link video {
             transition: none;
+        }
+
+        /* fade only, no movement */
+        .hide-btn,
+        .mini-card .hide-btn:active {
+            transform: none;
+            transition: opacity 160ms linear;
         }
 
         .mini-card .shimmer {
