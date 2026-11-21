@@ -19,7 +19,6 @@
         sendNoteUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
-    import BirthdayBanner from '$lib/BirthdayBanner.svelte' // TEMPORARY birthday event
     import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedItem, type FeedResponse } from '$lib/upload/feed'
     import { fetchUploads } from '$lib/upload/downloader'
     import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
@@ -710,8 +709,6 @@
 <svelte:head>
     <title>femboyz.cloud</title>
 </svelte:head>
-
-<BirthdayBanner /> <!-- TEMPORARY birthday event -->
 
 <div class="page-layout">
 <div class="upload-sidebar">
