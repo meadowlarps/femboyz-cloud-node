@@ -19,7 +19,7 @@
         sendNoteUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
-    import GlitchButtonFace, { FIGURE_SPACE, type GlitchPhase } from '$lib/upload/GlitchButtonFace.svelte'
+    import GlitchButtonFace, { FIGURE_SPACE, type GlitchPhase, type GlitchTone } from '$lib/upload/GlitchButtonFace.svelte'
     import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedItem, type FeedResponse } from '$lib/upload/feed'
     import { fetchUploads } from '$lib/upload/downloader'
     import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
@@ -33,6 +33,7 @@
     const TRAY_COLUMNS = 3                  // matches .tray's grid-template-columns, for Up/Down
     const TOKEN_HOLD_MS = 600
     const TOKEN_CHECK_DEBOUNCE_MS = 700      // each wrong check counts toward the IP block — don't burn them mid-typing
+    const PREFETCH_MEDIA_MAX_MS = 3000      // how long a new history card may wait for its first picture
     const apiEndpoint = import.meta.env.VITE_API_ENDPOINT ?? ''
 
     // exits: shorter than the intro and eased at both ends so the collapse settles instead of hard-stopping;
@@ -71,7 +72,7 @@
     // the finished bar and the last tile's tick get a beat before the done screen takes over
     const DONE_HOLD_MS = 500
     let preparingShown = $state(false)
-    // the server has answered; the button finishes its bar, then flashes "Uploaded!" through the done hold
+    // the server has answered; the button finishes its bar, then flashes into "Copy link" through the done hold
     let uploadFinished = $state(false)
     // resolves the wait for the button's bar to reach the end; its last ease-out takes 0.7 s
     let fillEnded: (() => void) | undefined
@@ -175,6 +176,31 @@
         }
     }
 
+    // A new upload joins the history with its data and first picture already loaded, so its card
+    // appears whole instead of as an empty skeleton that fills in a moment later.
+    async function prefetchHistoryItem(id: string) {
+        try {
+            const item = (await fetchUploads([id], apiEndpoint)).items[0]
+            if (!item) return
+            historyRequested.add(id)
+            historyData = { ...historyData, [id]: item }
+            const first = item.files[0]
+            if (item.type === 'album' && first?.mime.startsWith('image/')) {
+                const image = new Image()
+                image.src = first.url
+                await Promise.race([image.decode(), new Promise((resolve) => setTimeout(resolve, PREFETCH_MEDIA_MAX_MS))])
+            }
+        } catch {
+            // the card loads itself once it is listed
+        }
+    }
+
+    // stored right away, shown once its card is ready
+    function showInHistory(id: string) {
+        addToHistory(id)
+        void prefetchHistoryItem(id).then(() => { uploadHistory = getHistory() })
+    }
+
     function clearProgressTimers() {
         clearTimeout(hideProgressTimer)
         hideProgressTimer = undefined
@@ -221,7 +247,7 @@
     })
 
     function tokenHoldStart(event: PointerEvent) {
-        if (mode !== 'files' || isUploading || event.button !== 0) return
+        if (mode !== 'files' || isUploading || isDone || event.button !== 0) return
         tokenHoldFired = false
         clearTimeout(tokenHoldTimer)
         tokenHoldTimer = setTimeout(() => {
@@ -253,6 +279,10 @@
         // the click that ends a long-press only opens the token field
         if (tokenHoldFired) {
             tokenHoldFired = false
+            return
+        }
+        if (isDone) {
+            void copyResultLink()
             return
         }
         if (uploadDisabled) return
@@ -489,8 +519,9 @@
                 uploadProgress = progress
             }, token)
             clearTimeout(preparingTimer)
+            showInHistory(result.id)
             // even an upload too fast to have shown anything plays the fill: the button's bar catches up
-            // at its own pace, then "Uploaded!" gets its beat before the done screen takes over
+            // at its own pace, then flashes green into "Copy link" and gets its beat before the done screen
             uploadFinished = true
             await new Promise<void>((resolve) => {
                 fillEnded = resolve
@@ -502,8 +533,6 @@
             // a token covers a single upload — it has to be entered again for the next one
             if (token) tokenClose()
             uploadResultId = result.id
-            addToHistory(result.id)
-            uploadHistory = getHistory()
             if (isPublic) void refreshGallery()
         } catch (error) {
             uploadError = errorText(error, 'Something went wrong.')
@@ -560,8 +589,7 @@
             isUploading = true
             const result = await sendNoteUpload(apiEndpoint, noteText, title.trim(), isPublic)
             uploadResultId = result.id
-            addToHistory(result.id)
-            uploadHistory = getHistory()
+            showInHistory(result.id)
             spawnAlert('success', `Note shared: ${result.id}`)
             if (isPublic) void refreshGallery()
         } catch (error) {
@@ -663,18 +691,26 @@
     let chipWidth = $derived(isPublic ? publicLabelWidth : linkLabelWidth)
     // what the button's block face shows; the loaded size is padded to the total's length so the
     // right-aligned details keep their width as the numbers change
-    let buttonFace = $derived.by((): { phase: GlitchPhase; main: string; sub: string; mid?: string; progress: number } => {
+    type ButtonFace = {
+        phase: GlitchPhase; main: string; sub: string; mid?: string; progress: number; total?: number; tone?: GlitchTone
+    }
+    let buttonFace = $derived.by((): ButtonFace => {
+        // the button stays through the done screen as the green "Copy link"; checked first, so the
+        // upload's own state clearing at the end can't flash the resting label back in
+        if (isDone) return { phase: 'rest', main: 'Copy link', sub: '', progress: 0, tone: 'green' }
         if (uploadShown) {
-            if (uploadFinished) return { phase: 'done', main: 'Uploaded!', sub: '', progress: 1 }
+            // total: the bar's catch-up before the flash counts the size up along with it
+            if (uploadFinished) return { phase: 'done', main: 'Copy link', sub: '', progress: 1, total: totalBytes, tone: 'green' }
             if (!uploadProgress) return { phase: 'busy', main: 'Preparing…', sub: '', progress: 0 }
+            // the face draws the size from its own fill; this text is for screen readers
             const total = formatFileSize(uploadProgress.total)
-            const loaded = formatFileSize(uploadProgress.loaded).padStart(total.length, FIGURE_SPACE)
             return {
                 phase: 'progress',
                 main: `${overallPercent}%`,
-                sub: `${loaded} / ${total}`,
+                sub: `${formatFileSize(uploadProgress.loaded)} / ${total}`,
                 mid: etaLabel,
                 progress: uploadProgress.total > 0 ? uploadProgress.loaded / uploadProgress.total : 0,
+                total: uploadProgress.total,
             }
         }
         if (isUploading && mode !== 'files') return { phase: 'busy', main: 'Working…', sub: '', progress: 0 }
@@ -871,7 +907,7 @@
                                             <span class="size">{formatFileSize(file.size)}</span>
                                         </div>
 
-                                        {#if !isUploading}
+                                        {#if !trayLocked}
                                             <button class="tile-remove" type="button" aria-label={`Remove ${file.name}`} onclick={() => removeFile(index)}>
                                                 <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
                                             </button>
@@ -992,18 +1028,39 @@
             </div>
         {/if}
 
-        <!-- the upload button and its meta row give way to the finished upload's link and actions -->
-        <div class="action-slot">
-            {#if isDone}
-                <div class="result" in:fly={{ y: 8, duration: ms(320), delay: ms(120), easing: cubicOut }} out:fade={{ duration: ms(150) }}>
-                    <div class="result-link">
-                        <a href={`/${uploadResultId}`}><span class="host">femboyz.cloud/</span><b>{uploadResultId}</b></a>
-                        <button class="fb-button copy" type="button" onclick={copyResultLink}>
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/></svg>
-                            Copy
-                        </button>
-                    </div>
-                    <div class="done-actions">
+        <!-- the upload button stays through the done screen as "Copy link"; only the row under it swaps -->
+        <div class="action-default">
+            <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
+            <button
+                class="upload-button"
+                class:busy={uploadShown || (isUploading && mode !== 'files')}
+                class:pending={isUploading && mode === 'files' && !uploadShown}
+                type="button"
+                aria-disabled={uploadDisabled}
+                onclick={uploadClick}
+                onpointerdown={tokenHoldStart}
+                onpointerup={tokenHoldCancel}
+                onpointerleave={tokenHoldCancel}
+                onpointercancel={tokenHoldCancel}
+                oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
+            >
+                <GlitchButtonFace
+                    phase={buttonFace.phase}
+                    progress={buttonFace.progress}
+                    main={buttonFace.main}
+                    sub={buttonFace.total === undefined ? buttonFace.sub : ''}
+                    total={buttonFace.total}
+                    mid={buttonFace.mid}
+                    tone={buttonFace.tone}
+                    hoverable={isDone || !uploadDisabled || (isUploading && mode === 'files' && !uploadShown)}
+                    onfilled={() => fillEnded?.()}
+                />
+                <span class="sr-only">{[buttonFace.main, buttonFace.mid, buttonFace.sub].filter(Boolean).join(' ').replaceAll(FIGURE_SPACE, '')}</span>
+            </button>
+
+            <div class="action-slot">
+                {#if isDone}
+                    <div class="done-actions" in:fly={{ y: 8, duration: ms(320), delay: ms(120), easing: cubicOut }} out:fade={{ duration: ms(150) }}>
                         <a class="ghost-action" href={`/${uploadResultId}`}>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>
                             Open
@@ -1013,86 +1070,58 @@
                             New upload
                         </button>
                     </div>
-                </div>
-            {:else}
-                <div class="action-default" in:fade={{ duration: ms(220), delay: ms(100) }} out:fade={{ duration: ms(150) }}>
-                <!-- aria-disabled instead of disabled: a disabled button gets no pointer events, and the token long-press must work before files are picked -->
-                <button
-                    class="upload-button"
-                    class:busy={uploadShown || (isUploading && mode !== 'files')}
-                    class:pending={isUploading && mode === 'files' && !uploadShown}
-                    type="button"
-                    aria-disabled={uploadDisabled}
-                    onclick={uploadClick}
-                    onpointerdown={tokenHoldStart}
-                    onpointerup={tokenHoldCancel}
-                    onpointerleave={tokenHoldCancel}
-                    onpointercancel={tokenHoldCancel}
-                    oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
-                >
-                    <GlitchButtonFace
-                        phase={buttonFace.phase}
-                        progress={buttonFace.progress}
-                        main={buttonFace.main}
-                        sub={buttonFace.sub}
-                        mid={buttonFace.mid}
-                        hoverable={!uploadDisabled || (isUploading && mode === 'files' && !uploadShown)}
-                        onfilled={() => fillEnded?.()}
-                    />
-                    <span class="sr-only">{[buttonFace.main, buttonFace.mid, buttonFace.sub].filter(Boolean).join(' ').replaceAll(FIGURE_SPACE, '')}</span>
-                </button>
-
-                <div class="meta-row">
-                    {#if mode !== 'link'}
-                        {#snippet visibilityLabel(open: boolean)}
-                            {#if open}
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
-                                Public
-                            {:else}
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
-                                Link access
-                            {/if}
-                        {/snippet}
-                        <!-- both labels, measured off-screen, so the chip can ease between their widths instead of snapping -->
-                        <span class="chip-measure" aria-hidden="true">
-                            <span class="chip-content" bind:offsetWidth={publicLabelWidth}>{@render visibilityLabel(true)}</span>
-                            <span class="chip-content" bind:offsetWidth={linkLabelWidth}>{@render visibilityLabel(false)}</span>
-                        </span>
-                        <button
-                            class="visibility-chip"
-                            class:on={isPublic}
-                            type="button"
-                            aria-pressed={isPublic}
-                            title={isPublic ? 'Listed in the public gallery' : 'Anyone with the link can open it, but it is not listed in the gallery'}
-                            style={chipWidth ? `width: ${chipWidth}px` : undefined}
-                            disabled={isUploading}
-                            onclick={() => isPublic = !isPublic}
-                        >
-                            {#key isPublic}
-                                <span class="chip-content" in:fly={{ y: 5, duration: ms(200), easing: cubicOut }}>
-                                    {@render visibilityLabel(isPublic)}
-                                </span>
-                            {/key}
-                        </button>
-                    {:else}
-                        <span></span>
-                    {/if}
-                    <span class="meta-limits">
-                        {#if mode === 'files' && effectiveLimits}
-                            {#if effectiveLimits.maxcount <= MAX_COUNT_DOTS}
-                                <span class="count-dots" role="img" aria-label="{files.length} of {effectiveLimits.maxcount} files">
-                                    {#each { length: effectiveLimits.maxcount }, i}
-                                        <span class="count-dot" class:filled={i < files.length}></span>
-                                    {/each}
-                                </span>
-                            {:else}
-                                {files.length} / {effectiveLimits.maxcount} files
-                            {/if}
+                {:else}
+                    <div class="meta-row" in:fade={{ duration: ms(220), delay: ms(100) }} out:fade={{ duration: ms(150) }}>
+                        {#if mode !== 'link'}
+                            {#snippet visibilityLabel(open: boolean)}
+                                {#if open}
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
+                                    Public
+                                {:else}
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+                                    Link access
+                                {/if}
+                            {/snippet}
+                            <!-- both labels, measured off-screen, so the chip can ease between their widths instead of snapping -->
+                            <span class="chip-measure" aria-hidden="true">
+                                <span class="chip-content" bind:offsetWidth={publicLabelWidth}>{@render visibilityLabel(true)}</span>
+                                <span class="chip-content" bind:offsetWidth={linkLabelWidth}>{@render visibilityLabel(false)}</span>
+                            </span>
+                            <button
+                                class="visibility-chip"
+                                class:on={isPublic}
+                                type="button"
+                                aria-pressed={isPublic}
+                                title={isPublic ? 'Listed in the public gallery' : 'Anyone with the link can open it, but it is not listed in the gallery'}
+                                style={chipWidth ? `width: ${chipWidth}px` : undefined}
+                                disabled={isUploading || isDone}
+                                onclick={() => isPublic = !isPublic}
+                            >
+                                {#key isPublic}
+                                    <span class="chip-content" in:fly={{ y: 5, duration: ms(200), easing: cubicOut }}>
+                                        {@render visibilityLabel(isPublic)}
+                                    </span>
+                                {/key}
+                            </button>
+                        {:else}
+                            <span></span>
                         {/if}
-                    </span>
-                </div>
-                </div>
-            {/if}
+                        <span class="meta-limits">
+                            {#if mode === 'files' && effectiveLimits}
+                                {#if effectiveLimits.maxcount <= MAX_COUNT_DOTS}
+                                    <span class="count-dots" role="img" aria-label="{files.length} of {effectiveLimits.maxcount} files">
+                                        {#each { length: effectiveLimits.maxcount }, i}
+                                            <span class="count-dot" class:filled={i < files.length}></span>
+                                        {/each}
+                                    </span>
+                                {:else}
+                                    {files.length} / {effectiveLimits.maxcount} files
+                                {/if}
+                            {/if}
+                        </span>
+                    </div>
+                {/if}
+            </div>
         </div>
     </div>
 </div>
@@ -1844,14 +1873,11 @@
         animation: draw 0.35s 0.25s ease-out forwards;
     }
 
-    .done-head h2,
-    .result > * {
+    .done-head h2 {
         animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
     .done-head h2 { animation-delay: 0.1s; }
-    .result > :nth-child(1) { animation-delay: 0.2s; }
-    .result > :nth-child(2) { animation-delay: 0.27s; }
 
     @keyframes pop {
         from { transform: scale(0.4); opacity: 0; }
@@ -1873,7 +1899,7 @@
     }
 
 
-    /* the button and its replacement share one cell, so the swap crossfades in place */
+    /* the meta row and the done actions share one cell, so the swap crossfades in place */
     .action-slot {
         display: grid;
     }
@@ -1882,62 +1908,10 @@
         grid-area: 1 / 1;
     }
 
-    .action-default,
-    .result {
+    .action-default {
         display: grid;
         gap: 0.85rem;
         align-content: start;
-    }
-
-    .result {
-        gap: 0.5rem;
-    }
-
-    .result-link {
-        display: flex;
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid #4b4246;
-        background: #171515;
-    }
-
-    .result-link a {
-        flex: 1;
-        min-width: 0;
-        padding: 0.65rem 0.75rem;
-        overflow: hidden;
-        text-align: left;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        text-decoration: none;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 0.85rem;
-    }
-
-    .result-link .host {
-        color: #8a8385;
-    }
-
-    .result-link b {
-        color: #ff6b93;
-        font-weight: 600;
-    }
-
-    .result-link .copy {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        padding: 0 0.85rem;
-        font-size: 0.82rem;
-    }
-
-    .result-link .copy:hover {
-        transform: none;
-    }
-
-    .result-link .copy svg {
-        width: 0.85rem;
-        height: 0.85rem;
     }
 
     .done-actions {
@@ -2074,8 +2048,7 @@
 
         .upload-field.dragging .add-icon,
         .done-check,
-        .done-head h2,
-        .result > * {
+        .done-head h2 {
             animation: none;
         }
 
