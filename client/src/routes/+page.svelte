@@ -19,6 +19,7 @@
         sendNoteUpload
     } from '$lib/upload/uploader'
     import MiniUpload from './MiniUpload.svelte'
+    import GlitchButtonFace, { FIGURE_SPACE, type GlitchPhase } from '$lib/upload/GlitchButtonFace.svelte'
     import { FEED_PAGE_SIZE, fetchFeed, fetchFeedRange, type FeedItem, type FeedResponse } from '$lib/upload/feed'
     import { fetchUploads } from '$lib/upload/downloader'
     import { getHistory, addToHistory, removeFromHistory } from '$lib/upload/history'
@@ -70,6 +71,11 @@
     // the finished bar and the last tile's tick get a beat before the done screen takes over
     const DONE_HOLD_MS = 500
     let preparingShown = $state(false)
+    // the server has answered; the button finishes its bar, then flashes "Uploaded!" through the done hold
+    let uploadFinished = $state(false)
+    // resolves the wait for the button's bar to reach the end; its last ease-out takes 0.7 s
+    let fillEnded: (() => void) | undefined
+    const FILL_WAIT_MAX_MS = 3000
     let uploadProgress = $state<UploadProgress>()
     let tokenOpen = $state(false)
     let tokenValue = $state('')
@@ -483,7 +489,15 @@
                 uploadProgress = progress
             }, token)
             clearTimeout(preparingTimer)
-            if (uploadShown) await new Promise((resolve) => setTimeout(resolve, ms(DONE_HOLD_MS)))
+            // even an upload too fast to have shown anything plays the fill: the button's bar catches up
+            // at its own pace, then "Uploaded!" gets its beat before the done screen takes over
+            uploadFinished = true
+            await new Promise<void>((resolve) => {
+                fillEnded = resolve
+                setTimeout(resolve, FILL_WAIT_MAX_MS) // in case the button isn't there to report back
+            })
+            fillEnded = undefined
+            await new Promise((resolve) => setTimeout(resolve, ms(DONE_HOLD_MS)))
             lastUpload = { count: files.length, bytes: totalBytes, isPublic }
             // a token covers a single upload — it has to be entered again for the next one
             if (token) tokenClose()
@@ -501,6 +515,7 @@
         } finally {
             clearTimeout(preparingTimer)
             preparingShown = false
+            uploadFinished = false
             isUploading = false
         }
     }
@@ -626,14 +641,14 @@
     let totalBytes = $derived(files.reduce((sum, file) => sum + file.size, 0))
     let overallPercent = $derived(uploadProgress && uploadProgress.total > 0
         ? Math.round((uploadProgress.loaded / uploadProgress.total) * 100) : 0)
-    let filesDone = $derived(uploadProgress
-        ? uploadProgress.files.filter((fp) => fp.total > 0 && fp.loaded >= fp.total).length : 0)
     let etaLabel = $derived.by(() => {
         if (!uploadProgress || !uploadStartedAt || uploadProgress.loaded === 0) return ''
         const elapsed = (performance.now() - uploadStartedAt) / 1000
         if (elapsed < 1) return ''
         const left = (uploadProgress.total - uploadProgress.loaded) / (uploadProgress.loaded / elapsed)
-        return left < 1 ? '' : left < 60 ? `~${Math.ceil(left)} s` : `~${Math.ceil(left / 60)} min`
+        // padded to two digits, so the label keeps its width as the count drops
+        const pad = (n: number) => String(n).padStart(2, FIGURE_SPACE)
+        return left < 1 ? '' : left < 60 ? `~${pad(Math.ceil(left))} s` : `~${pad(Math.ceil(left / 60))} min`
     })
 
     // the add tile rides along in the keyed list so it glides with the others when tiles come and go;
@@ -642,13 +657,36 @@
     let trayLocked = $derived(isUploading || isDone)
     // the upload shows itself once bytes move, or once preparing has dragged on; until then the button
     // and tiles keep their resting look, so a quick upload doesn't flash through states
-    let uploadShown = $derived(isUploading && mode === 'files' && (!!uploadProgress || preparingShown))
+    let uploadShown = $derived(isUploading && mode === 'files' && (!!uploadProgress || preparingShown || uploadFinished))
     let publicLabelWidth = $state(0)
     let linkLabelWidth = $state(0)
     let chipWidth = $derived(isPublic ? publicLabelWidth : linkLabelWidth)
-    let buttonLabelKey = $derived(uploadShown
-        ? (uploadProgress ? 'progress' : 'preparing')
-        : isUploading && mode !== 'files' ? 'working' : `${mode}:${files.length}`)
+    // what the button's block face shows; the loaded size is padded to the total's length so the
+    // right-aligned details keep their width as the numbers change
+    let buttonFace = $derived.by((): { phase: GlitchPhase; main: string; sub: string; mid?: string; progress: number } => {
+        if (uploadShown) {
+            if (uploadFinished) return { phase: 'done', main: 'Uploaded!', sub: '', progress: 1 }
+            if (!uploadProgress) return { phase: 'busy', main: 'Preparing…', sub: '', progress: 0 }
+            const total = formatFileSize(uploadProgress.total)
+            const loaded = formatFileSize(uploadProgress.loaded).padStart(total.length, FIGURE_SPACE)
+            return {
+                phase: 'progress',
+                main: `${overallPercent}%`,
+                sub: `${loaded} / ${total}`,
+                mid: etaLabel,
+                progress: uploadProgress.total > 0 ? uploadProgress.loaded / uploadProgress.total : 0,
+            }
+        }
+        if (isUploading && mode !== 'files') return { phase: 'busy', main: 'Working…', sub: '', progress: 0 }
+        if (mode !== 'files') return { phase: 'rest', main: mode === 'note' ? 'Share note' : 'Shorten link', sub: '', progress: 0 }
+        if (files.length === 0) return { phase: 'rest', main: 'Upload!', sub: '', progress: 0 }
+        return {
+            phase: 'rest',
+            main: `Upload ${files.length} ${files.length === 1 ? 'file' : 'files'}`,
+            sub: `· ${formatFileSize(totalBytes)}`,
+            progress: 0,
+        }
+    })
 
     function thumbKind(file: File) {
         return file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'other'
@@ -984,7 +1022,6 @@
                     class:busy={uploadShown || (isUploading && mode !== 'files')}
                     class:pending={isUploading && mode === 'files' && !uploadShown}
                     type="button"
-                    title={mode === 'files' ? 'Hold to enter an upload token' : undefined}
                     aria-disabled={uploadDisabled}
                     onclick={uploadClick}
                     onpointerdown={tokenHoldStart}
@@ -993,27 +1030,16 @@
                     onpointercancel={tokenHoldCancel}
                     oncontextmenu={(event) => { if (mode === 'files') event.preventDefault() }}
                 >
-                    {#if uploadShown}
-                        <span class="upload-fill" class:indeterminate={!uploadProgress} style={uploadProgress ? `width: ${overallPercent}%` : undefined}></span>
-                    {/if}
-                    {#key buttonLabelKey}
-                        <span class="upload-label" class:centered={!uploadShown} in:fly={{ y: 6, duration: ms(220), easing: cubicOut }}>
-                            {#if uploadShown}
-                                <span>{uploadProgress ? `${Math.min(filesDone + 1, files.length)} of ${files.length}` : 'Preparing…'}</span>
-                                {#if uploadProgress}
-                                    <small>{overallPercent}% · {formatFileSize(uploadProgress.loaded)} / {formatFileSize(uploadProgress.total)}{etaLabel ? ` · ${etaLabel}` : ''}</small>
-                                {/if}
-                            {:else if mode === 'files'}
-                                {#if files.length > 0}
-                                    Upload {files.length} {files.length === 1 ? 'file' : 'files'} <small>· {formatFileSize(totalBytes)}</small>
-                                {:else}
-                                    Upload!
-                                {/if}
-                            {:else}
-                                {isUploading ? 'Working…' : mode === 'note' ? 'Share note' : 'Shorten link'}
-                            {/if}
-                        </span>
-                    {/key}
+                    <GlitchButtonFace
+                        phase={buttonFace.phase}
+                        progress={buttonFace.progress}
+                        main={buttonFace.main}
+                        sub={buttonFace.sub}
+                        mid={buttonFace.mid}
+                        hoverable={!uploadDisabled || (isUploading && mode === 'files' && !uploadShown)}
+                        onfilled={() => fillEnded?.()}
+                    />
+                    <span class="sr-only">{[buttonFace.main, buttonFace.mid, buttonFace.sub].filter(Boolean).join(' ').replaceAll(FIGURE_SPACE, '')}</span>
                 </button>
 
                 <div class="meta-row">
@@ -1616,38 +1642,29 @@
         position: absolute;
     }
 
-    /* ── upload button doubles as the progress bar ── */
+    /* ── upload button doubles as the progress bar; GlitchButtonFace paints it ── */
     .upload-button {
         position: relative;
-        overflow: hidden;
+        display: block;
+        /* whole 8px blocks minus the trailing 1px mesh gap, so every edge ends on a full cell */
         width: 100%;
-        min-height: 2.9rem;
+        width: calc(round(down, 100% + 1px, 8px) - 1px);
+        height: 47px;
+        margin-inline: auto;
         padding: 0;
         border: none;
         background: var(--color-accent);
-        color: #fff;
         font: inherit;
         font-weight: 700;
         cursor: pointer;
+        outline: none;
         user-select: none;
         -webkit-user-select: none;
         -webkit-touch-callout: none;
         touch-action: manipulation;
-        transition: color 0.2s ease-out, background-color 0.2s ease-out;
     }
 
-    .upload-button:not(.busy):not([aria-disabled='true']):hover,
-    .upload-button.pending:hover,
-    .upload-button:not(.busy):focus-visible {
-        color: #060606;
-        background-color: var(--color-fb-white);
-    }
-
-    .upload-button.busy {
-        background: #3a1623;
-        cursor: progress;
-    }
-
+    .upload-button.busy,
     /* pending: started, but too briefly to show; it keeps its resting look */
     .upload-button.pending {
         cursor: progress;
@@ -1658,65 +1675,16 @@
         opacity: 0.55;
     }
 
-    .upload-fill {
+    .sr-only {
         position: absolute;
-        inset: 0 auto 0 0;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
         overflow: hidden;
-        background: var(--color-accent);
-        transform-origin: left;
-        transition: width 0.4s ease-out;
-        /* a quick upload's first progress event can already be 100%; sweep in rather than appear full */
-        animation: fill-in 0.4s ease-out;
-    }
-
-    @keyframes fill-in {
-        from { transform: scaleX(0); }
-    }
-
-    /* a soft sheen runs along the filled part while bytes are moving */
-    .upload-fill::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(100deg, transparent 20%, #ffffff2e 50%, transparent 80%) no-repeat;
-        background-size: 12rem 100%;
-        animation: sheen 1.4s linear infinite;
-    }
-
-    @keyframes sheen {
-        from { background-position: -12rem 0; }
-        to { background-position: calc(100% + 12rem) 0; }
-    }
-
-    /* hashing comes before the first progress event, so there is no width to show yet */
-    .upload-fill.indeterminate {
-        width: 35%;
-        animation: indeterminate 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
-    }
-
-    @keyframes indeterminate {
-        from { left: 0; }
-        to { left: 65%; }
-    }
-
-    .upload-label {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.75rem 0.9rem;
+        clip: rect(0, 0, 0, 0);
         white-space: nowrap;
-    }
-
-    .upload-label.centered {
-        justify-content: center;
-        gap: 0.35rem;
-    }
-
-    .upload-label small {
-        font-weight: 500;
-        opacity: 0.85;
+        border: 0;
     }
 
     .meta-row {
@@ -2095,7 +2063,6 @@
 
     @media (prefers-reduced-motion: reduce) {
         .mode-pill-indicator,
-        .upload-fill,
         .tile-bar,
         .thumb,
         .title-input,
@@ -2106,8 +2073,6 @@
         }
 
         .upload-field.dragging .add-icon,
-        .upload-fill,
-        .upload-fill::after,
         .done-check,
         .done-head h2,
         .result > * {
@@ -2117,12 +2082,6 @@
         .done-check path {
             animation: none;
             stroke-dashoffset: 0;
-        }
-
-        .upload-fill.indeterminate {
-            animation: none;
-            width: 100%;
-            opacity: 0.5;
         }
     }
 
@@ -2253,12 +2212,6 @@
 
         .upload-field {
             width: auto;
-        }
-    }
-
-    @media (max-width: 24rem) {
-        .upload-label small {
-            display: none;
         }
     }
 </style>
