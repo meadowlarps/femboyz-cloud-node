@@ -2,11 +2,13 @@
     The upload button's face: a canvas of 8px blocks under a fine 4px LCD mesh, drawn inside the button
     (its parent element). At rest the blocks shimmer; hover or keyboard focus dissolves them to light
     block by block; busy runs a ragged band; progress fills with a sparking edge; done flashes and
-    dissolves back. The label is drawn on the canvas too, so each block gets the text colour that
+    dissolves into the resting look of its tone. Switching the tone at rest flips the blocks over the
+    same way hover does. The label is drawn on the canvas too, so each block gets the text colour that
     reads on it. The canvas is aria-hidden: the button keeps its own text for screen readers.
 -->
 <script lang="ts" module>
     export type GlitchPhase = 'rest' | 'busy' | 'progress' | 'done'
+    export type GlitchTone = 'accent' | 'green'
 
     /** an empty slot as wide as a digit: pad numbers with it so the label keeps its width */
     export const FIGURE_SPACE = ' '
@@ -15,6 +17,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { prefersReducedMotion } from 'svelte/motion'
+    import { formatFileSize } from './uploader'
 
     interface Props {
         phase: GlitchPhase
@@ -23,21 +26,27 @@
         /** the label; in 'progress' the face shows its own percentage instead, matching the bar */
         main: string
         sub?: string
+        /** 'progress': the total size in bytes; the face then shows the loaded size as its own drawn fill
+            of it instead of `sub`, so the size and the percentage always agree */
+        total?: number
         /** 'progress' only: a short piece shown right after the percentage (the time left) */
         mid?: string
         /** whether hover and keyboard focus dissolve the button to its light state */
         hoverable?: boolean
+        /** the colour at rest; 'done' settles into it */
+        tone?: GlitchTone
         /** called once the bar has visibly reached the end after 'done', just before "done" plays */
         onfilled?: () => void
     }
 
-    let { phase, progress = 0, main, sub = '', mid = '', hoverable = true, onfilled }: Props = $props()
+    let { phase, progress = 0, main, sub = '', total, mid = '', hoverable = true, tone = 'accent', onfilled }: Props = $props()
 
     let canvas: HTMLCanvasElement
 
     const CELL = 4 // mesh pitch
     const BLOCK = 8 // colour blocks: 2×2 cells
     const HOVER_S = 0.32
+    const TONE_S = 0.4
     const DONE_FLASH_S = 0.08
     const DONE_DISSOLVE_S = 0.4
     const OUTLINE_PX = 1.5
@@ -48,12 +57,14 @@
 
     type RGB = [number, number, number]
     const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
-    // block classes: 0 rest, 1 hovered, 2 empty (busy / unfilled), 3 filled, 4 flash
+    // block classes: 0 rest, 1 hovered, 2 empty (busy / unfilled), 3 filled, 4 flash, 5 green rest, 6 green hovered
     const GAP = hex('#100e0f')
-    const BG: RGB[] = [hex('#c30f45'), hex('#fff8fa'), hex('#3a1623'), hex('#c30f45'), hex('#ffffff')]
-    const TEXT = ['#ffffff', '#060606', '#fff0f3', '#ffffff', '#060606']
+    const BG: RGB[] = [
+        hex('#c30f45'), hex('#fff8fa'), hex('#3a1623'), hex('#c30f45'), hex('#ffffff'), hex('#2fd67a'), hex('#eafff2'),
+    ]
+    const TEXT = ['#ffffff', '#060606', '#fff0f3', '#ffffff', '#060606', '#04160b', '#04160b']
     // how strongly the mesh darkens each class; light blocks get a fainter mesh so they read as white
-    const MESH = [0.5, 0.2, 0.5, 0.5, 0.2]
+    const MESH = [0.5, 0.2, 0.5, 0.5, 0.2, 0.35, 0.2]
     const BG_CSS = BG.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`)
 
     function hash(x: number, y: number, z = 0) {
@@ -138,6 +149,7 @@
         button.addEventListener('blur', blur)
 
         let hoverT = 0
+        let toneT = tone === 'green' ? 1 : 0
         let lastT = performance.now() / 1000
         let lastLook: GlitchPhase = phase
         let phaseT = lastT
@@ -195,11 +207,18 @@
             const st = t - phaseT
             const active = hoverable && phase === 'rest' && (hovering || focused)
             hoverT = still ? (active ? 1 : 0) : Math.min(1, Math.max(0, hoverT + (active ? dt : -dt) / HOVER_S))
+            // the flash covers a tone change, so 'done' takes the new tone at once
+            const toneTo = tone === 'green' ? 1 : 0
+            toneT = still || look !== 'rest' ? toneTo : Math.min(1, Math.max(0, toneT + (toneTo ? dt : -dt) / TONE_S))
 
             // label: measured first, so the blocks behind a centred label can flip as one plate
             const spread = look === 'progress'
             const mainText = spread ? `${Math.round(shownP * 100)}%` : main
-            const subText = phase === 'progress' ? sub : spread ? '' : sub // the catch-up after 'done' shows just the percentage
+            let subText = sub
+            if (spread && total !== undefined) {
+                const all = formatFileSize(total)
+                subText = `${formatFileSize(Math.round(shownP * total)).padStart(all.length, FIGURE_SPACE)} / ${all}`
+            } else if (spread && phase !== 'progress') subText = '' // the catch-up after 'done' shows just the percentage
             const fontMain = `700 16px ${family}`
             const fontSub = `600 13px ${family}`
             ctx.font = fontMain
@@ -244,11 +263,13 @@
                 const seed = onPlate ? 0.5 : hash(bx, by, 7)
                 // each block drifts a little in brightness, at its own pace
                 const drift = still ? 0 : (hash(bx, by, Math.floor(t * 1.2 + hash(bx, by, 3) * 5)) - 0.5) * 0.1
+                // blocks flip in a random order leaning left to right; the label's plate flips halfway
+                const flipped = (f: number) => onPlate ? f >= 0.5 : f * 1.1 > seed * 0.78 + (bx / bcols) * 0.22
+                const base = flipped(toneT) ? 5 : 0
                 if (look === 'rest') {
-                    // blocks flip in a random order leaning left to right; the label's plate flips halfway
-                    const on = onPlate ? hoverT >= 0.5 : hoverT * 1.1 > seed * 0.78 + (bx / bcols) * 0.22
-                    if (on) set(i, BG[1], 1, -Math.abs(drift) * 1.035) // light can't get brighter, so it only dims
-                    else set(i, BG[0], 0, drift)
+                    const light = base + 1
+                    if (flipped(hoverT)) set(i, BG[light], light, -Math.abs(drift) * 1.035) // light can't get brighter, so it only dims
+                    else set(i, BG[base], base, drift)
                 } else if (look === 'busy') {
                     const band = Math.max(4, bcols * 0.28)
                     const pos = (Math.sin((still ? 0 : st) * 3.4 - Math.PI / 2) * 0.5 + 0.5) * (bcols - band)
@@ -262,7 +283,7 @@
                 } else {
                     const on = still ? false : st < DONE_FLASH_S || seed > (st - DONE_FLASH_S) / DONE_DISSOLVE_S
                     if (on) set(i, BG[4], 4)
-                    else set(i, BG[0], 0, drift)
+                    else set(i, BG[base], base, drift)
                 }
             }
 
